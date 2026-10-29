@@ -27,7 +27,8 @@ No HDMI capture card. No official Remote Play client or PSN Remote Play pairing.
 | [PlayBridge.elf](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.1.1/PlayBridge.elf) | Standalone PS5 payload for manual loading. |
 | [PlayBridge-Windows-v1.1.1.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.1.1/PlayBridge-Windows-v1.1.1.zip) | Windows EXE and quick-start instructions. |
 | [PlayBridge-Payload-v1.1.1.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.1.1/PlayBridge-Payload-v1.1.1.zip) | ELF and manual-mode instructions. |
-| [PlayBridge-Complete-v1.1.1.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.1.1/PlayBridge-Complete-v1.1.1.zip) | Both files, instructions and checksums. |
+| [PlayBridge-Complete-v1.1.1.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.1.1/PlayBridge-Complete-v1.1.1.zip) | Both files, quick-start instructions and component notices. |
+| [Third-party-licenses.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.1.1/Third-party-licenses.zip) | Component notices for standalone downloads. |
 | [SHA256SUMS.txt](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.1.1/SHA256SUMS.txt) | Checksums for the release downloads. |
 
 Download the release assets above. GitHub's automatic **Source code (zip)** archive contains this repository's documentation, not the Windows application.
@@ -160,7 +161,7 @@ The border fix was checked using **144 corrected synthetic frames**, six output 
 | App says another receiver is running | Close the other PlayBridge or earlier Python receiver, then retry. |
 | Stream stopped after sleep or HDMI changes | End the session and reconnect. In manual mode, reload the ELF. |
 
-Preferences and local diagnostic files are stored in **%LOCALAPPDATA%\PlayBridge\**. When reporting an issue, include your version, firmware, display mode and a description; review logs for personal details before sharing them.
+Preferences and local diagnostic files are stored in <code>%LOCALAPPDATA%\PlayBridge\</code>. When reporting an issue, include your version, firmware, display mode and a description; review logs for personal details before sharing them.
 
 ## Release history
 
