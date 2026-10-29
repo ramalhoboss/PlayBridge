@@ -19,6 +19,12 @@ No HDMI capture card. No official Remote Play client or PSN Remote Play pairing.
 
 > Screenshots show the real application. PlayBridge is in English; the console's own menu language remains whatever you selected on the PS5.
 
+## Development preview — v1.2.0
+
+The capture-options development branch adds native-size PNG screenshots (F8), MP4 recording with console audio (F9), capture-folder controls, automatic reconnect and negotiated 4/8/12 Mbit/s bitrate targets. Data saver limits PC presentation to about 30 fps; source capture and recordings retain their own cadence. See [capture options and validation](docs/CAPTURE-OPTIONS.md).
+
+The current public download below remains v1.1.1 while the new build is reviewed.
+
 ## Download
 
 **[Get the latest release](https://github.com/ramalhoboss/PlayBridge/releases/latest)**
