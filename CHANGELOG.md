@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.2.0 — development preview
+## v1.2.0 — 2026-10-29
 - Native-resolution PNG screenshots and packet-copy H.264/AAC MP4 recording.
 - Capture library and F8/F9 shortcuts.
 - Bounded asynchronous recording queue and graceful finalization on disconnect.
