@@ -1,0 +1,4 @@
+downloads/
+collect_notices.py
+package_release.py
+*.log

@@ -1,0 +1,107 @@
+[
+  {
+    "component": "av",
+    "version": "19.0.2",
+    "licenses": [
+      "AUTHORS.rst",
+      "LICENSE.txt"
+    ],
+    "project_urls": [
+      "Bug Tracker, https://github.com/PyAV-Org/PyAV/issues",
+      "Source Code, https://github.com/PyAV-Org/PyAV",
+      "homepage, https://pyav.basswood.io"
+    ]
+  },
+  {
+    "component": "numpy",
+    "version": "2.3.5",
+    "licenses": [
+      "LICENSE",
+      "LICENSE.md",
+      "LICENSE.txt"
+    ],
+    "project_urls": [
+      "homepage, https://numpy.org",
+      "documentation, https://numpy.org/doc/",
+      "source, https://github.com/numpy/numpy",
+      "download, https://pypi.org/project/numpy/#files",
+      "tracker, https://github.com/numpy/numpy/issues",
+      "release notes, https://numpy.org/doc/stable/release"
+    ]
+  },
+  {
+    "component": "customtkinter",
+    "version": "6.0.0",
+    "licenses": [
+      "LICENSE"
+    ],
+    "project_urls": []
+  },
+  {
+    "component": "pillow",
+    "version": "12.3.0",
+    "licenses": [
+      "LICENSE"
+    ],
+    "project_urls": [
+      "Release notes, https://pillow.readthedocs.io/en/stable/releasenotes/index.html",
+      "Changelog, https://github.com/python-pillow/Pillow/releases",
+      "Documentation, https://pillow.readthedocs.io",
+      "Funding, https://tidelift.com/subscription/pkg/pypi-pillow?utm_source=pypi-pillow&utm_medium=pypi",
+      "Homepage, https://python-pillow.github.io",
+      "Mastodon, https://fosstodon.org/@pillow",
+      "Source, https://github.com/python-pillow/Pillow"
+    ]
+  },
+  {
+    "component": "sounddevice",
+    "version": "0.5.6",
+    "licenses": [
+      "LICENSE"
+    ],
+    "project_urls": [
+      "Documentation, https://python-sounddevice.readthedocs.io/",
+      "Repository, https://github.com/spatialaudio/python-sounddevice/",
+      "Issues, https://github.com/spatialaudio/python-sounddevice/issues"
+    ]
+  },
+  {
+    "component": "cffi",
+    "version": "2.1.1",
+    "licenses": [
+      "LICENSE"
+    ],
+    "project_urls": [
+      "Documentation, https://cffi.readthedocs.io/",
+      "Changelog, https://cffi.readthedocs.io/en/latest/whatsnew.html",
+      "Download, https://github.com/python-cffi/cffi/releases",
+      "Contact, https://groups.google.com/forum/#!forum/python-cffi",
+      "Source Code, https://github.com/python-cffi/cffi",
+      "Issue Tracker, https://github.com/python-cffi/cffi/issues"
+    ]
+  },
+  {
+    "component": "darkdetect",
+    "version": "0.8.0",
+    "licenses": [
+      "LICENSE"
+    ],
+    "project_urls": [
+      "homepage, http://github.com/albertosottile/darkdetect",
+      "download, http://github.com/albertosottile/darkdetect/releases"
+    ]
+  },
+  {
+    "component": "pyinstaller",
+    "version": "6.22.3",
+    "licenses": [
+      "COPYING.txt"
+    ],
+    "project_urls": [
+      "Homepage, https://pyinstaller.org",
+      "Documentation, https://pyinstaller.org",
+      "Source Code, https://github.com/pyinstaller/pyinstaller",
+      "Release Notes, https://pyinstaller.org/en/stable/CHANGES.html"
+    ]
+  }
+]
