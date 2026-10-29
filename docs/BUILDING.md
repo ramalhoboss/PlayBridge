@@ -81,6 +81,6 @@ The test checks six output sizes and RGB24/BGR0 paths using a synthetic uniform 
 
 ## Release provenance
 
-The source addition makes development paths configurable and supports locating the ELF at the repository root. Capture parameters, firmware guard, packet framing, audio handling and the v1.1.1 border fix retain the released implementation. Third-party source and build information are linked from THIRD-PARTY-NOTICES.md.
+The source addition makes development paths configurable and supports locating the ELF at the repository root. The v1.2.0 source includes the capture-options request/acknowledgement, local PNG/MP4 capture, presentation limit and reconnect logic. The firmware guard remains restricted to 13.60 and the border fix remains enabled. Third-party source and build information are linked from THIRD-PARTY-NOTICES.md.
 
 Developed by [ramalhoboss](https://github.com/ramalhoboss) · [@nuno_leugim_10 on X](https://x.com/nuno_leugim_10).

@@ -33,3 +33,7 @@ icon('controller',lambda d:(d.rounded_rectangle((30,70,226,190),radius=46,outlin
 shapes=Image.new('RGBA',(560,112));d=ImageDraw.Draw(shapes);col='#6A8DB9'
 d.polygon([(55,17),(19,82),(91,82)],outline=col,width=5);d.ellipse((153,17,219,83),outline=col,width=5);d.line((291,20,355,84),fill=col,width=5);d.line((355,20,291,84),fill=col,width=5);d.rectangle((429,19,493,83),outline=col,width=5)
 shapes.save(p/'symbols.png')
+
+icon('camera',lambda d:(d.rounded_rectangle((30,80,226,198),radius=22,outline=white,width=12),d.line((72,80,88,55,165,55,183,80),fill=white,width=12),d.ellipse((93,107,163,177),outline=white,width=12)))
+icon('record',lambda d:d.ellipse((58,58,198,198),fill='#FF626D'))
+icon('folder',lambda d:(d.rounded_rectangle((30,75,226,200),radius=16,outline=white,width=12),d.line((30,106,30,58,98,58,123,83),fill=white,width=12)))

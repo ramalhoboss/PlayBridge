@@ -26,7 +26,7 @@ class Tooltip:
 def run_ui(app):
  core=sys.modules[app.__class__.__module__]
  def icon(name,size=20):return ctk.CTkImage(Image.open(core.HERE/'assets'/(name+'.png')),size=(size,size))
- icons={name:icon(name) for name in ('fullscreen','speaker','muted','settings','connect','disconnect')}
+ icons={name:icon(name) for name in ('fullscreen','speaker','muted','settings','connect','disconnect','camera','record','folder')}
  symbols=ctk.CTkImage(Image.open(core.HERE/'assets/symbols.png'),size=(120,24))
  ctk.set_appearance_mode('dark');ctk.set_default_color_theme('blue')
  win=ctk.CTk();win.title('PlayBridge');win.configure(fg_color=BG)
@@ -41,7 +41,10 @@ def run_ui(app):
  ctk.CTkLabel(head,text='PLAYBRIDGE',font=('Segoe UI',20,'bold'),text_color=TEXT).grid(row=0,column=1,sticky='w')
  ctk.CTkLabel(head,text='',image=symbols).grid(row=0,column=2,padx=(0,22))
  pill=ctk.CTkLabel(head,text='●  Connecting',text_color=BLUE,width=95,height=30,font=('Segoe UI',11));pill.grid(row=0,column=3,padx=12)
- full_button=ctk.CTkButton(head,text='',image=icons['fullscreen'],width=36,height=36,corner_radius=18,fg_color=CARD,hover_color='#1D3D66',text_color=TEXT,font=('Segoe UI',19));full_button.grid(row=0,column=4,padx=(0,8))
+ full_button=ctk.CTkButton(head,text='',image=icons['fullscreen'],width=36,height=36,corner_radius=18,fg_color=CARD,hover_color='#1D3D66',text_color=TEXT,font=('Segoe UI',19));full_button.grid(row=0,column=7,padx=(0,8))
+ screenshot_button=ctk.CTkButton(head,text='',image=icons['camera'],command=app.take_screenshot,width=36,height=36,corner_radius=18,fg_color=CARD,hover_color='#1D3D66');screenshot_button.grid(row=0,column=4,padx=(0,8))
+ record_button=ctk.CTkButton(head,text='',image=icons['record'],command=app.toggle_recording,width=36,height=36,corner_radius=18,fg_color=CARD,hover_color='#1D3D66');record_button.grid(row=0,column=5,padx=(0,8))
+ captures_button=ctk.CTkButton(head,text='',image=icons['folder'],command=app.open_captures,width=36,height=36,corner_radius=18,fg_color=CARD,hover_color='#1D3D66');captures_button.grid(row=0,column=6,padx=(0,8))
  stage=ctk.CTkFrame(win,fg_color='#040913',corner_radius=10,border_width=1,border_color='#25466F');stage.grid(row=1,column=0,sticky='nsew',padx=18);stage.grid_columnconfigure(0,weight=1);stage.grid_rowconfigure(0,weight=1)
  canvas=tk.Canvas(stage,bg='#040913',borderwidth=0,highlightthickness=0);canvas.grid(row=0,column=0,sticky='nsew',padx=5,pady=5)
  item_id=canvas.create_image(0,0,anchor='center');placeholder=canvas.create_text(0,0,text='Your console. Your screen.',fill=MUTED,font=('Segoe UI',20),justify='center')
@@ -74,22 +77,34 @@ def run_ui(app):
  def settings():
   nonlocal settings_window
   if settings_window is not None and settings_window.winfo_exists():settings_window.focus();return
-  dialog=ctk.CTkToplevel(win);settings_window=dialog;dialog.title('PlayBridge · Connection');dialog.geometry(f'460x430+{max(0,win.winfo_rootx()+(win.winfo_width()-460)//2)}+{max(0,win.winfo_rooty()+(win.winfo_height()-430)//2)}');dialog.resizable(False,False);dialog.configure(fg_color=BG);dialog.transient(win)
-  ctk.CTkLabel(dialog,text='Connect to your PS5',font=('Segoe UI',25,'bold'),text_color=TEXT).pack(anchor='w',padx=28,pady=(26,6))
+  dialog=ctk.CTkToplevel(win);settings_window=dialog;dialog.title('PlayBridge · Settings');dialog.geometry(f'500x650+{max(0,win.winfo_rootx()+(win.winfo_width()-500)//2)}+{max(0,win.winfo_rooty()+(win.winfo_height()-650)//2)}');dialog.resizable(False,False);dialog.configure(fg_color=BG);dialog.transient(win)
+  ctk.CTkLabel(dialog,text='Stream settings',font=('Segoe UI',25,'bold'),text_color=TEXT).pack(anchor='w',padx=28,pady=(26,6))
   ctk.CTkLabel(dialog,text='Keep your console and PC on the same network.',font=('Segoe UI',13),text_color=MUTED).pack(anchor='w',padx=28,pady=(0,22))
   ctk.CTkLabel(dialog,text='Console IP address',font=('Segoe UI',13,'bold')).pack(anchor='w',padx=28)
   host=ctk.CTkEntry(dialog,height=42,corner_radius=14,fg_color=CARD,border_width=0);host.insert(0,app.args.host);host.pack(fill='x',padx=28,pady=(8,16))
+  ctk.CTkLabel(dialog,text='Quality profile',font=('Segoe UI',13,'bold')).pack(anchor='w',padx=28)
+  profiles={v['name']:k for k,v in core.PROFILES.items()};profile=ctk.StringVar(value=core.PROFILES[app.args.profile]['name'])
+  ctk.CTkOptionMenu(dialog,variable=profile,values=list(profiles),height=36,fg_color=CARD,button_color='#1D3D66').pack(fill='x',padx=28,pady=(8,8))
+  ctk.CTkLabel(dialog,text='Bitrate applies on reconnect. 30 fps limits PC playback only.',font=('Segoe UI',11),text_color=MUTED).pack(anchor='w',padx=28,pady=(0,12))
+  reconnect=ctk.BooleanVar(value=app.args.auto_reconnect)
+  ctk.CTkSwitch(dialog,text='Reconnect automatically',variable=reconnect,progress_color=BLUE,font=('Segoe UI',12)).pack(anchor='w',padx=28,pady=(0,14))
   manual=ctk.BooleanVar(value=app.args.connect_only)
   ctk.CTkSwitch(dialog,text='ELF already loaded in Payload Manager',variable=manual,progress_color=BLUE,font=('Segoe UI',12)).pack(anchor='w',padx=28)
   ctk.CTkLabel(dialog,text='Off: PlayBridge uploads the ELF automatically.\nOn: load PlayBridge.elf, then connect within 60 seconds.',font=('Segoe UI',12),text_color=MUTED,justify='left').pack(anchor='w',padx=28,pady=(12,10))
   ctk.CTkSwitch(dialog,text='Show performance stats',variable=diagnostic,progress_color=BLUE,font=('Segoe UI',12),command=lambda:core.save_config(diagnostic=diagnostic.get())).pack(anchor='w',padx=28,pady=(0,10))
+  def choose_capture_folder():
+   from tkinter import filedialog
+   folder=filedialog.askdirectory(parent=dialog,title='Choose capture folder',initialdir=str(app.capture_folder()))
+   if folder:core.save_config(capture_folder=folder);app.notify('Capture folder updated.')
+  ctk.CTkButton(dialog,text='Choose capture folder',command=choose_capture_folder,fg_color=CARD,hover_color='#1D3D66',height=34).pack(fill='x',padx=28,pady=(0,8))
   error=ctk.CTkLabel(dialog,text='',text_color='#FF9C9C',font=('Segoe UI',12));error.pack(anchor='w',padx=28)
   def save():
    try:ipaddress.IPv4Address(host.get().strip())
    except ValueError:error.configure(text='Enter a valid IPv4 address.');return
-   app.args.host=host.get().strip();app.args.connect_only=manual.get();core.save_config(host=app.args.host,connect_only=app.args.connect_only);host_label.configure(text=app.args.host);dialog.destroy()
+   app.args.host=host.get().strip();app.args.connect_only=manual.get();app.args.profile=profiles[profile.get()];app.args.auto_reconnect=reconnect.get();core.save_config(host=app.args.host,connect_only=app.args.connect_only,profile=app.args.profile,auto_reconnect=app.args.auto_reconnect);host_label.configure(text=app.args.host);dialog.destroy()
   ctk.CTkButton(dialog,text='Save changes',command=save,height=42,corner_radius=21,fg_color=BLUE,hover_color=HOVER,text_color='white',font=('Segoe UI',13,'bold')).pack(fill='x',padx=28,pady=(0,22))
- settings_button=ctk.CTkButton(head,text='',image=icons['settings'],command=settings,width=36,height=36,corner_radius=18,fg_color=CARD,hover_color='#2B2F3D',font=('Segoe UI',18,'bold'));settings_button.grid(row=0,column=5)
+ settings_button=ctk.CTkButton(head,text='',image=icons['settings'],command=settings,width=36,height=36,corner_radius=18,fg_color=CARD,hover_color='#2B2F3D',font=('Segoe UI',18,'bold'));settings_button.grid(row=0,column=8)
+ Tooltip(screenshot_button,'Screenshot · F8');Tooltip(record_button,'Start / stop recording · F9');Tooltip(captures_button,'Open capture folder')
  Tooltip(settings_button,'Connection settings');Tooltip(full_button,'Fullscreen · F11');Tooltip(mute_button,'Mute / unmute');Tooltip(output,'Audio output');Tooltip(volume,'Volume')
  bottom=ctk.CTkFrame(win,fg_color='transparent');bottom.grid(row=3,column=0,sticky='ew',padx=26,pady=(0,9));bottom.grid_columnconfigure(0,weight=1)
  message=ctk.CTkLabel(bottom,text='',text_color=MUTED,font=('Segoe UI',10),anchor='w',height=16);message.grid(row=0,column=0,sticky='ew')
@@ -113,7 +128,7 @@ def run_ui(app):
  def close():app.stop.set();win.destroy()
  def escape(_):
   if fullscreen:full()
- win.protocol('WM_DELETE_WINDOW',close);win.bind('<Escape>',escape);win.bind('<F11>',lambda _:full());canvas.bind('<Double-Button-1>',lambda _:full())
+ win.protocol('WM_DELETE_WINDOW',close);win.bind('<Escape>',escape);win.bind('<F11>',lambda _:full());win.bind('<F8>',lambda _:app.take_screenshot());win.bind('<F9>',lambda _:app.toggle_recording());canvas.bind('<Double-Button-1>',lambda _:full())
  def tick():
   nonlocal photo,photo_size,rate_at,rate_frames,fps,last_info
   if app.stop.is_set():close();return
@@ -133,10 +148,15 @@ def run_ui(app):
   if now-rate_at>=1:
    fps=rate_frames/(now-rate_at);app.stats['presented_fps']=round(fps,1);rate_frames=0;rate_at=now;app.snapshot()
   if now-last_info>.25:
-   last_info=now;active=app.worker.is_alive();linked=app.connection_state=='Connected' and active
+   last_info=now;app.poll_capture_events();record_button.configure(image=icons['disconnect'] if app.recorder.active else icons['record'],fg_color='#722637' if app.recorder.active else CARD);active=app.worker.is_alive();linked=app.connection_state=='Connected' and active
    connect_button.configure(text='Disconnect' if active else 'Connect',image=icons['disconnect'] if active else icons['connect'])
-   pill.configure(text='●  LIVE' if linked else '●  Connecting' if active else '●  Offline',text_color='#8AD8FF' if linked else BLUE,fg_color='transparent')
+   pill.configure(text='●  LIVE' if linked else '●  Reconnecting' if active and app.connection_state.startswith('Reconnecting') else '●  Connecting' if active else '●  Offline',text_color='#8AD8FF' if linked else BLUE,fg_color='transparent')
    info=app.error or ('1080p  ·  Stereo' if linked else 'Ready to connect')
+   if linked:
+    confirmed=app.capture_info and app.capture_info.get('confirmed');info+='  ·  '+(str(app.capture_info.get('fps_target'))+' fps target / '+str(app.capture_info.get('bitrate_target',0)//1000000)+' Mbps' if confirmed else 'Legacy payload: quality profile not confirmed')
+   if core.PROFILES[app.args.profile].get('playback_fps'):info+='  ·  30 fps PC playback'
+   if app.recorder.active:info+='  ·  '+('REC' if app.recorder.state=='recording' else 'Recording: '+app.recorder.state)
+   if now<app.notice_until:info=app.notice
    if diagnostic.get():info+=f'   |   {fps:.0f} fps · PC {app.stats["last_frame_to_ui_ms"]:.1f} ms · audio queue {queue_ms:.0f} ms'
    message.configure(text=info,text_color='#FFAAA5' if app.error else MUTED)
   win.after(1,tick)

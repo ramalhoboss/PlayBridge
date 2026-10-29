@@ -1,6 +1,6 @@
 <p align="center"><img src="docs/images/banner.svg" alt="PlayBridge — Your console. Your screen." width="100%"></p>
 <p align="center">
-  <a href="https://github.com/ramalhoboss/PlayBridge/releases/latest"><img alt="Download" src="https://img.shields.io/badge/Download-v1.1.1-0070F3?style=for-the-badge"></a>
+  <a href="https://github.com/ramalhoboss/PlayBridge/releases/latest"><img alt="Download" src="https://img.shields.io/badge/Download-v1.2.0-0070F3?style=for-the-badge"></a>
   <img alt="Windows x64" src="https://img.shields.io/badge/Windows-x64-152E50?style=for-the-badge">
   <img alt="PS5 firmware 13.60" src="https://img.shields.io/badge/PS5-13.60-152E50?style=for-the-badge">
 </p>
@@ -19,20 +19,30 @@ No HDMI capture card. No official Remote Play client or PSN Remote Play pairing.
 
 > Screenshots show the real application. PlayBridge is in English; the console's own menu language remains whatever you selected on the PS5.
 
+## New in v1.2.0
+
+- **F8 / camera:** native-resolution PNG screenshots.
+- **F9 / record:** MP4 recording with console audio, without re-encoding.
+- **Folder button:** a capture library with a configurable destination.
+- **Automatic reconnect:** retries after unexpected interruptions and finalizes the current recording before recovery.
+- **Quality profiles:** 4/8/12 Mbit/s encoder targets acknowledged by the new ELF. Data saver limits **PC presentation** to about 30 fps; capture and recordings keep source timing.
+
+See [capture options and validation](docs/CAPTURE-OPTIONS.md). Automatic mode includes the updated payload; manual users should load the v1.2.0 ELF.
+
 ## Download
 
 **[Get the latest release](https://github.com/ramalhoboss/PlayBridge/releases/latest)**
 
 | File | What it contains |
 |---|---|
-| [PlayBridge.exe](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.1.1/PlayBridge.exe) | Portable Windows application, including Python dependencies and the embedded ELF. |
-| [PlayBridge.elf](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.1.1/PlayBridge.elf) | Standalone PS5 payload for manual loading. |
-| [PlayBridge-Windows-v1.1.1.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.1.1/PlayBridge-Windows-v1.1.1.zip) | Windows EXE and quick-start instructions. |
-| [PlayBridge-Payload-v1.1.1.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.1.1/PlayBridge-Payload-v1.1.1.zip) | ELF and manual-mode instructions. |
-| [PlayBridge-Complete-v1.1.1.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.1.1/PlayBridge-Complete-v1.1.1.zip) | Both files, quick-start instructions and component notices. |
-| [Third-party-licenses.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.1.1/Third-party-licenses.zip) | Component notices for standalone downloads. |
-| [PlayBridge-Source-v1.1.1.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.1.1/PlayBridge-Source-v1.1.1.zip) | Application and payload source, assets, tests and build instructions. |
-| [SHA256SUMS.txt](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.1.1/SHA256SUMS.txt) | Checksums for the release downloads. |
+| [PlayBridge.exe](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.2.0/PlayBridge.exe) | Portable Windows application, including Python dependencies and the embedded ELF. |
+| [PlayBridge.elf](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.2.0/PlayBridge.elf) | Standalone PS5 payload for manual loading. |
+| [PlayBridge-Windows-v1.2.0.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.2.0/PlayBridge-Windows-v1.2.0.zip) | Windows EXE and quick-start instructions. |
+| [PlayBridge-Payload-v1.2.0.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.2.0/PlayBridge-Payload-v1.2.0.zip) | ELF and manual-mode instructions. |
+| [PlayBridge-Complete-v1.2.0.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.2.0/PlayBridge-Complete-v1.2.0.zip) | Both files, quick-start instructions and component notices. |
+| [Third-party-licenses.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.2.0/Third-party-licenses.zip) | Component notices for standalone downloads. |
+| [PlayBridge-Source-v1.2.0.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.2.0/PlayBridge-Source-v1.2.0.zip) | Application and payload source, assets, tests and build instructions. |
+| [SHA256SUMS.txt](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.2.0/SHA256SUMS.txt) | Checksums for the release downloads. |
 
 Download the release assets above to run the application. To inspect or build it, browse [app/](app/), [payload/](payload/) and [tools/](tools/), or download the source archive below. GitHub's source archives contain source files, not the Windows EXE.
 
@@ -74,7 +84,7 @@ The standalone ELF waits for one viewer per execution. After ending a manual ses
 
 | Area | Current implementation |
 |---|---|
-| Video | Native console capture, H.264, tested at **1920×1080**, nominal **59.94 fps**, target **8 Mbit/s**. |
+| Video | Native console capture, H.264, tested at **1920×1080**, nominal **59.94 fps**, configurable **4/8/12 Mbit/s targets**. |
 | Audio | AAC at **128 kbit/s**, decoded to **48 kHz stereo** and played through **Windows WASAPI**. |
 | Automatic loading | The EXE embeds PlayBridge.elf and sends it to the console's existing ELF loader. |
 | Presentation | Direct Windows **GDI** drawing, avoiding PIL/ImageTk copies in the default path. |
@@ -82,7 +92,10 @@ The standalone ELF waits for one viewer per execution. After ending a manual ses
 | Audio buffering | Bounded PCM queue; if it exceeds approximately **60 ms**, it is trimmed toward **40 ms**. |
 | Window modes | Resizable window, fullscreen, centered image and preserved aspect ratio. Black bars can appear when the available area is not 16:9. |
 | Sound controls | Output-device selector, volume slider and mute/unmute button. |
-| Session controls | Connect/disconnect and automatic/manual loading modes. |
+| Session controls | Connect/disconnect, automatic/manual loading modes and optional automatic reconnect. |
+| Screenshots | Native-source-size PNG with F8; UI controls and window bars are excluded. |
+| Recording | Packet-copy H.264/AAC MP4 with F9, bounded background writing and graceful stop/finalization. |
+| Quality profiles | Data saver: 4 Mbit/s target + about 30 fps PC playback. Balanced: 8 Mbit/s. High quality: 12 Mbit/s. |
 | Diagnostics | Optional presented fps, PC processing interval and audio-queue length. |
 | Interface | English console-inspired blue/navy theme, custom icons and hover descriptions. |
 | Distribution | A portable single-file Windows EXE; no separate Python installation. |
@@ -101,6 +114,9 @@ The standalone ELF waits for one viewer per execution. After ending a manual ses
 | Volume slider | Adjust playback volume. |
 | Audio dropdown | Select a WASAPI output. |
 | Sliders icon | Open connection settings and performance stats. |
+| Camera icon / **F8** | Save a native-resolution screenshot. |
+| Record icon / **F9** | Start or stop an MP4 recording with console audio. |
+| Folder icon | Open the capture library. |
 | **Connect / Disconnect** | Start or end the streaming session. |
 
 ## How it works
@@ -132,7 +148,13 @@ This release does **not** distribute the console's firmware dumps or extracted p
 - **[PlayBridge.spec](PlayBridge.spec)** — portable PyInstaller packaging recipe.
 - **[Build guide](docs/BUILDING.md)** — dependencies, running from source, compiling the ELF and packaging the EXE.
 
-The application source retains the repository's **GPL-3.0** license; third-party components keep their own terms. Portability changes remove development-machine paths and allow an optional PLAYBRIDGE_DEPS environment variable. The capture/stream protocol and the published v1.1.1 binaries are unchanged.
+The application source retains the repository's **GPL-3.0** license; third-party components keep their own terms. Portability changes remove development-machine paths and allow an optional PLAYBRIDGE_DEPS environment variable. The source includes the v1.2.0 client-options handshake and capture features. Older clients remain compatible with the new ELF; older manually loaded payloads have unconfirmed quality profiles.
+
+## v1.2.0 feature validation
+
+Seven synthetic feature tests passed, along with the existing border-conversion regression. Live tests on firmware 13.60 acknowledged the 4/8/12 Mbit/s targets, produced native PNGs and MP4s with decodable video/audio, and recovered into a second capture session after an injected socket interruption. The interrupted recording was finalized.
+
+The packaged GUI test saved a **1920×1080 PNG** and an approximately **18-second MP4** containing **1,039 video frames** and **861,184 audio samples**. Data saver presented about **29 fps** while preserving the source cadence in the recording. The new ELF also streamed successfully to the previous 1.1.1 PC receiver.
 
 ## Measurements — what the numbers mean
 
@@ -161,7 +183,7 @@ The border fix was checked using **144 corrected synthetic frames**, six output 
 - **Streaming only.** Controller input forwarding is not implemented; use your controller with the console.
 - **One viewer per payload execution.** Only one PlayBridge/legacy receiver session should run on the PC at once.
 - **Trusted local network.** No encrypted Internet relay, remote account service or authenticated stream transport is provided.
-- Reconnect is manual after interruptions. Automatic recovery from rest mode/HDMI reconfiguration is not yet implemented.
+- Automatic reconnect retries connection loss with 2/4/8-second backoff. It does not wake the PS5; recovery still requires the console and ELF loader to be available. Every rest-mode/HDMI scenario has not been validated.
 - This is a development release, without a signed installer or a verified support matrix for every game/output mode.
 
 ## Troubleshooting
@@ -174,11 +196,15 @@ The border fix was checked using **144 corrected synthetic frames**, six output 
 | Black bars in a window | Expected when the video and available window area have different aspect ratios. Try fullscreen. |
 | Bright blinking dashes on the left edge | Update the PC EXE to **v1.1.1 or newer**. This fix does not require a different ELF. |
 | App says another receiver is running | Close the other PlayBridge or earlier Python receiver, then retry. |
-| Stream stopped after sleep or HDMI changes | End the session and reconnect. In manual mode, reload the ELF. |
+| Stream stopped after sleep or HDMI changes | Automatic reconnect retries if enabled. The console and loader must be running. In manual mode, reload the ELF. |
+| Recording is waiting | It waits for a video keyframe and audio before starting a valid MP4. |
+| Recording stopped during disconnect | The clip is finalized before recovery; start another recording after reconnection. |
 
 Preferences and local diagnostic files are stored in <code>%LOCALAPPDATA%\PlayBridge\</code>. When reporting an issue, include your version, firmware, display mode and a description; review logs for personal details before sharing them.
 
 ## Release history
+
+- **v1.2.0:** native PNG screenshots, MP4 recording with sound, capture library, quality targets and automatic reconnect.
 
 - **v1.1.1:** fixed the blinking left-edge conversion artifacts; retained the English console theme and GDI presentation.
 - **v1.1.0:** console-inspired interface, custom control icons and English application text.
