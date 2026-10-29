@@ -2,3 +2,11 @@ downloads/
 collect_notices.py
 package_release.py
 *.log
+
+.venv/
+build/
+dist/
+__pycache__/
+*.pyc
+publication-verification.json
+repository-published.png

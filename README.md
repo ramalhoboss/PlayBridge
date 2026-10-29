@@ -7,6 +7,8 @@
 
 # PlayBridge
 
+Created by **[ramalhoboss](https://github.com/ramalhoboss)** · **[Follow @nuno_leugim_10 on X](https://x.com/nuno_leugim_10)**
+
 **PS5 video and audio on your Windows PC. Open Payload Manager on your PS5, launch PlayBridge on your PC, and connect.**
 
 PlayBridge automatically sends its embedded payload to the console's ELF loader, then opens the live audio/video stream. In automatic mode, you do not need to select or load the ELF manually on every launch.
@@ -29,9 +31,10 @@ No HDMI capture card. No official Remote Play client or PSN Remote Play pairing.
 | [PlayBridge-Payload-v1.1.1.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.1.1/PlayBridge-Payload-v1.1.1.zip) | ELF and manual-mode instructions. |
 | [PlayBridge-Complete-v1.1.1.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.1.1/PlayBridge-Complete-v1.1.1.zip) | Both files, quick-start instructions and component notices. |
 | [Third-party-licenses.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.1.1/Third-party-licenses.zip) | Component notices for standalone downloads. |
+| [PlayBridge-Source-v1.1.1.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.1.1/PlayBridge-Source-v1.1.1.zip) | Application and payload source, assets, tests and build instructions. |
 | [SHA256SUMS.txt](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.1.1/SHA256SUMS.txt) | Checksums for the release downloads. |
 
-Download the release assets above. GitHub's automatic **Source code (zip)** archive contains this repository's documentation, not the Windows application.
+Download the release assets above to run the application. To inspect or build it, browse [app/](app/), [payload/](payload/) and [tools/](tools/), or download the source archive below. GitHub's source archives contain source files, not the Windows EXE.
 
 ## Requirements
 
@@ -117,7 +120,19 @@ Development started with analysis of modules obtained from the owner's console m
 
 The receiver moved from an external playback path to direct decoding, bounded queues and WASAPI audio. Profiling then identified conversion and image upload as the largest PC-side costs, leading to direct GDI presentation. Finally, a synthetic-image regression reproduced the flashing left-edge pixels in the conversion stage; deterministic rounding removed them without cropping the frame.
 
-This release does **not** distribute the console's firmware dumps or extracted proprietary system modules. Native console modules remain on the user's PS5. The current repository publishes the application binaries, documentation and screenshots; it does not claim to be a complete reproducible source release.
+This release does **not** distribute the console's firmware dumps or extracted proprietary system modules. Native console modules remain on the user's PS5. The PC receiver, UI, conversion code, native C payload and build scripts are published in this repository. See [Building from source](docs/BUILDING.md). The matching homebrew SDK and third-party libraries are external dependencies; console firmware dumps are not required to build these sources.
+
+## Source code
+
+- **[app/](app/)** — Python receiver, English interface, native GDI presenter and deterministic video conversion.
+- **[payload/](payload/)** — firmware-13.60 C capture sender and packet framing.
+- **[app/assets/](app/assets/)** — application icon and control artwork.
+- **[tools/](tools/)** — payload compiler wrapper and artwork generator.
+- **[tests/](tests/)** — synthetic conversion regression test.
+- **[PlayBridge.spec](PlayBridge.spec)** — portable PyInstaller packaging recipe.
+- **[Build guide](docs/BUILDING.md)** — dependencies, running from source, compiling the ELF and packaging the EXE.
+
+The application source retains the repository's **GPL-3.0** license; third-party components keep their own terms. Portability changes remove development-machine paths and allow an optional PLAYBRIDGE_DEPS environment variable. The capture/stream protocol and the published v1.1.1 binaries are unchanged.
 
 ## Measurements — what the numbers mean
 
@@ -171,6 +186,6 @@ Preferences and local diagnostic files are stored in <code>%LOCALAPPDATA%\PlayBr
 
 ## Credits
 
-Created by **[ramalhoboss](https://github.com/ramalhoboss)**, with iterative testing on the owner's PS5 and PC. Built using Python, PyAV/FFmpeg, NumPy, CustomTkinter, Pillow, sounddevice/PortAudio, CFFI, PyInstaller and a PS5 homebrew payload SDK. Firmware research used static analysis/decompilation tools, including Ghidra.
+Created by **[ramalhoboss](https://github.com/ramalhoboss)** · **[X: @nuno_leugim_10](https://x.com/nuno_leugim_10)**, with iterative testing on the owner's PS5 and PC. Built using Python, PyAV/FFmpeg, NumPy, CustomTkinter, Pillow, sounddevice/PortAudio, CFFI, PyInstaller and a PS5 homebrew payload SDK. Firmware research used static analysis/decompilation tools, including Ghidra.
 
-PlayBridge is an independent homebrew project and is not affiliated with Sony Interactive Entertainment or Samsung. Third-party components retain their respective licenses. No blanket license for third-party software or console firmware is granted by this repository.
+PlayBridge is an independent homebrew project and is not affiliated with Sony Interactive Entertainment. Third-party components retain their respective licenses. No blanket license for third-party software or console firmware is granted by this repository.

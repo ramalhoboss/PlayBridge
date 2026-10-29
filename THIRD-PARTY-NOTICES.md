@@ -19,4 +19,4 @@ The bundled libavutil reports **LGPL version 3 or later**. Its build also includ
 
 The PyInstaller bootloader has a distribution exception described in its bundled COPYING.txt. Windows system APIs (GDI/WASAPI) are called at runtime. The PS5 homebrew payload calls console-owned native interfaces; no Sony firmware dumps or extracted proprietary PS5 system modules are included in these downloads.
 
-PlayStation and PS5 are trademarks of Sony Interactive Entertainment. PlayBridge is independent and is not endorsed by Sony or Samsung. App artwork and custom interface icons were created for this project.
+PlayStation and PS5 are trademarks of Sony Interactive Entertainment. PlayBridge is independent and is not endorsed by Sony. App artwork and custom interface icons were created for this project.
