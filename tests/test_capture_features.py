@@ -13,6 +13,18 @@ class MediaTests(unittest.TestCase):
  @classmethod
  def setUpClass(cls):cls.packets=packets(2)
  def player(self):return core.Player(argparse.Namespace(renderer='gdi',profile='balanced',auto_reconnect=True,device=None,connect_only=True,host='127.0.0.1',record=False,preview=False,headless=True,seconds=0))
+ def test_a_recording_gives_a_still_for_its_thumbnail_and_a_broken_one_gives_none(self):
+  from desktop_features import video_thumbnail
+  with tempfile.TemporaryDirectory() as tmp:
+   path=Path(tmp)/'capture.mp4';r=CaptureRecorder()
+   for p in self.packets:
+    if p[2]<22500:r.feed(*p)
+   self.assertTrue(r.start(path))
+   for p in self.packets:
+    if p[2]>=22500:r.feed(*p);time.sleep(.001)
+   r.stop(wait=True);still=video_thumbnail(path)
+   self.assertIsNotNone(still);self.assertLessEqual(still.width,300);self.assertLessEqual(still.height,170);self.assertGreater(still.width,0)
+   broken=Path(tmp)/'broken.mp4';broken.write_bytes(b'not a video');self.assertIsNone(video_thumbnail(broken))
  def test_recording_starts_at_later_keyframe_with_audio(self):
   with tempfile.TemporaryDirectory() as tmp:
    path=Path(tmp)/'capture.mp4';r=CaptureRecorder()

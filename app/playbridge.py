@@ -1,9 +1,10 @@
-"""Direct PS5 AV receiver: WASAPI audio and latest-frame video."""
-import argparse,array,collections,json,os,socket,struct,sys,threading,time,traceback
+"""Direct PS5 AV receiver: WASAPI audio and refresh-paced video."""
+import argparse,array,collections,json,os,queue,socket,struct,sys,threading,time,traceback
 from fractions import Fraction
 from pathlib import Path
 HERE=Path(__file__).resolve().parent
-PAYLOAD_FILE=HERE/'PlayBridge.elf' if (HERE/'PlayBridge.elf').is_file() else HERE.parent/'PlayBridge.elf'
+BUNDLE=Path(getattr(sys,'_MEIPASS',HERE))
+PAYLOAD_FILE=next((p for p in (BUNDLE/'PlayBridge.elf',HERE/'PlayBridge.elf',HERE.parent/'PlayBridge.elf') if p.is_file()),BUNDLE/'PlayBridge.elf')
 STATE=Path(os.environ.get('LOCALAPPDATA',str(Path.home())))/'PlayBridge'
 STATE.mkdir(parents=True,exist_ok=True)
 def config():
@@ -15,11 +16,29 @@ DEPS=Path(os.environ['PLAYBRIDGE_DEPS']) if os.environ.get('PLAYBRIDGE_DEPS') el
 if not getattr(sys,'frozen',False) and DEPS is not None and DEPS.is_dir():sys.path.insert(0,str(DEPS))
 import av,sounddevice as sd
 from video_convert import reformat_for_display
-from media_capture import CaptureRecorder
+from frame_pacing import FramePacer
+from media_capture import CaptureRecorder,is_idr
+from stream_metrics import StreamMetrics,export_diagnostics
 from av.video.reformatter import VideoReformatter,Interpolation
 import numpy as np
 HDR=struct.Struct('<4sBBHIQQI')
-PROFILES={'data_saver':{'name':'Data saver · 4 Mbps · 30 fps playback','fps':60,'bitrate':4000000,'playback_fps':30},'balanced':{'name':'Balanced · 1080p60 · 8 Mbps','fps':60,'bitrate':8000000},'high':{'name':'High quality · 1080p60 · 12 Mbps','fps':60,'bitrate':12000000}}
+PROFILES={'data_saver':{'name':'Data saver · 4 Mbps · 30 fps playback','fps':60,'bitrate':4000000,'playback_fps':30},'balanced':{'name':'Balanced · 1080p60 · 8 Mbps','fps':60,'bitrate':8000000},'high':{'name':'High quality · 1080p60 · 12 Mbps','fps':60,'bitrate':12000000},'very_high':{'name':'Very high · 1080p60 · 16 Mbps','fps':60,'bitrate':16000000},'ultra':{'name':'Ultra · 1080p60 · 20 Mbps','fps':60,'bitrate':20000000},'maximum':{'name':'Maximum · 1080p60 · 30 Mbps','fps':60,'bitrate':30000000},'qhd_balanced':{'name':'1440p60 · 20 Mbps','fps':60,'bitrate':20000000,'resolution':5},'qhd_high':{'name':'1440p60 · 30 Mbps','fps':60,'bitrate':30000000,'resolution':5},'qhd_maximum':{'name':'1440p60 · 50 Mbps','fps':60,'bitrate':50000000,'resolution':5},'uhd_balanced':{'name':'4K60 · 40 Mbps','fps':60,'bitrate':40000000,'resolution':6},'uhd_high':{'name':'4K60 · 60 Mbps','fps':60,'bitrate':60000000,'resolution':6},'uhd_maximum':{'name':'4K60 · 80 Mbps','fps':60,'bitrate':80000000,'resolution':6}}
+RESOLUTION_NAMES={4:'1080p',5:'1440p',6:'4K'}
+VIDEO_QUEUE_PACKETS=12
+# Frame threads can finish several frames at once.
+DECODED_FRAMES=4
+def video_threads(resolution):
+ # The console sends one slice per frame, so only frame threads can share the work. Each extra thread adds a frame of delay.
+ return ('FRAME',3) if resolution>=6 else ('FRAME',2) if resolution==5 else ('SLICE',1)
+def audio_limits(resolution):
+ # Audio shares the socket with video, so it arrives late behind large frames: over 100 ms at 4K, under 20 ms on a calm 1080p stream. Returns the PCM bytes that start a trim and the bytes it keeps (192 per ms); the queue only grows to the lateness it meets.
+ return (30720,23040) if resolution>=5 else (11520,7680)
+def resolution_notice(info):
+ """Explains a capture running below the requested resolution."""
+ if not isinstance(info,dict) or not info.get('resolution_requested') or info['resolution_requested']==info.get('resolution'):return ''
+ wanted=RESOLUTION_NAMES.get(info['resolution_requested'],'this resolution');actual=RESOLUTION_NAMES.get(info.get('resolution'),'a lower resolution')
+ if info.get('refused_by'):return f"PS5 refused {wanted} ({info['refused_by']:#010x}), streaming {actual}"
+ return f"PS5 video output does not allow {wanted}, streaming {actual}"
 class Timings:
  def __init__(self):self.values=collections.defaultdict(lambda:collections.deque(maxlen=1800));self.lock=threading.Lock()
  def add(self,name,ms):
@@ -33,14 +52,11 @@ class Timings:
   return result
 class Player:
  def __init__(self,args):
-  self.recorder=CaptureRecorder();self.last_native_frame=None;self.capture_info=None;self.notice='';self.notice_until=0;self.screenshot_thread=None;self.retry_at=0;self.intentional_disconnect=False;self.renderer=('gdi' if sys.platform=='win32' else 'tk') if args.renderer=='auto' else args.renderer;self.timings=Timings();self.args=args;self.stop=threading.Event();self.session_done=threading.Event();self.ready_image=None;self.render_size=(1280,720);self.volume=1.0;self.muted=False;self.save_at=0;self.connection_state='Connecting…';self.lock=threading.Lock();self.pcm=bytearray();self.frame=None;self.frame_at=0;self.frame_decoded_at=0;self.last_drawn=None;self.audio=None;self.sock=None;self.error='';self.stats=collections.Counter();self.peak=0;self.output_name='';self.first_video=None;self.first_audio=None;self.first_arrival=None;self.latest_pts={};self.arrival_origin=None;self.transport_growth_ms=0;self.started=time.perf_counter()
+  self.metrics=StreamMetrics();self.metrics_lock=threading.Lock();self.recorder=CaptureRecorder();self.last_native_frame=None;self.capture_info=None;self.notice='';self.notice_until=0;self.screenshot_thread=None;self.retry_at=0;self.intentional_disconnect=False;self.renderer=('gdi' if sys.platform=='win32' else 'tk') if args.renderer=='auto' else args.renderer;self.timings=Timings();self.args=args;self.stop=threading.Event();self.session_done=threading.Event();self.render_size=(1280,720);self.volume=1.0;self.muted=False;self.save_at=0;self.connection_state='Connecting…';self.lock=threading.Lock();self.pcm=bytearray();self.frames=collections.deque();self.last_drawn=None;self.audio=None;self.sock=None;self.error='';self.stats=collections.Counter();self.peak=0;self.output_name='';self.first_video=None;self.first_audio=None;self.first_arrival=None;self.latest_pts={};self.arrival_origin=None;self.transport_growth_ms=0;self.decode_failure=None;self.started=time.perf_counter();self.pacer=FramePacer(self.stats)
  def device(self):
   apis=sd.query_hostapis();devs=sd.query_devices();preferred=self.args.device
   if preferred is None:
    try:preferred=json.loads((STATE/'settings.json').read_text())['output']
-   except (OSError,ValueError,KeyError):pass
-  if preferred is None:
-   try:preferred=json.loads((Path.home()/'AppData/Local/BossQuickDock Receiver/settings.json').read_text())['output']
    except (OSError,ValueError,KeyError):preferred='auto'
   for i,d in enumerate(devs):
    label=d['name']+' ['+apis[d['hostapi']]['name']+']'
@@ -66,11 +82,11 @@ class Player:
   elif self.volume!=1.0:data=(np.frombuffer(data,dtype='<i2').astype(np.float32)*self.volume).astype('<i2').tobytes()
   outdata[:]=data+bytes(need-take)
  def push_audio(self,data):
-  samples=np.frombuffer(data,dtype='<i2');peak=int(np.abs(samples.astype(np.int32)).max()) if len(samples) else 0
+  samples=np.frombuffer(data,dtype='<i2');peak=int(np.abs(samples.astype(np.int32)).max()) if len(samples) else 0;high,keep=audio_limits((self.capture_info or {}).get('resolution',4))
   with self.lock:
    self.peak=max(peak,self.peak*.9);self.pcm.extend(data)
-   if len(self.pcm)>11520:
-    skip=(len(self.pcm)-7680)//4*4;del self.pcm[:skip];self.stats['audio_trim_samples']+=skip//4
+   if len(self.pcm)>high:
+    skip=(len(self.pcm)-keep)//4*4;del self.pcm[:skip];self.stats['audio_trim_samples']+=skip//4
    self.stats['audio_samples_decoded']+=len(data)//4
    self.stats['audio_peak']=max(self.stats['audio_peak'],peak)
  def exact(self,n):
@@ -81,20 +97,47 @@ class Player:
    b.extend(d)
   if len(b)!=n:raise EOFError('Stopped')
   return bytes(b)
+ def video_decoder(self):
+  video=av.CodecContext.create('h264','r');video.thread_type,video.thread_count=video_threads((self.capture_info or {}).get('resolution',4));return video
+ def decode_video(self,packets,done):
+  # Beside the socket reader, so a slow decoder cannot stall audio or the console's 1 s send timeout.
+  video=None
+  try:
+   while not done.is_set():
+    try:payload,pts,dts,arrived=packets.get(timeout=.1)
+    except queue.Empty:continue
+    if video is None:video=self.video_decoder()
+    p=av.Packet(payload);p.pts=pts;p.dts=dts;p.time_base=Fraction(1,90000)
+    decode_at=time.perf_counter();decoded=video.decode(p);self.timings.add('video_decode_ms',(time.perf_counter()-decode_at)*1000)
+    for f in decoded:
+     with self.metrics_lock:self.metrics.frame(f)
+     with self.lock:
+      if len(self.frames)>=DECODED_FRAMES:self.frames.popleft();self.stats['video_replaced']+=1
+      self.last_native_frame=f;self.frames.append((f,arrived,time.perf_counter()));self.stats['video_decoded']+=1
+  except Exception as e:self.decode_failure=e
+  finally:
+   # Releasing a frame-threaded decoder while a packet is still in flight can deadlock the process, so drain it first.
+   if video is not None:
+    try:video.decode(None)
+    except Exception:pass
  def network_session(self):
   try:
    if not self.args.connect_only:
-    with socket.create_connection((self.args.host,9021),5) as loader:loader.sendall(PAYLOAD_FILE.read_bytes());loader.shutdown(socket.SHUT_WR)
+    if not PAYLOAD_FILE.is_file():raise RuntimeError('The bundled PlayBridge.elf is missing. Reinstall the complete PlayBridge package.')
+    payload=PAYLOAD_FILE.read_bytes()
+    with socket.create_connection((self.args.host,9021),5) as loader:loader.sendall(payload);loader.shutdown(socket.SHUT_WR)
    for _ in range(60):
     try:self.sock=socket.create_connection((self.args.host,9076),.5);break
     except OSError:
      if self.stop.wait(.1) or self.intentional_disconnect:return
    if self.sock is None:raise RuntimeError('PS5 listener did not start on 9076')
-   self.sock.sendall(struct.pack('<4sIII',b'PBO1',PROFILES[self.args.profile]['fps'],PROFILES[self.args.profile]['bitrate'],0))
+   # 1080p keeps sending 0 so an older manually loaded ELF can still stream.
+   self.sock.sendall(struct.pack('<4sIII',b'PBO1',PROFILES[self.args.profile]['fps'],PROFILES[self.args.profile]['bitrate'],PROFILES[self.args.profile].get('resolution',0)))
    self.connection_state='Starting capture…';self.sock.settimeout(5);self.sock.setsockopt(socket.IPPROTO_TCP,socket.TCP_NODELAY,1)
-   video=av.CodecContext.create('h264','r');video.thread_count=1;video.thread_type='SLICE'
    audio=av.CodecContext.create('aac','r');resampler=av.AudioResampler(format='s16',layout='stereo',rate=48000)
    record=(STATE/'av3-test.wire').open('wb') if self.args.record else None
+   self.decode_failure=None;decode_done=threading.Event();decode_queue=queue.Queue(VIDEO_QUEUE_PACKETS);waiting_idr=False
+   decoder_thread=threading.Thread(target=self.decode_video,args=(decode_queue,decode_done),name='PlayBridge video decode',daemon=True);decoder_thread.start()
    try:
     while not self.stop.is_set():
      raw=self.exact(32);magic,version,kind,_,size,pts,dts,_=HDR.unpack(raw)
@@ -111,16 +154,17 @@ class Player:
      if self.capture_info is None:self.capture_info={'protocol':1,'confirmed':False}
      self.recorder.feed(kind,payload,pts,dts)
      self.latest_pts[kind]=pts;self.stats['received_bytes']+=size
+     with self.metrics_lock:self.metrics.packet(size,kind==1)
      if kind==1:
       if self.first_video is None:self.first_video=pts;self.first_arrival=now
       growth=(now-self.first_arrival)-(pts-self.first_video)/90000
       self.transport_growth_ms=round(growth*1000,1)
-      p=av.Packet(payload);p.pts=pts;p.dts=dts;p.time_base=Fraction(1,90000)
-      decode_at=time.perf_counter();decoded=video.decode(p);self.timings.add('video_decode_ms',(time.perf_counter()-decode_at)*1000)
-      for f in decoded:
-       with self.lock:
-        if self.frame is not None:self.stats['video_replaced']+=1
-        self.last_native_frame=f;self.frame=f;self.frame_at=now;self.frame_decoded_at=time.perf_counter();self.stats['video_decoded']+=1
+      if self.decode_failure:raise self.decode_failure
+      # Every frame references the previous one, so a dropped packet means waiting for the next IDR.
+      if waiting_idr and not is_idr(payload):self.stats['video_packets_dropped']+=1
+      else:
+       try:decode_queue.put_nowait((payload,pts,dts,now));waiting_idr=False
+       except queue.Full:waiting_idr=True;self.stats['video_packets_dropped']+=1
      else:
       if self.first_audio is None:self.first_audio=pts
       for p in audio.parse(payload):
@@ -128,9 +172,10 @@ class Player:
         for pcm in resampler.resample(f):self.push_audio(bytes(pcm.planes[0])[:pcm.samples*4])
       self.stats['audio_packets']+=1
    finally:
+    decode_done.set();decoder_thread.join(timeout=2)
     if record:record.close()
   except Exception as e:
-   if not self.stop.is_set() and not self.intentional_disconnect:self.error=('The PS5 connection ended. You can reconnect.' if isinstance(e,EOFError) else 'The PS5 stopped sending data.' if isinstance(e,socket.timeout) else 'Unable to connect to the PS5. Check its IP address and make sure the ELF loader is running.' if isinstance(e,OSError) else str(e));(STATE/'av3-error.log').write_text(traceback.format_exc(),encoding='utf8')
+   if not self.stop.is_set() and not self.intentional_disconnect:self.error=('The PS5 closed the connection before streaming. In manual mode, load the current PlayBridge.elf.' if isinstance(e,(EOFError,ConnectionResetError)) and self.capture_info is None and self.args.connect_only else 'The PS5 connection ended. You can reconnect.' if isinstance(e,EOFError) else 'The PS5 stopped sending data.' if isinstance(e,socket.timeout) else 'Unable to connect to the PS5. Check its IP address and make sure the ELF loader is running.' if isinstance(e,OSError) else str(e));(STATE/'av3-error.log').write_text(traceback.format_exc(),encoding='utf8')
   finally:
    if self.sock:self.sock.close()
    self.connection_state='Disconnected' if not self.error else 'Not connected'
@@ -140,7 +185,8 @@ class Player:
    while not self.stop.is_set() and not self.intentional_disconnect:
     self.sock=None;self.first_video=None;self.first_audio=None;self.first_arrival=None;self.capture_info=None;self.transport_growth_ms=0;self.latest_pts={}
     self.recorder.reset_session()
-    with self.lock:self.pcm.clear();self.frame=None;self.ready_image=None;self.last_native_frame=None
+    with self.metrics_lock:self.metrics.reset()
+    with self.lock:self.pcm.clear();self.frames.clear();self.pacer.clear();self.last_native_frame=None
     self.network_session();self.recorder.stop(wait=True)
     if self.stop.is_set() or self.intentional_disconnect or not self.args.auto_reconnect:break
     attempt+=1;self.stats['reconnection_attempts']+=1
@@ -173,7 +219,6 @@ class Player:
    if self.recorder.start(self.capture_path('Recordings','.mp4')):self.notify('Recording armed. Waiting for a keyframe…')
   except Exception:self.notify('Unable to start recording. Check the capture folder.')
  def poll_capture_events(self):
-  import queue
   while True:
    try:kind,message,path=self.recorder.events.get_nowait()
    except queue.Empty:break
@@ -184,9 +229,14 @@ class Player:
  def snapshot(self):
   with self.lock:
    s=dict(self.stats);s['audio_queue_ms']=round(len(self.pcm)/192,1)
+  with self.metrics_lock:s['stream']=self.metrics.summary()
   s['timings_ms']=self.timings.summary();s['latency_scope']='PC stages only; transport growth is relative to first video packet, not total HDMI-to-PC latency'
   s.update(recording_state=self.recorder.state,capture_info=self.capture_info,profile_requested=self.args.profile,renderer=self.renderer,output=self.output_name,error=self.error,observed_seconds=round(time.perf_counter()-self.started,2),transport_delay_growth_ms=self.transport_growth_ms)
   (STATE/'av3-stats.json').write_text(json.dumps(s,indent=2),encoding='utf8');return s
+ def export_diagnostics(self,path):
+  try:
+   export_diagnostics(path,self.snapshot());self.notify("Diagnostics exported.")
+  except Exception:self.notify("Unable to export diagnostics. Check the destination folder.")
  def run(self):
   self.open_audio();self.converter=threading.Thread(target=self.convert_video,daemon=True);self.converter.start();self.worker=threading.Thread(target=(lambda:self.session_done.set()) if self.args.preview else self.network,daemon=True);self.worker.start()
   if self.args.preview:self.connection_state='Ready to connect'
@@ -207,25 +257,28 @@ class Player:
    rate=PROFILES[self.args.profile].get('playback_fps',0)
    if rate and time.perf_counter()<next_frame_at:
     self.stop.wait(max(0,min(.005,next_frame_at-time.perf_counter())));continue
-   with self.lock:f=self.frame;self.frame=None;arrived=self.frame_at;decoded_at=self.frame_decoded_at
-   if f is None:self.stop.wait(.001);continue
+   with self.lock:
+    # The playback cap only ever needs the newest frame; otherwise every frame goes to the pacer.
+    while rate and len(self.frames)>1:self.frames.popleft();self.stats['video_replaced']+=1
+    item=self.frames.popleft() if self.frames else None
+   if item is None:self.stop.wait(.001);continue
+   f,arrived,decoded_at=item
    began=time.perf_counter();next_frame_at=began+1/rate if rate else 0;self.timings.add('decoded_slot_wait_ms',(began-decoded_at)*1000);w,h=self.render_size;scale=min(w/f.width,h/f.height);rw=max(1,int(f.width*scale));rh=max(1,int(f.height*scale))
    try:image=reformat_for_display(f,rw,rh,'bgr0') if self.renderer=='gdi' else reformat_for_display(f,rw,rh,'rgb24').to_image()
    except Exception as e:self.error='Video presentation: '+str(e);continue
    with self.lock:
-    if self.ready_image is not None:self.stats['prepared_replaced']+=1
-    prepared=time.perf_counter();self.timings.add('video_convert_ms',(prepared-began)*1000);self.ready_image=(image,arrived,prepared);self.stats['last_conversion_ms']=round((time.perf_counter()-began)*1000,2)
+    prepared=time.perf_counter();self.timings.add('video_convert_ms',(prepared-began)*1000);self.pacer.add(f.pts/90000 if f.pts is not None else prepared,(image,arrived,prepared),prepared);self.stats['last_conversion_ms']=round((time.perf_counter()-began)*1000,2)
  def restart(self):
   if self.worker.is_alive():return
   self.intentional_disconnect=False;self.error='';self.sock=None;self.first_video=None;self.first_audio=None;self.first_arrival=None;self.session_done.clear();self.connection_state='Connecting…'
-  with self.lock:self.pcm.clear();self.frame=None;self.ready_image=None
+  with self.lock:self.pcm.clear();self.frames.clear();self.pacer.clear()
   self.stats['reconnections']+=1;self.worker=threading.Thread(target=self.network,daemon=True);self.worker.start()
  def ui(self):
   from playbridge_ui import run_ui
   run_ui(self)
 
 def main():
- ap=argparse.ArgumentParser();ap.add_argument('--profile',choices=tuple(PROFILES),default=config().get('profile','balanced'));ap.add_argument('--auto-reconnect',action=argparse.BooleanOptionalAction,default=config().get('auto_reconnect',True));ap.add_argument('--renderer',choices=('auto','gdi','tk'),default='auto');ap.add_argument('--host',default=config().get('host','192.168.1.73'));ap.add_argument('--connect-only',action='store_true',default=config().get('connect_only',False));ap.add_argument('--preview',action='store_true');ap.add_argument('--seconds',type=int,default=0);ap.add_argument('--headless',action='store_true');ap.add_argument('--record',action='store_true',help='Save raw diagnostic wire packets; use F9 for MP4 recording');ap.add_argument('--device');ap.add_argument('--devices',action='store_true');args=ap.parse_args()
+ ap=argparse.ArgumentParser();ap.add_argument('--profile',choices=tuple(PROFILES),default=config().get('profile','balanced'));ap.add_argument('--auto-reconnect',action=argparse.BooleanOptionalAction,default=config().get('auto_reconnect',True));ap.add_argument('--renderer',choices=('auto','gdi','tk'),default='auto');ap.add_argument('--host',default=config().get('host','192.168.1.100'));ap.add_argument('--connect-only',action='store_true',default=config().get('connect_only',False));ap.add_argument('--preview',action='store_true');ap.add_argument('--seconds',type=int,default=0);ap.add_argument('--headless',action='store_true');ap.add_argument('--record',action='store_true',help='Save raw diagnostic wire packets; use F9 for MP4 recording');ap.add_argument('--device');ap.add_argument('--devices',action='store_true');args=ap.parse_args()
  if args.devices:print(sd.query_devices());return 0
  guard=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
  try:guard.bind(('127.0.0.1',19077 if args.preview else 19076))

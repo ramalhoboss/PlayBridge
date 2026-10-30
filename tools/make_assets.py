@@ -3,18 +3,19 @@ from pathlib import Path
 import numpy as np
 p=Path(__file__).resolve().parents[1]/'app'/'assets';p.mkdir(exist_ok=True)
 n=1024
-y,x=np.mgrid[0:n,0:n];t=(x+y)/(2*n)
+y,x=np.mgrid[0:n,0:n];t=y/(n-1)
 a=np.zeros((n,n,4),dtype=np.uint8)
-for k,(lo,hi) in enumerate([(31,80),(76,130),(205,249)]):a[:,:,k]=(lo+(hi-lo)*t).astype(np.uint8)
+for k,(lo,hi) in enumerate([(242,176),(214,133),(117,31)]):a[:,:,k]=(lo+(hi-lo)*t).astype(np.uint8)
 a[:,:,3]=255
 im=Image.fromarray(a);mask=Image.new('L',(n,n));ImageDraw.Draw(mask).rounded_rectangle((6,6,n-6,n-6),radius=236,fill=255);im.putalpha(mask)
 d=ImageDraw.Draw(im)
-d.rounded_rectangle((176,226,848,684),radius=88,outline='white',width=40)
-d.line((512,686,512,785),fill='white',width=40);d.rounded_rectangle((367,768,657,808),radius=20,fill='white')
+ink='#120E05'
+d.rounded_rectangle((176,226,848,684),radius=88,outline=ink,width=40)
+d.line((512,686,512,785),fill=ink,width=40);d.rounded_rectangle((367,768,657,808),radius=20,fill=ink)
 # Two interlocking rounded links, a visual bridge inside the display.
 links=Image.new('RGBA',(1024,1024));q=ImageDraw.Draw(links)
-q.rounded_rectangle((305,398,565,534),radius=68,outline='white',width=35)
-q.rounded_rectangle((465,398,725,534),radius=68,outline='#96F2EE',width=35)
+q.rounded_rectangle((305,398,565,534),radius=68,outline=ink,width=35)
+q.rounded_rectangle((465,398,725,534),radius=68,outline=ink,width=35)
 links=links.rotate(32,resample=Image.Resampling.BICUBIC,center=(512,466));im.alpha_composite(links)
 im.save(p/'playbridge.png');im.save(p/'playbridge.ico',sizes=[(16,16),(24,24),(32,32),(48,48),(64,64),(128,128),(256,256)])
 

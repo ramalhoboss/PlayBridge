@@ -5,17 +5,24 @@
     app/                    Python receiver and desktop interface
       assets/               App icon and control icons
       playbridge.py         Entry point and audio/video transport
-      playbridge_ui.py      English console-style interface
+      playbridge_ui.py      Main window and settings
+      gaming_hub.py         Stats panel and capture library
+      luxury_theme.py       Black and gold theme, rims and buttons
+      frame_pacing.py       One frame per monitor refresh
       gdi_presenter.py      Windows DIB presentation
       video_convert.py      Deterministic conversion rounding
+      media_capture.py      Packet-copy MP4 recording
+      stream_metrics.py     Bitrate and timing figures
+      console_discovery.py  Find console on the local network
+      desktop_features.py   Capture listing, favourites and thumbnails
     payload/
       stream-av3.c          Firmware-13.60 native capture sender
       av-wire.h             Packet framing
+      capture-options.h     Resolution and bitrate parameters
     tools/
       build_payload.py      Configurable LLVM/SDK build wrapper
       make_assets.py        Recreate app artwork
-    tests/
-      test_border_conversion.py
+    tests/                  Automated tests
     PlayBridge.spec         PyInstaller single-EXE recipe
     PlayBridge.elf          Reference payload used by the release
 
@@ -34,7 +41,7 @@ The dependency versions match the development build. They are not vendored into 
 
     .venv\Scripts\python.exe app\playbridge.py
 
-The root PlayBridge.elf is used when running from source. Configure your own console IP in Connection settings. The source retains the release's initial development IP as a fallback; saved settings or --host override it.
+The root PlayBridge.elf is used when running from source. Configure your own console IP in the settings. Until you save one, the app uses 192.168.1.100 as a placeholder; saved settings or --host override it.
 
     .venv\Scripts\python.exe app\playbridge.py --host 192.168.1.100
 
@@ -73,14 +80,14 @@ The packaged EXE extracts its bundled runtime at launch. No separate Python inst
 
     .venv\Scripts\python.exe tools\make_assets.py
 
-## Run the conversion regression test
+## Run the tests
 
-    .venv\Scripts\python.exe tests\test_border_conversion.py
+    .venv\Scripts\python.exe -m unittest discover -s tests
 
-The test checks six output sizes and RGB24/BGR0 paths using a synthetic uniform frame, then writes build\validation-border-conversion.json. The old-path defect is reported as a diagnostic; whether it reproduces depends on the FFmpeg build and hardware. The corrected path must not introduce bright pixels.
+The tests use synthetic media and need no console. The border conversion test also writes build\validation-border-conversion.json. Its old-path defect is reported as a diagnostic; whether it reproduces depends on the FFmpeg build and hardware. The corrected path must not introduce bright pixels.
 
 ## Release provenance
 
-The source addition makes development paths configurable and supports locating the ELF at the repository root. The v1.2.0 source includes the capture-options request/acknowledgement, local PNG/MP4 capture, presentation limit and reconnect logic. The firmware guard remains restricted to 13.60 and the border fix remains enabled. Third-party source and build information are linked from THIRD-PARTY-NOTICES.md.
+The source makes development paths configurable and supports locating the ELF at the repository root. The firmware guard remains restricted to 13.60 and the border fix remains enabled. Third-party source and build information are linked from THIRD-PARTY-NOTICES.md.
 
 Developed by [ramalhoboss](https://github.com/ramalhoboss) · [@nuno_leugim_10 on X](https://x.com/nuno_leugim_10).

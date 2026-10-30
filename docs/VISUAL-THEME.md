@@ -1,0 +1,9 @@
+# PlayBridge ambient theme
+
+The desktop shell is pure black with gold bezels, a spacious header and compact action buttons. The colours are defined once in `app/luxury_theme.py`. Panels, cards, menus and entries have a polished gold rim one logical pixel thin, and the large panels also have a faint glow. Rims are drawn as pictures whose curves are calculated at eight times the size, which gives smooth corners at the screen's own resolution, and they follow the Windows display scale. A panel's picture changes only when its size changes, so nothing is redrawn for video frames. Buttons are drawn the same way as one picture each, and a button that is told to show what it already shows draws nothing. Headings are drawn at four times the size. Headings and the main buttons use polished gold, and headings fall back to plain gold if the Segoe UI Bold font is missing. On Windows 11 the title bar is black and the window border gold; older Windows keeps its own. Icons stay white in `app/assets` and are tinted gold when loaded, except the red record dot. The video sits on pure black, and in fullscreen it covers the rim. The idle screen has an original procedural gradient, gently moving waves and drifting gold dust. Settings enter with a short fade. Ambient animations can be disabled in Settings and that preference persists. Scene animation stops as soon as video is presented; no decorative filters are applied to video.
+
+## Optional local artwork
+
+PlayBridge ships only original artwork. The gradient, waves, rings and loading arc are drawn by the app.
+
+The app can also load your own PNG files from a folder named by the PLAYBRIDGE_LOCAL_SKIN environment variable. The recognized files are menu.png, heart.png and trophy.png. They are tinted gold when loaded, and the files themselves are not changed. Missing or unreadable files use the regular PlayBridge menu icon or leave the decoration out. This repository and its releases include no such files.
