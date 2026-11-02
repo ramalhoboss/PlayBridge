@@ -30,6 +30,7 @@
     tools/
       build_payload.py      Configurable LLVM/SDK build wrapper
       make_assets.py        Recreate app artwork
+      make_readme_art.py    Recreate the README banner, badges and diagram
     tests/                  Automated tests
     PlayBridge.spec         PyInstaller single-EXE recipe
     PlayBridge.elf          Reference payload used by the release
@@ -87,6 +88,10 @@ The packaged EXE extracts its bundled runtime at launch. No separate Python inst
 ## Recreate the artwork
 
     .venv\Scripts\python.exe tools\make_assets.py
+
+The README's banner, badges and diagram are drawn with the app's own pictures in app\scene.py, and need the fonts that come with Windows:
+
+    .venv\Scripts\python.exe tools\make_readme_art.py
 
 ## Run the tests
 

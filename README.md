@@ -1,9 +1,10 @@
-<p align="center"><img src="docs/images/banner.svg" alt="PlayBridge — Your console. Your screen." width="100%"></p>
+<p align="center"><img src="docs/images/banner.png" alt="PlayBridge: your PS5 games, video and audio on your Windows PC" width="100%"></p>
 <p align="center">
-  <a href="https://github.com/ramalhoboss/PlayBridge/releases/latest"><img alt="Download" src="https://img.shields.io/badge/Download-v1.4.0-D4AF37?style=for-the-badge&labelColor=1C170C"></a>
-  <img alt="Windows x64" src="https://img.shields.io/badge/Windows-x64-1C170C?style=for-the-badge">
-  <img alt="PS5 firmware 13.60" src="https://img.shields.io/badge/PS5-13.60-1C170C?style=for-the-badge">
-  <img alt="Up to 4K60" src="https://img.shields.io/badge/Up%20to-4K60-1C170C?style=for-the-badge">
+  <a href="https://github.com/ramalhoboss/PlayBridge/releases/latest"><img alt="Download v1.4.0" src="docs/images/badge-download.png" height="36"></a>
+  <img alt="Windows x64" src="docs/images/badge-windows.png" height="36">
+  <img alt="PS5 firmware 13.60" src="docs/images/badge-ps5.png" height="36">
+  <img alt="Up to 4K60" src="docs/images/badge-4k.png" height="36">
+  <a href="LICENSE"><img alt="License GPL-3.0" src="docs/images/badge-license.png" height="36"></a>
 </p>
 
 # PlayBridge
@@ -204,7 +205,7 @@ The standalone ELF waits for one viewer per execution. After ending a manual ses
 
 ## How it works
 
-<img src="docs/images/architecture.svg" alt="Payload Manager ELF loader → native PS5 capture and encoding → framed TCP stream → PC decoding, paced Direct3D 11 or GDI video and WASAPI audio" width="100%">
+<img src="docs/images/architecture.png" alt="Payload Manager ELF loader on port 9021 → PS5 payload with native H.264 and AAC capture, status, games and power → local network with the stream on port 9076 and control on port 9077 ↔ PlayBridge PC with GPU decoding to Direct3D 11 and audio to WASAPI" width="100%">
 
 1. **Load:** the PC sends PlayBridge.elf to the existing loader. It does not install firmware or create a jailbreak.
 2. **Reserve and capture:** the payload uses firmware-specific native capture/resource interfaces, including **SceAvcap2** and **ResourceArbitrator**, to open the capture session and its resources. It reads the console's video output first and picks the highest capture that output allows.
@@ -231,7 +232,7 @@ This project does **not** distribute the console's firmware dumps, extracted pro
 - **[app/](app/)** — Python receiver, English interface, Games page and Gaming Mode, Direct3D 11 and GDI presenters, frame pacing, console control, the library's sounds, Media page and diagnostics.
 - **[payload/](payload/)** — firmware-13.60 C capture sender, console control port, capture options and packet framing.
 - **[app/assets/](app/assets/)** — application icon and control artwork.
-- **[tools/](tools/)** — payload compiler wrapper and artwork generator.
+- **[tools/](tools/)** — payload compiler wrapper, the app's artwork generator and the README art, drawn with the app's own code.
 - **[tests/](tests/)** — automated tests for conversion, capture, pacing, both presenters, console control, the games page, sounds, metrics, discovery, the desktop features and the theme.
 - **[PlayBridge.spec](PlayBridge.spec)** — portable PyInstaller packaging recipe.
 
