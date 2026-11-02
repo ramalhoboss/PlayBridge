@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.4.0 — 2026-11-02
+- Games page. During a session the payload opens a control port, 9077, and the PC reads the console's installed games: title, cover, the game's own music where it has one, play time, last played and size. Covers and music are kept on the PC. On the owner's PS5, a library of 54 games read all its covers and music.
+- Play launches the selected game, and the page changes to Live when its picture arrives, about 1.1 seconds after the click on the owner's PS5. Resume returns to the running game, and Close game closes it after asking. Rows for all games, most played, A to Z, PS5 and PS4 games, and search by typing.
+- Gaming Mode: the games fullscreen on the PC. When the console's own menu comes to the front, the PC shows the games instead, and the TV still shows the PS5.
+- Console status: the game in front, and CPU and SoC temperature. Power: rest mode (confirmed on the console), soft reset (close the game and launch it again), reboot and turn off (not yet run on a console), each behind a question. Recovery explains how to start Safe Mode from the console itself; PlayBridge never starts Safe Mode.
+- Direct3D 11 video output is the default. The GPU decodes the video and the picture stays on it for colour conversion, scaling, optional sharpening and presentation. On the owner's PS5 over Wi-Fi, against GDI: 0.22–0.23 instead of 1.29–1.43 processor cores, 59.8–59.9 instead of 59.7–59.9 screen updates per second, and a 95th-percentile frame interval of 17.2–17.4 instead of 18.3–18.4 ms. If Direct3D 11 fails, PlayBridge returns to GDI by itself, and a switch in Settings turns it off.
+- The refresh clock learns the monitor's refresh length only from intervals close to one refresh, and leaves out the first, partial interval after a start or a pause. A missed refresh used to stretch the length for about two seconds, so the clock ran fast and frames were skipped in clusters. In local runs of 30 seconds, skipped frames went from 1, 2 and 28 to 0, 0 and 1. Not yet measured on the console.
+- Instant replay keeps the last 30 seconds, 60 seconds or 2 minutes of the stream in PC memory, up to 1 GB, and F10 saves it as an MP4 without re-encoding.
+- New one-window design: Games, Live and Media in a top bar with search, Settings, fullscreen and power. Settings is a page with Console, Picture, Captures, Sound and Appearance. Black frosted cards with a hairline rim, white type and gold as a small accent.
+- The library has quiet background music and navigation sounds made by the app, or the game's own music. They play on their own output, only while the games are on screen, with their own switches and volume.
+- Session panel (Ctrl+I) with the frame rate, source size, PC timing, the console's game, a 60-second bitrate graph and diagnostics export.
+- Sharper picture on the GDI output: area averaging when shrinking to half size or less, bicubic otherwise, and full chroma interpolation, which also fixes a picture about 2 levels too dark.
+- The payload opens the capture again, up to three times, after certain read errors or 3 seconds without video, instead of ending the session.
+- Before sending the ELF, PlayBridge asks the console for its state, and stops with a message if it is resting or runs a firmware other than 13.60.
+- A controller on the PC can move around the Games page. It is not sent to the console: a virtual controller on the console is not available yet.
+
 ## v1.3.0 — 2026-10-30
 - Experimental 1440p and 4K profiles. They need a console output at that resolution, step down when the firmware does not allow it, and report the step down in the status bar. On real hardware with a 4K output, all six profiles streamed at their native size on the console's menus. In a game, the 4K profiles kept a 60 fps stream at 38–69 Mbit/s and the 30 and 50 Mbit/s 1440p profiles at 25–29 Mbit/s, in short runs with no stalls or dropped video; the game itself was drawing about 30 fps. A 4K MP4 recording also reopened and decoded cleanly. The step down from a 1080p output was also run on real hardware.
 - The encoder's frame budget is now 1 MiB. The old value, one 8 Mbit/s frame's share, made the encoder skip frames after every keyframe and lowered the frame rate. On real hardware, a larger budget took a game scene's stream from about 35 to 60 frames per second with no stalls.

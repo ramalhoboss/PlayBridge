@@ -28,5 +28,14 @@ class GdiPresenter:
    if result in (0,-1):raise RuntimeError('StretchDIBits failed')
   finally:self.user.ReleaseDC(hwnd,dc)
   self.frame=frame;self.dirty=False
+ def picture(self,image,x,y):
+  """A finished picture at a place on the canvas, for the pages that are not video."""
+  data=image.tobytes('raw','BGRX');width,height=image.size
+  header=BitmapInfoHeader(ctypes.sizeof(BitmapInfoHeader),width,-height,1,32,0,len(data),0,0,0,0)
+  hwnd=self.canvas.winfo_id();dc=self.user.GetDC(hwnd)
+  if not dc:raise ctypes.WinError(ctypes.get_last_error())
+  try:self.gdi.StretchDIBits(dc,x,y,width,height,0,0,width,height,data,ctypes.byref(header),0,0x00CC0020)
+  finally:self.user.ReleaseDC(hwnd,dc)
  def refresh(self):
-  if self.dirty and self.frame is not None:self.draw(self.frame)
+  # After the area shrinks the last frame no longer fits, and showing it again would leave its edges around the smaller frames to come.
+  if self.dirty and self.frame is not None and self.frame.width<=self.canvas.winfo_width() and self.frame.height<=self.canvas.winfo_height():self.draw(self.frame)

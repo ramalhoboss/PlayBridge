@@ -1,5 +1,5 @@
-"""Bounded packet-copy recording; console H.264/AAC is not re-encoded."""
-import io,queue,re,threading,time
+"""Bounded packet-copy recording; console H.264 or HEVC and AAC are not re-encoded."""
+import collections,io,queue,re,threading,time
 from fractions import Fraction
 from pathlib import Path
 import av
@@ -8,8 +8,13 @@ START_CODES=re.compile(b'\x00\x00\x00?\x01')
 def nal_units(data):
  marks=list(START_CODES.finditer(data))
  return [data[m.end():marks[i+1].start() if i+1<len(marks) else len(data)] for i,m in enumerate(marks) if m.end()<(marks[i+1].start() if i+1<len(marks) else len(data))]
-def is_idr(data):return any(n and n[0]&31==5 for n in nal_units(data))
-def codec_headers(data):return b''.join(b'\x00\x00\x00\x01'+n for n in nal_units(data) if n and n[0]&31 in (7,8))
+HEVC=1
+def is_idr(data,codec=0):
+ if codec==HEVC:return any(n and 16<=(n[0]>>1)&63<=21 for n in nal_units(data))
+ return any(n and n[0]&31==5 for n in nal_units(data))
+def codec_headers(data,codec=0):
+ if codec==HEVC:return b''.join(b'\x00\x00\x00\x01'+n for n in nal_units(data) if n and (n[0]>>1)&63 in (32,33,34))
+ return b''.join(b'\x00\x00\x00\x01'+n for n in nal_units(data) if n and n[0]&31 in (7,8))
 def strip_adts(data):
  if len(data)<7 or data[0]!=255 or data[1]&0xf6!=0xf0:raise ValueError('Invalid AAC ADTS packet')
  header=7 if data[1]&1 else 9
@@ -21,13 +26,13 @@ def strip_adts(data):
  return data[header:],asc
 
 class CaptureRecorder:
- def __init__(self):
-  self.lock=threading.Lock();self.events=queue.SimpleQueue();self.thread=None;self.state='idle';self.path=None;self.headers=b'';self.error='';self.max_queue=240;self.max_bytes=32*1024*1024;self.queued_bytes=0
+ def __init__(self,name='Recording',started='Recording started'):
+  self.name=name;self.started=started;self.codec=0;self.lock=threading.Lock();self.events=queue.SimpleQueue();self.thread=None;self.state='idle';self.path=None;self.headers=b'';self.error='';self.max_queue=240;self.max_bytes=32*1024*1024;self.queued_bytes=0
  @property
  def active(self):return self.thread is not None and self.thread.is_alive()
  def reset_session(self):
   self.stop(wait=True)
-  with self.lock:self.headers=b''
+  with self.lock:self.headers=b'';self.codec=0
  def start(self,path):
   with self.lock:
    if self.active:return False
@@ -37,7 +42,7 @@ class CaptureRecorder:
    self.thread=threading.Thread(target=self._run,name='PlayBridge recorder',daemon=True);self.thread.start()
    return True
  def feed(self,kind,data,pts,dts):
-  headers=codec_headers(data) if kind==1 else b''
+  headers=codec_headers(data,self.codec) if kind==1 else b''
   with self.lock:
    if headers:self.headers=headers
    if not self.active or self.ending.is_set():return
@@ -63,8 +68,8 @@ class CaptureRecorder:
     with self.lock:self.queued_bytes-=len(data)
     if kind not in (1,2):continue
     if base is None:
-     if kind!=1 or not is_idr(data):continue
-     base=min(pts,dts);video_first=headers+data if not codec_headers(data) else data
+     if kind!=1 or not is_idr(data,self.codec):continue
+     base=min(pts,dts);video_first=headers+data if not codec_headers(data,self.codec) else data
     if pts<base:continue
     pending.append(packet)
     if kind==2 and audio_first is None:audio_first=data
@@ -72,22 +77,22 @@ class CaptureRecorder:
      if video_first is None or audio_first is None:
       if len(pending)>180:raise RuntimeError('Recording needs both video and audio.')
       continue
-     video_template=av.open(io.BytesIO(video_first),format='h264');audio_template=av.open(io.BytesIO(audio_first),format='aac');templates=[video_template,audio_template]
+     video_template=av.open(io.BytesIO(video_first),format='hevc' if self.codec==HEVC else 'h264');audio_template=av.open(io.BytesIO(audio_first),format='aac');templates=[video_template,audio_template]
      out=av.open(str(temporary),'w',format='mp4',options={'movflags':'+faststart'})
      vs=out.add_stream_from_template(video_template.streams.video[0]);aus=out.add_stream_from_template(audio_template.streams.audio[0]);aus.codec_context.extradata=strip_adts(audio_first)[1]
      started=True
      if not self.ending.is_set():self.state='recording'
-     self.events.put(('status','Recording started',str(self.path)))
+     self.events.put(('status',self.started,str(self.path)))
     for k,b,p,d,_ in pending:
      if k==2:b=strip_adts(b)[0]
      item=av.Packet(b);item.pts=p-base;item.dts=d-base;item.time_base=Fraction(1,90000);item.stream=vs if k==1 else aus
-     if k==1:item.is_keyframe=is_idr(b)
+     if k==1:item.is_keyframe=is_idr(b,self.codec)
      out.mux(item);written+=1
     pending.clear()
    if out is not None:out.close();out=None
    if started and written:
-    temporary.replace(self.path);self.events.put(('saved','Recording saved',str(self.path)))
-   else:self.events.put(('status','Recording cancelled: no complete video/audio start received.',''))
+    temporary.replace(self.path);self.events.put(('saved',self.name+' saved',str(self.path)))
+   else:self.events.put(('status',self.name+' cancelled: no complete video/audio start received.',''))
    if self.error:self.events.put(('error',self.error,str(self.path) if started else ''))
   except Exception as e:
    self.error='Recording failed: '+str(e);self.events.put(('error',self.error,''))
@@ -100,3 +105,29 @@ class CaptureRecorder:
     try:temporary.unlink()
     except OSError:pass
    self.state='idle'
+
+class ReplayBuffer:
+ """The last seconds of the stream, as references to packets already received: nothing is copied or encoded until they are saved."""
+ def __init__(self,seconds=60,max_bytes=1<<30):
+  self.seconds=seconds;self.max_bytes=max_bytes;self.lock=threading.Lock();self.packets=collections.deque();self.bytes=0
+ def reset(self):
+  with self.lock:self.packets.clear();self.bytes=0
+ def resize(self,seconds):
+  self.seconds=seconds
+  if not seconds:self.reset()
+ def feed(self,kind,data,pts,dts):
+  if not self.seconds:return
+  with self.lock:
+   self.packets.append((kind,data,pts,dts));self.bytes+=len(data);oldest=pts-self.seconds*90000
+   while self.packets and (self.packets[0][2]<oldest or self.bytes>self.max_bytes):self.bytes-=len(self.packets.popleft()[1])
+ def take(self):
+  with self.lock:return list(self.packets)
+def save_clip(packets,path,events,codec=0,headers=b''):
+ """Writes packets from memory to an MP4 behind the stream's back: the writer gets them a few at a time, so the receiver and the screen keep their turns."""
+ clip=CaptureRecorder('Replay','Saving replay');clip.events=events;clip.codec=codec;clip.headers=headers;clip.max_queue=64;clip.max_bytes=float('inf')
+ clip.start(path)
+ for index,packet in enumerate(packets):
+  while clip.active and clip.queue.qsize()>=48:time.sleep(.005)
+  clip.feed(*packet)
+  if index%8==7:time.sleep(.002)
+ clip.stop(wait=True)

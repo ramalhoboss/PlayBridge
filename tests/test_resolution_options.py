@@ -43,6 +43,7 @@ def noisy_packets(count=60):
 
 def release_busy_decoder():
  """Runs in a child process: a decoder that deadlocks on release would also hang the test runner."""
+ core.gpu_decoder=lambda codec=0,on_gpu=False:None
  p=core.Player(argparse.Namespace(renderer='gdi',profile='uhd_balanced',auto_reconnect=False,device=None,connect_only=True,host='127.0.0.1',record=False,preview=False,headless=True,seconds=0))
  p.capture_info={'resolution':6};done=threading.Event();items=[(data,n*1500,n*1500,0) for n,data in enumerate(noisy_packets())]
  class StopAfterLast:
@@ -66,6 +67,21 @@ class ResolutionTests(unittest.TestCase):
   allowed={4:{4,8,12,16,20,30},5:{20,30,50},6:{40,60,80}}
   for name,profile in core.PROFILES.items():
    self.assertIn(profile['bitrate']//1000000,allowed[profile.get('resolution',4)],name)
+ def test_hevc_is_not_offered_while_the_console_gives_only_1080p_at_30_fps(self):
+  self.assertFalse([name for name,profile in core.PROFILES.items() if profile.get('codec')])
+ def test_a_codec_goes_in_the_second_byte_of_the_request(self):
+  with patch.dict(core.PROFILES,{'trial':{'fps':60,'bitrate':30000000,'resolution':6,'codec':1}}):
+   self.assertEqual(struct.unpack('<4sIII',core.capture_request('trial')),(b'PBO1',60,30000000,0x106))
+  self.assertEqual(struct.unpack('<4sIII',core.capture_request('balanced')),(b'PBO1',60,8000000,0))
+ def test_the_confirmed_codec_chooses_the_decoder(self):
+  p=self.player('uhd_maximum');p.capture_info={'resolution':6};p.codec=1
+  with patch.object(core,'gpu_decoder',return_value=None):
+   video=p.video_decoder();self.assertEqual(video.name,'hevc');self.assertEqual(p.decoder_name,'software')
+  p.codec=0;p.capture_info={'resolution':4};self.assertEqual(p.video_decoder().name,'h264')
+ def test_the_control_port_opens_only_when_the_payload_offers_it(self):
+  p,_=self.stream('balanced',self.ack(),[]);self.assertIsNone(p.link.session)
+  with patch.object(core.ConsoleLink,'begin') as begin:
+   self.stream('balanced',self.ack(control=1),[]);begin.assert_called_once()
  def test_request_carries_the_resolution(self):
   for profile,field in (('balanced',0),('qhd_high',5),('uhd_maximum',6)):
    _,console=self.stream(profile,self.ack(),[])
@@ -78,7 +94,48 @@ class ResolutionTests(unittest.TestCase):
   self.assertEqual(core.video_threads(4),('SLICE',1));self.assertEqual(core.video_threads(5),('FRAME',2));self.assertEqual(core.video_threads(6),('FRAME',3))
   # A 4K request stepped down to 1080p must not pay frame-thread delay.
   p,_=self.stream('uhd_balanced',self.ack(resolution=4,resolution_requested=6),[]);self.assertEqual(p.video_decoder().thread_count,1)
-  p,_=self.stream('uhd_balanced',self.ack(resolution=6,resolution_requested=6),[]);self.assertEqual(p.video_decoder().thread_count,3)
+  with patch.object(core,'gpu_decoder',return_value=None):
+   p,_=self.stream('uhd_balanced',self.ack(resolution=6,resolution_requested=6),[]);self.assertEqual(p.video_decoder().thread_count,3);self.assertEqual(p.decoder_name,'software')
+ def test_gpu_decodes_above_1080p_only(self):
+  gpu=object();p=self.player()
+  with patch.object(core,'gpu_decoder',return_value=gpu):
+   for resolution,used in ((6,True),(5,True),(4,False)):
+    p.capture_info={'resolution':resolution};self.assertEqual(p.video_decoder() is gpu,used,resolution);self.assertEqual(p.decoder_name,'gpu' if used else 'software')
+   p.capture_info={'resolution':6};self.assertIsNot(p.video_decoder(software=True),gpu);self.assertEqual(p.decoder_name,'software')
+ def gpu_stream(self,gpu):
+  p=self.player('uhd_balanced');video=[x for x in self.packets if x[0]==1]
+  with patch.object(core,'gpu_decoder',return_value=gpu):self.stream('uhd_balanced',self.ack(resolution=6,resolution_requested=6),paced(video),p)
+  return p,video
+ def test_gpu_failure_moves_to_software_at_the_next_keyframe(self):
+  class Failing:
+   decoded=[]
+   def decode(self,packet):
+    if packet is not None and len(self.decoded)==2:raise av.error.InvalidDataError(1094995529,'hardware failed')
+    if packet is not None:self.decoded.append(bytes(packet))
+    return []
+  gpu=Failing();p,video=self.gpu_stream(gpu)
+  self.assertEqual(len(gpu.decoded),2);self.assertEqual(p.decoder_name,'software');self.assertIsNone(p.decode_failure);self.assertGreater(p.stats['video_packets_dropped'],0);self.assertGreater(p.stats['video_decoded'],10)
+ def test_gpu_that_returns_no_pictures_moves_to_software(self):
+  class Silent:
+   def __init__(self):self.count=0
+   def decode(self,packet):
+    self.count+=1;return []
+  gpu=Silent();p,video=self.gpu_stream(gpu)
+  self.assertEqual(gpu.count,core.GPU_PATIENCE);self.assertEqual(p.decoder_name,'software');self.assertIsNone(p.decode_failure);self.assertGreater(p.stats['video_decoded'],0)
+ def test_gpu_pictures_match_software(self):
+  gpu=core.gpu_decoder()
+  if gpu is None:self.skipTest('no D3D11 video decoder here')
+  software=av.CodecContext.create('h264','r');video=[x for x in self.packets if x[0]==1][:20];same=0
+  for _,data,_,_ in video:
+   a=software.decode(av.Packet(data));b=gpu.decode(av.Packet(data))
+   for left,right in zip(a,b):
+    self.assertEqual((left.width,left.height),(right.width,right.height));self.assertEqual(right.format.name,'nv12')
+    w,h=left.width,left.height
+    def plane(frame,index,width,height):
+     p=frame.planes[index];return np.frombuffer(p,np.uint8).reshape(-1,p.line_size)[:height,:width]
+    chroma=plane(right,1,w,h//2)
+    self.assertTrue(np.array_equal(plane(left,0,w,h),plane(right,0,w,h)));self.assertTrue(np.array_equal(plane(left,1,w//2,h//2),chroma[:,0::2]));self.assertTrue(np.array_equal(plane(left,2,w//2,h//2),chroma[:,1::2]));same+=1
+  self.assertGreater(same,5)
  def test_audio_queue_limit_follows_the_confirmed_resolution(self):
   # Audio arrives late behind large frames above 1080p, and a burst of late audio must not be trimmed away.
   p=self.player();late=bytes(192*120)

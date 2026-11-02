@@ -5,11 +5,17 @@
     app/                    Python receiver and desktop interface
       assets/               App icon and control icons
       playbridge.py         Entry point and audio/video transport
-      playbridge_ui.py      Main window and settings
-      gaming_hub.py         Stats panel and capture library
-      luxury_theme.py       Black and gold theme, rims and buttons
+      playbridge_ui.py      Main window, pages and settings
+      game_mode.py          Games page and Gaming Mode
+      scene.py              Pictures for the Games page
+      console_control.py    Game library, status, launch and power over the control port
+      sound_board.py        The library's music and navigation sounds
+      pad_input.py          A controller on the PC for the Games page
+      gaming_hub.py         Session panel and Media page
+      luxury_theme.py       Colours, cards and buttons
       frame_pacing.py       One frame per monitor refresh
-      gdi_presenter.py      Windows DIB presentation
+      d3d11_presenter.py    Direct3D 11 output for frames decoded on the GPU
+      gdi_presenter.py      Windows DIB presentation, the fallback
       video_convert.py      Deterministic conversion rounding
       media_capture.py      Packet-copy MP4 recording
       stream_metrics.py     Bitrate and timing figures
@@ -17,6 +23,8 @@
       desktop_features.py   Capture listing, favourites and thumbnails
     payload/
       stream-av3.c          Firmware-13.60 native capture sender
+      console-control.h     Control port: status, game library, launch, close and power
+      control-rules.h       What the control and controller ports accept
       av-wire.h             Packet framing
       capture-options.h     Resolution and bitrate parameters
     tools/

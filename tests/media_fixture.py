@@ -2,8 +2,8 @@
 from fractions import Fraction
 import av,numpy as np
 
-def packets(seconds=2):
- v=av.CodecContext.create('libx264','w');v.width=160;v.height=96;v.pix_fmt='yuv420p';v.time_base=Fraction(1,30);v.framerate=Fraction(30,1);v.options={'preset':'ultrafast','tune':'zerolatency','x264-params':'keyint=10:min-keyint=10:scenecut=0:repeat-headers=1'};v.open()
+def packets(seconds=2,encoder='libx264'):
+ v=av.CodecContext.create(encoder,'w');v.width=160;v.height=96;v.pix_fmt='yuv420p';v.time_base=Fraction(1,30);v.framerate=Fraction(30,1);v.options={'preset':'ultrafast','tune':'zerolatency','x264-params':'keyint=10:min-keyint=10:scenecut=0:repeat-headers=1'};v.open()
  a=av.CodecContext.create('aac','w');a.sample_rate=48000;a.layout='stereo';a.format='fltp';a.bit_rate=128000;a.time_base=Fraction(1,48000);a.open()
  result=[]
  for i in range(seconds*30):

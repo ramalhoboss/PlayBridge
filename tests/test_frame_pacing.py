@@ -81,9 +81,26 @@ class RefreshClockTests(unittest.TestCase):
   self.wait_for(lambda:clock.samples>=10);seconds=clock.elapsed(time.perf_counter())
   self.assertTrue(clock.synced);self.assertAlmostEqual(clock.period,.02,delta=.01);self.assertAlmostEqual(seconds/clock.period,round(seconds/clock.period),places=6);self.assertGreater(seconds,0)
   self.assertLess(clock.elapsed(time.perf_counter()),clock.period*2)
+ def test_a_missed_refresh_counts_twice_without_stretching_the_measured_length(self):
+  calls=[0];stop=threading.Event();self.addCleanup(stop.set)
+  def flush():
+   calls[0]+=1;time.sleep(.04 if calls[0]>12 and calls[0]%3==0 else .02);return 0
+  clock=RefreshClock(stop,flush=flush);self.wait_for(lambda:calls[0]>=40);counted=clock.count;stop.set()
+  # With every third refresh missed, an average over all the gaps would be over 26 ms.
+  self.assertLess(clock.period,.023);self.assertGreater(clock.period,.019);self.assertGreater(counted,calls[0]+5)
+ def test_the_first_gap_after_a_start_is_not_measured(self):
+  calls=[0];stop=threading.Event();self.addCleanup(stop.set)
+  def flush():
+   calls[0]+=1;time.sleep(.005 if calls[0]==1 else .02);return 0
+  clock=RefreshClock(stop,flush=flush);self.wait_for(lambda:clock.samples>=3)
+  self.assertGreater(clock.period,.0175)
  def test_falls_back_to_wall_time_without_composition(self):
   stop=threading.Event();self.addCleanup(stop.set);clock=RefreshClock(stop,flush=lambda:0);time.sleep(.03)
   self.assertFalse(clock.synced);started=time.perf_counter();clock.elapsed(started);self.assertAlmostEqual(clock.elapsed(started+.25),.25,places=6)
  def test_a_failed_flush_also_falls_back(self):
   stop=threading.Event();self.addCleanup(stop.set);clock=RefreshClock(stop,flush=lambda:time.sleep(.02) or -1);time.sleep(.1);self.assertFalse(clock.synced);self.assertEqual(clock.count,0)
+ def test_runs_the_work_it_is_given_with_or_without_composition(self):
+  for result in (0,1):
+   stop=threading.Event();self.addCleanup(stop.set);clock=RefreshClock(stop,flush=lambda:time.sleep(.01) or result);ticks=[];clock.after=lambda:ticks.append(clock.count)
+   self.wait_for(lambda:len(ticks)>=3);clock.after=None;stop.set()
 if __name__=='__main__':unittest.main()

@@ -9,7 +9,55 @@ def parse_response(data,address):
   if ':' in line:
    k,v=line.split(':',1);fields[k.strip().lower()]=v.strip()
  if fields.get('host-type','').upper()!='PS5':return None
- return {'ip':address,'name':fields.get('host-name','PS5')[:64],'source':'PS5 discovery'}
+ return {'ip':address,'name':fields.get('host-name','PS5')[:64],'source':'PS5 discovery','resting':lines[0].split()[1:2]==['620'],'firmware':fields.get('system-version','')}
+
+SEARCH=b'SRCH * HTTP/1.1\r\ndevice-discovery-protocol-version:00030010\r\n\r\n'
+def firmware_name(version):
+ """'13600007' reads as 13.60; an empty string means the console did not say."""
+ return f'{int(version[:2],16):x}.{int(version[2:4],16):02x}' if len(version)==8 and all(c in '0123456789abcdefABCDEF' for c in version) else ''
+
+# The value the payload's own firmware check accepts.
+SUPPORTED_FIRMWARE='13600007'
+def supported(item):
+ """False only when the console said it runs a firmware the payload refuses."""
+ return not item.get('firmware') or item['firmware']==SUPPORTED_FIRMWARE
+
+def ask(host,timeout=.6):
+ """The console's own answer, with nothing loaded on it. None if it stays silent."""
+ with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as udp:
+  udp.settimeout(timeout)
+  try:
+   udp.sendto(SEARCH,(host,9302))
+   while True:
+    data,addr=udp.recvfrom(8192)
+    if addr[0]==host:return parse_response(data,host)
+  except OSError:return None
+
+def broadcast(wait=1.2):
+ """Every PS5 that answers on this network."""
+ found={}
+ with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as udp:
+  udp.setsockopt(socket.SOL_SOCKET,socket.SO_BROADCAST,1);udp.settimeout(.2);udp.bind(('',0))
+  try:udp.sendto(SEARCH,('255.255.255.255',9302))
+  except OSError:pass
+  until=time.monotonic()+wait
+  while time.monotonic()<until:
+   try:data,addr=udp.recvfrom(8192)
+   except socket.timeout:continue
+   except OSError:break
+   item=parse_response(data,addr[0])
+   if item:found[item['ip']]=item
+ return found
+
+def locate(host):
+ """The console to use when the app opens: the saved address if it answers, otherwise the only PS5 on the network. A loopback address is a test double and stays what it is."""
+ try:
+  if ipaddress.ip_address(host).is_loopback:return None
+ except ValueError:pass
+ item=ask(host) if host else None
+ if item:return item
+ found=broadcast()
+ return next(iter(found.values())) if len(found)==1 else None
 
 def local_addresses():
  addresses=set()
@@ -29,18 +77,7 @@ def manager_probe(ip):
  return None
 
 def discover(preferred=None):
- found={}
- with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as udp:
-  udp.setsockopt(socket.SOL_SOCKET,socket.SO_BROADCAST,1);udp.settimeout(.2);udp.bind(('',0))
-  request=b'SRCH * HTTP/1.1\r\ndevice-discovery-protocol-version:00030010\r\n\r\n'
-  try:udp.sendto(request,('255.255.255.255',9302))
-  except OSError:pass
-  until=time.monotonic()+1.2
-  while time.monotonic()<until:
-   try:data,addr=udp.recvfrom(8192)
-   except socket.timeout:continue
-   item=parse_response(data,addr[0])
-   if item:found[item['ip']]=item
+ found=broadcast()
  # Check saved address plus a bounded /24 around each local interface (max 2).
  targets=set()
  try:

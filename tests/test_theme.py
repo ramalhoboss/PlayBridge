@@ -6,9 +6,10 @@ if os.environ.get('PLAYBRIDGE_DEPS'):sys.path.insert(0,os.environ['PLAYBRIDGE_DE
 import customtkinter as ctk
 import numpy as np
 from PIL import Image
-from luxury_theme import BG,CARD,GOLD,PANEL,LuxButton,apply_theme,bezel_image,button_image,dot,gold_text,rounded_mask,tint
+from luxury_theme import BG,CARD,GOLD,GOLD_HOVER,PANEL,RIM,LuxButton,apply_theme,bezel_image,button_image,rounded_mask,tint
 
 def rgb(text):return tuple(int(text[i:i+2],16) for i in (1,3,5))
+def dot(colour):return Image.new('RGBA',(64,64),colour)
 
 class ThemeTests(unittest.TestCase):
  def test_tint_keeps_the_shape_and_uses_the_colour_at_full_strength(self):
@@ -34,20 +35,15 @@ class ThemeTests(unittest.TestCase):
   for size,radius in (((100,60),10),((34,34),17),((40,12),6)):
    mask=np.asarray(rounded_mask(size,0,radius))
    self.assertTrue((mask==mask[::-1]).all());self.assertTrue((mask==mask[:,::-1]).all());self.assertEqual(mask.shape,(size[1],size[0]))
- def test_a_bezel_rim_is_one_pixel_of_gold_between_the_panel_and_the_black_behind_it(self):
+ def test_a_card_rim_is_one_neutral_pixel_between_the_card_and_the_black_behind_it(self):
   image=bezel_image((200,120))
   self.assertEqual(image.size,(200,120));self.assertEqual(image.getpixel((0,0)),rgb(BG));self.assertEqual(image.getpixel((100,60)),rgb(PANEL))
-  red,green,blue=image.getpixel((0,60));self.assertGreater(red,blue+40);self.assertGreater(green,blue);self.assertEqual(image.getpixel((1,60)),rgb(PANEL))
- def test_a_glow_sits_outside_the_rim(self):
-  image=bezel_image((200,120),glow=3)
-  self.assertGreater(image.getpixel((2,60))[0],rgb(BG)[0]);self.assertGreater(image.getpixel((3,60))[0],image.getpixel((2,60))[0]);self.assertEqual(image.getpixel((4,60)),rgb(PANEL))
- def test_gold_lettering_is_warm_on_a_transparent_ground(self):
-  art=gold_text('Gold',24)
-  if art is None:self.skipTest('The font is not installed')
-  pixels=np.asarray(art);self.assertEqual(pixels[...,3].min(),0);opaque=pixels[pixels[...,3]==255];self.assertGreater(len(opaque),0);self.assertTrue((opaque[...,0]>opaque[...,2]).all())
- def test_a_gold_button_differs_when_hovered_and_has_dark_lettering(self):
-  rest=button_image((130,38),'Connect',tone='gold');hover=button_image((130,38),'Connect',tone='gold',hovering=True)
-  self.assertEqual(rest.size,(130,38));self.assertNotEqual(rest.tobytes(),hover.tobytes());self.assertLess(np.asarray(rest.convert('L'))[10:28,30:100].min(),60)
+  self.assertEqual(image.getpixel((0,60)),rgb(RIM));self.assertEqual(image.getpixel((1,60)),rgb(PANEL))
+ def test_the_main_button_is_white_with_dark_lettering_and_gold_under_the_pointer(self):
+  rest=button_image((130,38),'Connect',tone='main');hover=button_image((130,38),'Connect',tone='main',hovering=True)
+  self.assertEqual(rest.size,(130,38));self.assertEqual(rest.getpixel((10,19)),(250,250,250));self.assertEqual(hover.getpixel((10,19)),rgb(GOLD_HOVER));self.assertLess(np.asarray(rest.convert('L'))[10:28,30:100].min(),60)
+ def test_a_label_can_start_at_the_left_of_its_button(self):
+  self.assertNotEqual(button_image((220,44),'Console',tone='ghost',align='left').tobytes(),button_image((220,44),'Console',tone='ghost').tobytes())
  def test_a_plain_button_has_a_thin_rim_around_its_face(self):
   image=button_image((40,40))
   self.assertEqual(image.getpixel((0,0)),rgb(PANEL));self.assertEqual(image.getpixel((20,20)),rgb(CARD));self.assertEqual(image.getpixel((1,20)),rgb(CARD));self.assertGreater(image.getpixel((0,20))[0],60)

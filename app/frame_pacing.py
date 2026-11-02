@@ -38,19 +38,22 @@ class FramePacer:
 class RefreshClock:
  """Counts monitor refreshes on its own thread, because waiting for one would block the Tk loop."""
  def __init__(self,stop,flush=None):
-  self.stop=stop;self.count=0;self.seen=0;self.samples=0;self.period=1/60;self.synced=False;self.read_at=time.perf_counter();self.flush=flush
+  self.stop=stop;self.count=0;self.seen=0;self.samples=0;self.period=1/60;self.synced=False;self.read_at=time.perf_counter();self.flush=flush;self.after=None
   if flush is None:
    try:self.flush=ctypes.windll.dwmapi.DwmFlush
    except (AttributeError,OSError):pass
   if self.flush is not None:threading.Thread(target=self.run,name='PlayBridge refresh clock',daemon=True).start()
  def run(self):
-  last=time.perf_counter()
+  last=time.perf_counter();partial=True
   while not self.stop.is_set():
    failed=self.flush();now=time.perf_counter();gap=now-last;last=now
    # Without composition, as on a locked session, the call returns at once.
-   if failed or gap<.002:self.synced=False;self.stop.wait(.005);last=time.perf_counter();continue
-   if gap<.05:self.samples=min(self.samples+1,50);self.period+=(gap-self.period)/self.samples
-   self.count+=max(1,round(gap/self.period));self.synced=True
+   if failed or gap<.002:self.synced=False;partial=True;self.stop.wait(.005);last=time.perf_counter()
+   else:
+    # The first gap after a start or a pause is part of a refresh. Later only a gap of about one refresh measures its length: a missed refresh would stretch it for seconds, and the clock would run fast and skip frames.
+    if not partial and (self.samples<10 or abs(gap-self.period)<self.period/4):self.samples=min(self.samples+1,50);self.period+=(gap-self.period)/self.samples
+    partial=False;self.count+=max(1,round(gap/self.period));self.synced=True
+   if self.after:self.after()
  def elapsed(self,now):
   """The time to move the playback clock: whole refreshes when they can be counted, otherwise wall time."""
   if self.synced:
