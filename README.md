@@ -16,9 +16,9 @@ PlayBridge automatically sends its embedded payload to the console's ELF loader,
 
 No HDMI capture card. No official Remote Play client or PSN Remote Play pairing. A jailbreak-capable PS5 with a working Payload Manager ELF loader is required.
 
-<p align="center"><img src="docs/images/playbridge-games.png" alt="PlayBridge Games page with a row of game tiles, the selected game's title, a Play button and cards for play time, size, stream and console temperature" width="100%"></p>
+<p align="center"><img src="docs/images/playbridge-games.jpg" alt="PlayBridge Games page with a row of game covers, the selected game's art filling the window, its title, a Play button and cards for play time, size, a 4K 60 fps stream and console temperature" width="100%"></p>
 
-> Screenshots show the real application. The Games page above uses a sample library, because covers and music come from your own console when you connect. The game pictures further down are PS5 captures saved with PlayBridge. PlayBridge is in English; the console's own language remains whatever you selected on the PS5.
+> Screenshots show the real application. The Games page above shows a real PS5 library: covers and music come from your own console when you connect, and none are included in the download. The game pictures further down are PS5 captures saved with PlayBridge. PlayBridge is in English; the console's own language remains whatever you selected on the PS5.
 
 ## New in v1.4.0
 
