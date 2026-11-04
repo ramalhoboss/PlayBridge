@@ -1,6 +1,6 @@
 <p align="center"><img src="docs/images/banner.png" alt="PlayBridge: your PS5 games, video and audio on your Windows PC" width="100%"></p>
 <p align="center">
-  <a href="https://github.com/ramalhoboss/PlayBridge/releases/latest"><img alt="Download v1.4.1" src="docs/images/badge-download.png" height="36"></a>
+  <a href="https://github.com/ramalhoboss/PlayBridge/releases/latest"><img alt="Download v1.4.2" src="docs/images/badge-download.png" height="36"></a>
   <img alt="Windows x64" src="docs/images/badge-windows.png" height="36">
   <img alt="PS5 firmware 13.60" src="docs/images/badge-ps5.png" height="36">
   <img alt="Up to 4K60" src="docs/images/badge-4k.png" height="36">
@@ -20,6 +20,11 @@ No HDMI capture card. No official Remote Play client or PSN Remote Play pairing.
 <p align="center"><img src="docs/images/playbridge-games.jpg" alt="PlayBridge Games page with a row of game covers, the selected game's art filling the window, its title, a Play button and cards for play time, size, a 4K 60 fps stream and console temperature" width="100%"></p>
 
 > Screenshots show the real application. The Games page above shows a real PS5 library: covers and music come from your own console when you connect, and none are included in the download. The game pictures further down are PS5 captures saved with PlayBridge. PlayBridge is in English; the console's own language remains whatever you selected on the PS5.
+
+## New in v1.4.2
+
+- **FSR 1 upscaling:** a new switch in **Settings → Picture**, off by default. When your screen is larger than the stream, such as a 1080p stream on a 1440p or 4K monitor, AMD FidelityFX Super Resolution 1 enlarges the picture along its edges, and **Sharpen picture** uses FSR's own sharpening. It works with the GPU video output on any graphics card.
+- Includes the v1.4.1 fix: the IP address you type in Settings is the one PlayBridge uses. The payload is the same as in v1.4.0.
 
 ## New in v1.4.1
 
@@ -46,14 +51,14 @@ Automatic mode includes the updated payload. Manual users should load the v1.4.0
 
 | File | What it contains |
 |---|---|
-| [PlayBridge.exe](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.1/PlayBridge.exe) | Portable Windows application, including Python dependencies and the embedded ELF. |
-| [PlayBridge.elf](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.1/PlayBridge.elf) | Standalone PS5 payload for manual loading. |
-| [PlayBridge-Windows-v1.4.1.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.1/PlayBridge-Windows-v1.4.1.zip) | Windows EXE and quick-start instructions. |
-| [PlayBridge-Payload-v1.4.1.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.1/PlayBridge-Payload-v1.4.1.zip) | ELF and manual-mode instructions. |
-| [PlayBridge-Complete-v1.4.1.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.1/PlayBridge-Complete-v1.4.1.zip) | Both files, quick-start instructions and component notices. |
-| [Third-party-licenses.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.1/Third-party-licenses.zip) | Component notices for standalone downloads. |
-| [PlayBridge-Source-v1.4.1.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.1/PlayBridge-Source-v1.4.1.zip) | Application and payload source, assets, tests and build instructions. |
-| [SHA256SUMS.txt](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.1/SHA256SUMS.txt) | Checksums for the release downloads. |
+| [PlayBridge.exe](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.2/PlayBridge.exe) | Portable Windows application, including Python dependencies and the embedded ELF. |
+| [PlayBridge.elf](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.2/PlayBridge.elf) | Standalone PS5 payload for manual loading. |
+| [PlayBridge-Windows-v1.4.2.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.2/PlayBridge-Windows-v1.4.2.zip) | Windows EXE and quick-start instructions. |
+| [PlayBridge-Payload-v1.4.2.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.2/PlayBridge-Payload-v1.4.2.zip) | ELF and manual-mode instructions. |
+| [PlayBridge-Complete-v1.4.2.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.2/PlayBridge-Complete-v1.4.2.zip) | Both files, quick-start instructions and component notices. |
+| [Third-party-licenses.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.2/Third-party-licenses.zip) | Component notices for standalone downloads. |
+| [PlayBridge-Source-v1.4.2.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.2/PlayBridge-Source-v1.4.2.zip) | Application and payload source, assets, tests and build instructions. |
+| [SHA256SUMS.txt](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.2/SHA256SUMS.txt) | Checksums for the release downloads. |
 
 Download the release assets above to run the application. To inspect or build it, browse [app/](app/), [payload/](payload/) and [tools/](tools/), or download the source archive. GitHub's source archives contain source files, not the Windows EXE.
 
@@ -191,7 +196,7 @@ The standalone ELF waits for one viewer per execution. After ending a manual ses
 | Gaming Mode | Your games fullscreen on the PC; when the console's menu comes to the front, the PC shows your games instead. |
 | Console status | The game in front, CPU and SoC temperature, and whether a console found on the network is resting. |
 | Power | Rest mode, soft reset (close and relaunch the game), and reboot and turn off (not yet tested on a console). Each asks first. |
-| Presentation | **Direct3D 11** by default: the GPU decodes the video, converts its colour, scales it and presents it, with optional sharpening. Windows **GDI** remains as the automatic fallback and as a switch in Settings. Both show one frame per monitor refresh from a short queue, and skip frames rather than letting the delay grow. |
+| Presentation | **Direct3D 11** by default: the GPU decodes the video, converts its colour, scales it and presents it, with optional sharpening and optional AMD FSR 1 upscaling when the screen is larger than the stream. Windows **GDI** remains as the automatic fallback and as a switch in Settings. Both show one frame per monitor refresh from a short queue, and skip frames rather than letting the delay grow. |
 | Decoding | Separate from the network thread, so a slow decoder drops video until the next keyframe instead of stalling audio or the connection. Software decoding uses frame threads above 1080p. |
 | Audio buffering | Bounded PCM queue; if it exceeds approximately **60 ms**, it is trimmed toward **40 ms**. Above 1080p these limits are **160 ms** and **120 ms**. |
 | Window modes | Resizable window, fullscreen, centered image and preserved aspect ratio. Black bars can appear when the available area is not 16:9. |
@@ -315,6 +320,7 @@ These are **PC pipeline measurements**, not total HDMI-to-PC latency, controller
 | A 4K profile gives 1080p | The PS5's video output is lower than the profile. Check the line at the bottom of the window, the PS5's Resolution setting, the display and the HDMI cable. |
 | No picture on the TV at 2160p | Try an HDMI cable rated for 4K at 60 Hz. |
 | 4K does not look sharp on my PC | A 1080p monitor shows the stream scaled down. Try **Sharpen picture**, or open a screenshot or recording to see the full size. |
+| 1080p looks soft on a 1440p or 4K monitor | Turn on **Settings → Picture → FSR 1 upscaling**, and **Sharpen picture** for its sharpening. It needs the GPU video output. |
 | Stutter at high profiles | Try a lower bitrate, use Ethernet and close heavy programs. Check the session panel: a game at 30 fps will not look like 60. |
 | F10 says instant replay is off | Choose a length in **Settings → Captures → Instant replay**. |
 | Manual mode times out | Reload the ELF, then connect within 60 seconds. |
@@ -330,6 +336,7 @@ Preferences, the game library and local diagnostic files are stored in <code>%LO
 
 ## Release history
 
+- **v1.4.2:** optional AMD FSR 1 upscaling on the GPU video output, for screens larger than the stream.
 - **v1.4.1:** an IP address typed in Settings is always used, and connection errors name the address tried and any PS5 that answered elsewhere.
 - **v1.4.0:** Games page with Play, Resume and Close, Gaming Mode, Direct3D 11 output with GPU decoding, instant replay, a new one-window design, console status and power, a steadier refresh clock, sharper scaling, encoder recovery and firmware-aware discovery.
 - **v1.3.0:** experimental 1440p and 4K, refresh-paced presentation, larger encoder frame budget, flicker fix, black and gold desktop, capture library with thumbnails, stats panel, console discovery, favourites and diagnostics export.

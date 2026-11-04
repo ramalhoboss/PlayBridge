@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.4.2 — 2026-11-04
+- FSR 1 upscaling, a switch in Settings → Picture, off by default. When the screen is larger than the stream, the GPU video output enlarges the picture with AMD FidelityFX Super Resolution 1 (EASU), and Sharpen picture uses its sharpening (RCAS). The colour is converted at the stream's own size first, because FSR works in RGB. At the same size or smaller, the output is unchanged.
+- On the owner's RX 6600, enlarging 1080p to 4K took about 3.0 ms of GPU time per frame against 3.6 ms with the previous bicubic scaling, and 3.5 against 4.0 ms with sharpening. On PS5 captures reduced to 1080p and enlarged again, the result measured about the same as before, with slightly cleaner text edges. It has not yet been compared on a live PS5 stream.
+- AMD's FSR 1 code is under the MIT license, included in third-party-licenses/amd-fsr1.
+- The payload is unchanged from v1.4.0.
+
 ## v1.4.1 — 2026-11-04
 - An IP address typed in Settings is always the one PlayBridge uses. In v1.4.0, when nothing answered at the saved address and exactly one PS5 answered the network search, PlayBridge switched to that console and saved its address over the typed one, so a wrong or test address still connected to the console on the network.
 - PlayBridge still finds the console by itself while no address has been typed, and still follows it to a new address given by the router. Installs from v1.4.0 keep that behaviour until an address is typed.

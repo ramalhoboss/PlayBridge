@@ -40,6 +40,12 @@ class SumsTests(unittest.TestCase):
   self.assertEqual(d.fitted(3840,2160,1000,1000),(0,219,1000,562));self.assertEqual(d.fitted(3840,2160,3000,1000),(611,0,1777,1000))
  def test_the_area_filter_starts_at_half_size(self):
   self.assertEqual(d.luma_filter(2),d.BOX);self.assertEqual(d.luma_filter(3.5),d.BOX);self.assertEqual(d.luma_filter(1.5),d.CUBIC);self.assertEqual(d.luma_filter(1),d.CUBIC)
+ def test_fsr_only_enlarges(self):
+  self.assertTrue(d.enlarged(.5));self.assertTrue(d.enlarged(.75));self.assertFalse(d.enlarged(1));self.assertFalse(d.enlarged(2))
+ def test_the_easu_constants_follow_amds(self):
+  # 1080p on a 4K screen: a screen pixel is half a texel, and the gathers sit one, two and four texels from the first.
+  c=d.easu_constants(1920,1080,3840,2160);self.assertEqual(c[:4],(.5,.5,-.25,-.25))
+  self.assertEqual([round(value*size,6) for value,size in zip(c[4:14],(1920,1080)*5)],[1,1,1,-1,-1,2,1,2,0,4]);self.assertEqual(c[14:],(0,0))
  def test_slice_zero_leaves_a_single_plane(self):
   self.assertEqual(d.surface_of(SimpleNamespace(planes=[SimpleNamespace(buffer_ptr=77)])),(77,0))
   self.assertEqual(d.surface_of(SimpleNamespace(planes=[SimpleNamespace(buffer_ptr=77),SimpleNamespace(buffer_ptr=5)])),(77,5))
@@ -157,7 +163,7 @@ class DrawingTests(unittest.TestCase):
  @classmethod
  def tearDownClass(cls):
   cls.output.detach();cls.root.destroy()
- def setUp(self):self.output.sharpen=False
+ def setUp(self):self.output.sharpen=False;self.output.fsr=False
  def drawn(self,frame,width=640,height=360):
   self.output.wanted=(width,height)
   for _ in range(5):
@@ -183,6 +189,17 @@ class DrawingTests(unittest.TestCase):
    self.assert_the_colour(self.drawn(frame.reformat(format=name)))
  def test_sharpening_leaves_a_flat_colour_alone(self):
   frames=self.gpu_frames();self.output.sharpen=True;self.assert_the_colour(self.drawn(frames[-1]))
+ def test_fsr_enlarges_a_flat_colour_unchanged(self):
+  frames=self.gpu_frames();self.output.fsr=True;self.output.sharpen=True;picture=self.drawn(frames[-1],1280,720);self.assertTrue(self.output.enlarging);self.assertEqual(picture.shape,(720,1280,3))
+  for got,want in zip(picture[360,640],result_of(d.colour_rows(1,False),Y,U,V)):self.assertAlmostEqual(int(got),want,delta=2)
+ def test_fsr_waits_for_a_picture_to_enlarge(self):
+  self.output.fsr=True;self.drawn(self.gpu_frames()[-1]);self.assertFalse(self.output.enlarging)
+ def test_fsr_enlarges_an_edge_without_ringing(self):
+  # Dark grey on the left and light grey on the right, which bicubic rings around.
+  rows=np.full((540,640),128,np.uint8);rows[:360]=40;rows[:360,320:]=200;edge=av.VideoFrame.from_ndarray(rows,format='yuv420p')
+  self.output.fsr=True;row=self.drawn(edge,1280,720)[360].astype(int);self.assertTrue(self.output.enlarging)
+  dark,light=result_of(d.colour_rows(1,False),40,128,128)[0],result_of(d.colour_rows(1,False),200,128,128)[0]
+  self.assertGreaterEqual(row.min(),dark-2);self.assertLessEqual(row.max(),light+2);self.assertLessEqual(int(((row[:,0]>dark+20)&(row[:,0]<light-20)).sum()),3)
  def test_nothing_old_stays_around_a_smaller_picture(self):
   frames=self.gpu_frames();self.drawn(frames[-1]);picture=self.drawn(frames[-1],640,480)
   self.assertEqual(picture.shape,(480,640,3));self.assertEqual(int(picture[:60].max()),0);self.assertEqual(int(picture[-60:].max()),0);self.assertGreater(int(picture[240,320].max()),0)

@@ -191,6 +191,11 @@ def run_ui(app):
    def change_sharpen():
     presenter.sharpen=sharpen_on.get();core.save_config(sharpen=sharpen_on.get())
    switch(place,'Sharpen picture',sharpen_on,change_sharpen)
+   fsr_on=ctk.BooleanVar(value=presenter.fsr)
+   def change_fsr():
+    presenter.fsr=fsr_on.get();core.save_config(fsr=fsr_on.get())
+   switch(place,'FSR 1 upscaling',fsr_on,change_fsr)
+   note(place,'When the screen is larger than the picture, such as 1080p on a 1440p or 4K monitor, AMD FidelityFX Super Resolution 1 enlarges it, and Sharpen picture uses its sharpening. Works on any graphics card.')
   # Captures.
   place=card(sections['captures'],'Instant replay')
   replay_lengths={'Off':0,'Last 30 seconds':30,'Last 60 seconds':60,'Last 2 minutes':120}
@@ -382,7 +387,7 @@ def run_ui(app):
   surface=tk.Frame(stage,bg='',width=1,height=1)
   try:
    from d3d11_presenter import D3D11Presenter
-   presenter=D3D11Presenter(surface,core.config().get('sharpen',False));direct=True
+   presenter=D3D11Presenter(surface,core.config().get('sharpen',False),core.config().get('fsr',False));direct=True
   except Exception:surface.destroy();surface=None;app.use_gdi()
  if app.renderer=='gdi':
   from gdi_presenter import GdiPresenter

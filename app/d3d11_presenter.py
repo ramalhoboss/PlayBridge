@@ -31,7 +31,7 @@ class SamplerDesc(Structure):_fields_=[('Filter',UINT),('AddressU',UINT),('Addre
 class Mapped(Structure):_fields_=[('Data',c_void_p),('RowPitch',UINT),('DepthPitch',UINT)]
 class Viewport(Structure):_fields_=[('X',c_float),('Y',c_float),('Width',c_float),('Height',c_float),('MinDepth',c_float),('MaxDepth',c_float)]
 
-BGRA8=87;R8=61;R8G8=49;NV12=103;P010=104;R16=56;R16G16=35
+BGRA8=87;R8=61;R8G8=49;NV12=103;P010=104;R16=56;R16G16=35;RGB10=24
 USAGE_DEFAULT=0;USAGE_DYNAMIC=2;USAGE_STAGING=3
 BIND_CONSTANT=4;BIND_SHADER=8;BIND_TARGET=0x20
 CPU_WRITE=0x10000;CPU_READ=0x20000;MAP_READ=1;MAP_DISCARD=4
@@ -44,6 +44,8 @@ VIEWS={NV12:(R8,R8G8),P010:(R16,R16G16)}
 PLANES={'yuv420p':((R8,1),(R8,2),(R8,2)),'yuvj420p':((R8,1),(R8,2),(R8,2)),'nv12':((R8,1),(R8G8,2))}
 CUBIC,BOX=0,1
 BLACK=(c_float*4)(0,0,0,1)
+# RCAS in stops below its strongest. 0.2 gives it about the strength of the sharpening after bicubic.
+RCAS_STOPS=.2
 
 SHADERS=b"""
 cbuffer Picture:register(b0){float2 size;float2 ratio;float4 rows[3];int luma_filter;int chroma_filter;int interleaved;int unused;};
@@ -84,6 +86,60 @@ float4 sharpen(Pixel p):SV_Target{
  float3 low=min(c,min(n,min(s,min(w,e)))),high=max(c,max(n,max(s,max(w,e))));float3 amount=sqrt(saturate(min(low,1-high)/max(high,.0001)))*-.16;
  return float4(saturate((c+(n+s+w+e)*amount)/(1+4*amount)),1);
 }
+// The colours at the picture's own size, for FSR to enlarge.
+float4 rgb(Pixel p):SV_Target{
+ float2 c=p.at.xy,cc=c/2;float2 d;blue.GetDimensions(d.x,d.y);float y=luma.Load(int3(c,0)).r,u,v;
+ if(interleaved){float2 uv=blue.SampleLevel(smooth,cc/d,0).rg;u=uv.r;v=uv.g;}
+ else{u=blue.SampleLevel(smooth,cc/d,0).r;v=red.SampleLevel(smooth,cc/d,0).r;}
+ float4 pixel=float4(y,u,v,1);return float4(saturate(float3(dot(rows[0],pixel),dot(rows[1],pixel),dot(rows[2],pixel))),1);
+}
+// AMD FidelityFX Super Resolution 1, the 32-bit EASU and RCAS of ffx_fsr1.h v1.20210629.
+// Copyright (c) 2021 Advanced Micro Devices, Inc. MIT licence, in THIRD-PARTY-NOTICES.md.
+cbuffer Scaler:register(b1){float4 con0;float4 con1;float4 con2;float4 con3;float2 origin;float sharpness;float spare;};
+float rcp_low(float a){return asfloat(0x7ef07ebbu-asuint(a));}
+float rcp_medium(float a){float b=asfloat(0x7ef19fffu-asuint(a));return b*(-b*a+2);}
+float rsq_low(float a){return asfloat(0x5f347d74u-(asuint(a)>>1));}
+void easu_tap(inout float3 sum,inout float total,float2 off,float2 dir,float2 len,float lob,float clp,float3 c){
+ float2 v=float2(off.x*dir.x+off.y*dir.y,off.x*-dir.y+off.y*dir.x)*len;float d2=min(v.x*v.x+v.y*v.y,clp);
+ float wb=2./5*d2-1,wa=lob*d2-1;wb*=wb;wa*=wa;wb=25./16*wb-(25./16-1);float w=wb*wa;sum+=c*w;total+=w;
+}
+void easu_set(inout float2 dir,inout float len,float w,float a,float b,float c,float d,float e){
+ float across=rcp_low(max(abs(d-c),abs(c-b))),dx=d-b;dir.x+=dx*w;across=saturate(abs(dx)*across);len+=across*across*w;
+ float down=rcp_low(max(abs(e-c),abs(c-a))),dy=e-a;dir.y+=dy*w;down=saturate(abs(dy)*down);len+=down*down*w;
+}
+// Edge adaptive enlarging, from the picture in luma to the pixel at the same place in the viewport.
+float4 easu(Pixel p):SV_Target{
+ float2 pp=float2(uint2(p.at.xy-origin))*con0.xy+con0.zw,fp=floor(pp);pp-=fp;
+ float2 p0=fp*con1.xy+con1.zw,p1=p0+con2.xy,p2=p0+con2.zw,p3=p0+con3.xy;
+ float4 bczzR=luma.GatherRed(smooth,p0),bczzG=luma.GatherGreen(smooth,p0),bczzB=luma.GatherBlue(smooth,p0);
+ float4 ijfeR=luma.GatherRed(smooth,p1),ijfeG=luma.GatherGreen(smooth,p1),ijfeB=luma.GatherBlue(smooth,p1);
+ float4 klhgR=luma.GatherRed(smooth,p2),klhgG=luma.GatherGreen(smooth,p2),klhgB=luma.GatherBlue(smooth,p2);
+ float4 zzonR=luma.GatherRed(smooth,p3),zzonG=luma.GatherGreen(smooth,p3),zzonB=luma.GatherBlue(smooth,p3);
+ float4 bczzL=bczzB*.5+(bczzR*.5+bczzG),ijfeL=ijfeB*.5+(ijfeR*.5+ijfeG),klhgL=klhgB*.5+(klhgR*.5+klhgG),zzonL=zzonB*.5+(zzonR*.5+zzonG);
+ float bL=bczzL.x,cL=bczzL.y,iL=ijfeL.x,jL=ijfeL.y,fL=ijfeL.z,eL=ijfeL.w,kL=klhgL.x,lL=klhgL.y,hL=klhgL.z,gL=klhgL.w,oL=zzonL.z,nL=zzonL.w;
+ float2 dir=0;float len=0;
+ easu_set(dir,len,(1-pp.x)*(1-pp.y),bL,eL,fL,gL,jL);easu_set(dir,len,pp.x*(1-pp.y),cL,fL,gL,hL,kL);
+ easu_set(dir,len,(1-pp.x)*pp.y,fL,iL,jL,kL,nL);easu_set(dir,len,pp.x*pp.y,gL,jL,kL,lL,oL);
+ float2 dir2=dir*dir;float dirR=dir2.x+dir2.y;bool zro=dirR<1./32768;dirR=rsq_low(dirR);dirR=zro?1:dirR;dir.x=zro?1:dir.x;dir*=dirR;
+ len=len*.5;len*=len;float stretch=(dir.x*dir.x+dir.y*dir.y)*rcp_low(max(abs(dir.x),abs(dir.y)));
+ float2 len2=float2(1+(stretch-1)*len,1-.5*len);float lob=.5+((1./4-.04)-.5)*len,clp=rcp_low(lob);
+ float3 f=float3(ijfeR.z,ijfeG.z,ijfeB.z),g=float3(klhgR.w,klhgG.w,klhgB.w),j=float3(ijfeR.y,ijfeG.y,ijfeB.y),k=float3(klhgR.x,klhgG.x,klhgB.x);
+ float3 low=min(min(f,g),min(j,k)),high=max(max(f,g),max(j,k)),sum=0;float total=0;
+ easu_tap(sum,total,float2(0,-1)-pp,dir,len2,lob,clp,float3(bczzR.x,bczzG.x,bczzB.x));easu_tap(sum,total,float2(1,-1)-pp,dir,len2,lob,clp,float3(bczzR.y,bczzG.y,bczzB.y));
+ easu_tap(sum,total,float2(-1,1)-pp,dir,len2,lob,clp,float3(ijfeR.x,ijfeG.x,ijfeB.x));easu_tap(sum,total,float2(0,1)-pp,dir,len2,lob,clp,j);
+ easu_tap(sum,total,float2(0,0)-pp,dir,len2,lob,clp,f);easu_tap(sum,total,float2(-1,0)-pp,dir,len2,lob,clp,float3(ijfeR.w,ijfeG.w,ijfeB.w));
+ easu_tap(sum,total,float2(1,1)-pp,dir,len2,lob,clp,k);easu_tap(sum,total,float2(2,1)-pp,dir,len2,lob,clp,float3(klhgR.y,klhgG.y,klhgB.y));
+ easu_tap(sum,total,float2(2,0)-pp,dir,len2,lob,clp,float3(klhgR.z,klhgG.z,klhgB.z));easu_tap(sum,total,float2(1,0)-pp,dir,len2,lob,clp,g);
+ easu_tap(sum,total,float2(1,2)-pp,dir,len2,lob,clp,float3(zzonR.z,zzonG.z,zzonB.z));easu_tap(sum,total,float2(0,2)-pp,dir,len2,lob,clp,float3(zzonR.w,zzonG.w,zzonB.w));
+ return float4(min(high,max(low,sum/total)),1);
+}
+// Sharpening as strong as it can be before the cross of neighbours would clip.
+float4 rcas(Pixel p):SV_Target{
+ int3 at=int3(p.at.xy,0);float3 b=luma.Load(at,int2(0,-1)).rgb,d=luma.Load(at,int2(-1,0)).rgb,e=luma.Load(at).rgb,f=luma.Load(at,int2(1,0)).rgb,h=luma.Load(at,int2(0,1)).rgb;
+ float3 low=min(min(b,d),min(f,h)),high=max(max(b,d),max(f,h)),lobes=max(-(min(low,e)/(4*high)),(1-max(high,e))/(4*low-4));
+ float lobe=max(-(.25-1./16),min(max(lobes.r,max(lobes.g,lobes.b)),0))*sharpness;
+ return float4((lobe*(b+d+h+f)+e)*rcp_medium(4*lobe+1),1);
+}
 """
 
 def colour_rows(colorspace,full_range):
@@ -99,6 +155,13 @@ def fitted(width,height,window_width,window_height):
 def luma_filter(ratio):
  # From half size down the area filter keeps the most detail, as it does on the CPU in video_convert.
  return BOX if ratio>=1.999 else CUBIC
+def enlarged(ratio):
+ # FSR only enlarges. At one texel per pixel or smaller the usual filters stay.
+ return ratio<.999
+def easu_constants(width,height,shown_width,shown_height):
+ """AMD's FsrEasuCon for a picture that fills its texture: from a screen pixel to the picture, then the four gathers around it."""
+ across,down=width/shown_width,height/shown_height;x,y=1/width,1/height
+ return (across,down,.5*across-.5,.5*down-.5,x,y,x,-y,-x,2*y,x,2*y,0,4*y,0,0)
 def surface_of(frame):
  """A GPU frame's texture and its slice. The list of planes stops at a zero, and slice zero is one."""
  planes=frame.planes;return planes[0].buffer_ptr,planes[1].buffer_ptr if len(planes)>1 else 0
@@ -123,7 +186,7 @@ def compiled():
  compiler=ctypes.WinDLL('d3dcompiler_47');compile_source=compiler.D3DCompile;compile_source.restype=ctypes.HRESULT
  compile_source.argtypes=[c_char_p,c_size_t,c_char_p,c_void_p,c_void_p,c_char_p,c_char_p,UINT,UINT,OUT,OUT]
  blobs={}
- for name,target in ((b'vs',b'vs_5_0'),(b'ps',b'ps_5_0'),(b'sharpen',b'ps_5_0')):
+ for name,target in ((b'vs',b'vs_5_0'),(b'ps',b'ps_5_0'),(b'sharpen',b'ps_5_0'),(b'rgb',b'ps_5_0'),(b'easu',b'ps_5_0'),(b'rcas',b'ps_5_0')):
   code=c_void_p();errors=c_void_p()
   try:compile_source(SHADERS,len(SHADERS),None,None,None,name,target,1<<15,0,byref(code),byref(errors))
   except OSError as error:raise RuntimeError(ctypes.string_at(GetBlobPointer(errors.value),GetBlobSize(errors.value)).decode(errors='replace') if errors.value else str(error)) from error
@@ -135,24 +198,26 @@ def new_device():
 
 class D3D11Presenter:
  """Draws on the thread of the refresh clock. Only resizing and hiding involve the window's own thread, which never waits for this one."""
- def __init__(self,window,sharpen=False):
-  self.hwnd=window.winfo_id();self.frame=None;self.failed=None;self.failures=0;self.sharpen=sharpen;self.wanted=(max(1,window.winfo_width()),max(1,window.winfo_height()));self.pending=False
+ def __init__(self,window,sharpen=False,fsr=False):
+  self.hwnd=window.winfo_id();self.frame=None;self.failed=None;self.failures=0;self.sharpen=sharpen;self.fsr=fsr;self.wanted=(max(1,window.winfo_width()),max(1,window.winfo_height()));self.pending=False
   self.kernel=ctypes.WinDLL('kernel32');self.kernel.WaitForSingleObject.argtypes=[wintypes.HANDLE,wintypes.DWORD];self.kernel.WaitForSingleObject.restype=wintypes.DWORD
   # Both fail here, in the window's thread, where the app can still choose the other output.
   self.blobs=compiled();self.own=new_device();self.forget()
  def forget(self):
-  self.device=None;self.context=None;self.swap=None;self.target=None;self.back=None;self.scaled=None;self.scaled_view=None;self.size=None;self.waitable=None;self.owned=[];self.surface=None;self.surface_shape=None;self.planes=None;self.plane_shape=None;self.views=None;self.arranged=None;self.viewport=None
+  self.device=None;self.context=None;self.swap=None;self.target=None;self.back=None;self.scaled=None;self.scaled_view=None;self.size=None;self.waitable=None;self.owned=[];self.surface=None;self.surface_shape=None;self.planes=None;self.plane_shape=None;self.views=None;self.arranged=None;self.viewport=None;self.converted=None;self.converted_shape=None;self.enlarging=False
  def keep(self,pointer):
   self.owned.append(pointer.value);return pointer.value
  def attach(self,device):
   """Takes over a reference to the device. A new decoder brings a new device, and the swap chain has to live on the decoder's."""
   self.detach();self.device=device;context=c_void_p();GetImmediateContext(device,byref(context));self.context=context.value
   shader=c_void_p();CreateVertexShader(device,self.blobs[b'vs'],len(self.blobs[b'vs']),None,byref(shader));self.vertex_shader=self.keep(shader)
-  shader=c_void_p();CreatePixelShader(device,self.blobs[b'ps'],len(self.blobs[b'ps']),None,byref(shader));self.pixel_shader=self.keep(shader)
-  shader=c_void_p();CreatePixelShader(device,self.blobs[b'sharpen'],len(self.blobs[b'sharpen']),None,byref(shader));self.sharpen_shader=self.keep(shader)
+  self.shaders={}
+  for name in (b'ps',b'sharpen',b'rgb',b'easu',b'rcas'):shader=c_void_p();CreatePixelShader(device,self.blobs[name],len(self.blobs[name]),None,byref(shader));self.shaders[name]=self.keep(shader)
   sampler=c_void_p();CreateSamplerState(device,byref(SamplerDesc(Filter=FILTER_LINEAR,AddressU=ADDRESS_CLAMP,AddressV=ADDRESS_CLAMP,AddressW=ADDRESS_CLAMP,MaxLOD=1000)),byref(sampler));self.keep(sampler)
-  buffer=c_void_p();CreateBuffer(device,byref(BufferDesc(ByteWidth=96,Usage=USAGE_DYNAMIC,BindFlags=BIND_CONSTANT,CPUAccessFlags=CPU_WRITE)),None,byref(buffer));self.constants=self.keep(buffer)
-  VSSetShader(self.context,self.vertex_shader,None,0);PSSetSamplers(self.context,0,1,byref(sampler));PSSetConstantBuffers(self.context,0,1,byref(buffer));IASetPrimitiveTopology(self.context,TRIANGLES)
+  buffers=[]
+  for size in (96,80):buffer=c_void_p();CreateBuffer(device,byref(BufferDesc(ByteWidth=size,Usage=USAGE_DYNAMIC,BindFlags=BIND_CONSTANT,CPUAccessFlags=CPU_WRITE)),None,byref(buffer));buffers.append(self.keep(buffer))
+  self.constants,self.scaler=buffers
+  VSSetShader(self.context,self.vertex_shader,None,0);PSSetSamplers(self.context,0,1,byref(sampler));PSSetConstantBuffers(self.context,0,2,(c_void_p*2)(*buffers));IASetPrimitiveTopology(self.context,TRIANGLES)
  def detach(self):
   """A window takes one flip swap chain at a time, and the old one goes only once its device has been cleared and flushed."""
   if self.context:
@@ -161,6 +226,7 @@ class D3D11Presenter:
    if self.swap:Release(self.swap)
    if self.surface:self.release_surface()
    if self.planes:self.release_planes()
+   if self.converted:self.release_converted()
    Flush(self.context);Release(self.context)
   if self.device and self.device!=self.own:Release(self.device)
   self.forget()
@@ -222,13 +288,28 @@ class D3D11Presenter:
    else:
     for row in range(rows):ctypes.memmove(mapped.Data+row*mapped.RowPitch,source.buffer_ptr+row*source.line_size,min(source.line_size,mapped.RowPitch))
    Unmap(self.context,texture,0)
+ def release_converted(self):
+  for pointer in self.converted:Release(pointer)
+  self.converted=None;self.converted_shape=None
+ def convert_into(self,width,height):
+  """The texture FSR enlarges from, in RGB at the picture's own size."""
+  if self.converted_shape==(width,height):return
+  if self.converted:self.release_converted()
+  texture=c_void_p();shown=c_void_p();drawn=c_void_p()
+  CreateTexture2D(self.device,byref(Texture2DDesc(Width=width,Height=height,MipLevels=1,ArraySize=1,Format=RGB10,SampleCount=1,BindFlags=BIND_SHADER|BIND_TARGET)),None,byref(texture))
+  CreateRenderTargetView(self.device,texture.value,None,byref(drawn));CreateShaderResourceView(self.device,texture.value,None,byref(shown));Release(texture.value);self.converted=(shown.value,drawn.value);self.converted_shape=(width,height)
+ def fill(self,buffer,data):
+  mapped=Mapped();Map(self.context,buffer,0,MAP_DISCARD,0,byref(mapped));ctypes.memmove(mapped.Data,data,len(data));Unmap(self.context,buffer,0)
  def arrange(self,frame,interleaved):
   """Sets where the picture goes and how it is filtered, when any of that has changed."""
-  key=(frame.width,frame.height,frame.colorspace,frame.color_range,interleaved,self.size)
+  key=(frame.width,frame.height,frame.colorspace,frame.color_range,interleaved,self.size,self.fsr)
   if key==self.arranged:return
   x,y,width,height=fitted(frame.width,frame.height,*self.size);across=frame.width/width;down=frame.height/height;ratio=max(across,down);rows=colour_rows(frame.colorspace,frame.color_range==2)
-  data=struct.pack('<16f4i',frame.width,frame.height,across,down,*rows[0],*rows[1],*rows[2],luma_filter(ratio),int(ratio>2.001),int(interleaved),0)
-  mapped=Mapped();Map(self.context,self.constants,0,MAP_DISCARD,0,byref(mapped));ctypes.memmove(mapped.Data,data,len(data));Unmap(self.context,self.constants,0)
+  self.fill(self.constants,struct.pack('<16f4i',frame.width,frame.height,across,down,*rows[0],*rows[1],*rows[2],luma_filter(ratio),int(ratio>2.001),int(interleaved),0))
+  self.enlarging=self.fsr and enlarged(ratio)
+  if self.enlarging:
+   self.convert_into(frame.width,frame.height);self.source=Viewport(0,0,frame.width,frame.height,0,1)
+   self.fill(self.scaler,struct.pack('<20f',*easu_constants(frame.width,frame.height,width,height),x,y,2**-RCAS_STOPS,0))
   self.viewport=Viewport(x,y,width,height,0,1);self.whole=Viewport(0,0,self.size[0],self.size[1],0,1);self.arranged=key
  def show(self,frame):
   on_gpu=frame.format.name=='d3d11'
@@ -243,11 +324,17 @@ class D3D11Presenter:
   if on_gpu:self.copy_surface(texture,index)
   else:self.upload(frame)
   self.arrange(frame,on_gpu or frame.format.name=='nv12')
-  context=self.context;first=c_void_p(self.scaled if self.sharpen else self.target)
-  OMSetRenderTargets(context,1,byref(first),None);ClearRenderTargetView(context,first,BLACK);RSSetViewports(context,1,byref(self.viewport));PSSetShader(context,self.pixel_shader,None,0);PSSetShaderResources(context,0,3,self.views);Draw(context,3,0)
+  context=self.context;first=c_void_p(self.scaled if self.sharpen else self.target);empty=c_void_p()
+  if self.enlarging:
+   # FSR works on RGB, so the colours are worked out first at the picture's own size, then enlarged.
+   picture,drawn=(c_void_p(pointer) for pointer in self.converted)
+   PSSetShaderResources(context,0,3,self.views);OMSetRenderTargets(context,1,byref(drawn),None);RSSetViewports(context,1,byref(self.source));PSSetShader(context,self.shaders[b'rgb'],None,0);Draw(context,3,0)
+   OMSetRenderTargets(context,1,byref(first),None);ClearRenderTargetView(context,first,BLACK);RSSetViewports(context,1,byref(self.viewport));PSSetShader(context,self.shaders[b'easu'],None,0);PSSetShaderResources(context,0,1,byref(picture));Draw(context,3,0);PSSetShaderResources(context,0,1,byref(empty))
+  else:
+   OMSetRenderTargets(context,1,byref(first),None);ClearRenderTargetView(context,first,BLACK);RSSetViewports(context,1,byref(self.viewport));PSSetShader(context,self.shaders[b'ps'],None,0);PSSetShaderResources(context,0,3,self.views);Draw(context,3,0)
   if self.sharpen:
-   last=c_void_p(self.target);view=c_void_p(self.scaled_view);empty=c_void_p()
-   OMSetRenderTargets(context,1,byref(last),None);RSSetViewports(context,1,byref(self.whole));PSSetShader(context,self.sharpen_shader,None,0);PSSetShaderResources(context,0,1,byref(view));Draw(context,3,0);PSSetShaderResources(context,0,1,byref(empty))
+   last=c_void_p(self.target);view=c_void_p(self.scaled_view)
+   OMSetRenderTargets(context,1,byref(last),None);RSSetViewports(context,1,byref(self.whole));PSSetShader(context,self.shaders[b'rcas' if self.enlarging else b'sharpen'],None,0);PSSetShaderResources(context,0,1,byref(view));Draw(context,3,0);PSSetShaderResources(context,0,1,byref(empty))
   self.present();return True
  def present(self):Present(self.swap,1,0)
  def attempt(self,frame):

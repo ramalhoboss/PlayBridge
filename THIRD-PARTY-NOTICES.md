@@ -14,6 +14,9 @@ PlayBridge bundles components that retain their own copyright and license terms.
 | CFFI | 2.1.1 | https://github.com/python-cffi/cffi |
 | darkdetect | 0.8.0 | https://github.com/albertosottile/darkdetect |
 | PyInstaller bootloader | 6.22.3 | https://github.com/pyinstaller/pyinstaller |
+| AMD FidelityFX Super Resolution 1 (EASU and RCAS, ported to the app's shaders) | 1.20210629 | https://github.com/GPUOpen-Effects/FidelityFX-FSR |
+
+The FSR 1 shaders in `app/d3d11_presenter.py` are a port of AMD's code, under the MIT license in [third-party-licenses/amd-fsr1/license.txt](third-party-licenses/amd-fsr1/license.txt).
 
 The bundled libavutil reports **LGPL version 3 or later**. Its build also includes external codec libraries; those libraries have separate licenses. Do not infer the licensing of every bundled DLL from libavutil's reported string. PyAV's wheel build sources are available from the PyAV project; consult upstream build information for the corresponding FFmpeg and external-library sources.
 
