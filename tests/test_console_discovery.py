@@ -1,8 +1,10 @@
-import sys,unittest
+import argparse,os,sys,unittest
 from pathlib import Path
 from unittest.mock import patch,MagicMock
+if os.environ.get('PLAYBRIDGE_DEPS'):sys.path.insert(0,os.environ['PLAYBRIDGE_DEPS'])
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'app'))
 from console_discovery import firmware_name,locate,parse_response,manager_probe,supported
+import playbridge as core
 class DiscoveryTests(unittest.TestCase):
  def test_ps5_response(self):
   item=parse_response(b'HTTP/1.1 200 Ok\r\nhost-type:PS5\r\nhost-name:Living room\r\n','192.168.1.100');self.assertEqual(item['ip'],'192.168.1.100');self.assertEqual(item['name'],'Living room')
@@ -34,4 +36,22 @@ class FindingTheConsole(unittest.TestCase):
  def test_a_loopback_address_never_moves_to_a_real_console(self):
   with patch('console_discovery.ask') as ask,patch('console_discovery.broadcast') as broadcast:
    self.assertIsNone(locate('127.0.0.1'));ask.assert_not_called();broadcast.assert_not_called()
+class TypedAddressTests(unittest.TestCase):
+ moved={'ip':'192.0.2.7','name':'PS5','resting':False,'firmware':'13600007'}
+ def player(self,settings):
+  with patch.object(core,'config',return_value=settings):
+   return core.Player(argparse.Namespace(renderer='gdi',profile='balanced',auto_reconnect=False,device=None,connect_only=False,host='192.0.2.9',record=False,preview=False,headless=True,seconds=0))
+ def found(self,p):
+  with patch.object(core,'locate',return_value=self.moved),patch.object(core,'save_config') as saved:p.find_console()
+  return saved
+ def test_an_address_typed_in_settings_stays_when_another_ps5_answers(self):
+  p=self.player({'host':'192.0.2.9','host_auto':False});saved=self.found(p)
+  self.assertEqual(p.args.host,'192.0.2.9');self.assertIsNone(p.console);self.assertEqual(p.elsewhere,'192.0.2.7');saved.assert_not_called()
+ def test_an_address_found_by_itself_follows_the_console(self):
+  for settings in ({},{'host':'192.0.2.9'},{'host':'192.0.2.9','host_auto':True}):
+   p=self.player(settings);saved=self.found(p)
+   self.assertEqual(p.args.host,'192.0.2.7');self.assertIsNone(p.elsewhere);saved.assert_called_once_with(host='192.0.2.7')
+ def test_the_message_names_the_address_and_the_ps5_that_answered(self):
+  self.assertIn('192.0.2.9',core.unreachable('192.0.2.9'))
+  message=core.unreachable('192.0.2.9','192.0.2.7');self.assertIn('192.0.2.9',message);self.assertIn('192.0.2.7',message);self.assertIn('Find console',message)
 if __name__=='__main__':unittest.main()

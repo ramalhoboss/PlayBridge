@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.4.1 — 2026-11-04
+- An IP address typed in Settings is always the one PlayBridge uses. In v1.4.0, when nothing answered at the saved address and exactly one PS5 answered the network search, PlayBridge switched to that console and saved its address over the typed one, so a wrong or test address still connected to the console on the network.
+- PlayBridge still finds the console by itself while no address has been typed, and still follows it to a new address given by the router. Installs from v1.4.0 keep that behaviour until an address is typed.
+- When the connection fails, the message names the address that was tried, and the address of a PS5 that answered instead, if one did.
+- The payload is unchanged from v1.4.0.
+
 ## v1.4.0 — 2026-11-02
 - Games page. During a session the payload opens a control port, 9077, and the PC reads the console's installed games: title, cover, the game's own music where it has one, play time, last played and size. Covers and music are kept on the PC. On the owner's PS5, a library of 54 games read all its covers and music.
 - Play launches the selected game, and the page changes to Live when its picture arrives, about 1.1 seconds after the click on the owner's PS5. Resume returns to the running game, and Close game closes it after asking. Rows for all games, most played, A to Z, PS5 and PS4 games, and search by typing.

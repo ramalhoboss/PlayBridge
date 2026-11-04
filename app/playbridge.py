@@ -29,6 +29,10 @@ RESOLUTION_NAMES={4:'1080p',5:'1440p',6:'4K'}
 VIDEO_QUEUE_PACKETS=12
 # Frame threads can finish several frames at once.
 DECODED_FRAMES=4
+def unreachable(host,elsewhere=None):
+ """What to say when nothing at the address takes the connection, with the address, so a wrong one shows."""
+ if elsewhere:return f'No PS5 answered at {host}, but one did at {elsewhere}. Enter that address in Settings, or select Find console.'
+ return f'Unable to connect to the PS5 at {host}. Check its IP address and make sure the ELF loader is running.'
 def capture_request(profile):
  # 1080p H.264 keeps sending 0 so an older manually loaded ELF can still stream. The second byte is the codec.
  p=PROFILES[profile];return struct.pack('<4sIII',b'PBO1',p['fps'],p['bitrate'],p.get('resolution',0)|p.get('codec',0)<<8)
@@ -69,7 +73,7 @@ class Timings:
   return result
 class Player:
  def __init__(self,args):
-  self.metrics=StreamMetrics();self.metrics_lock=threading.Lock();self.recorder=CaptureRecorder();self.last_native_frame=None;self.capture_info=None;self.notice='';self.notice_until=0;self.screenshot_thread=None;self.retry_at=0;self.intentional_disconnect=False;self.renderer=(('gdi' if args.headless or not config().get('direct_video',True) else 'd3d11') if sys.platform=='win32' else 'tk') if args.renderer=='auto' else args.renderer;self.timings=Timings();self.args=args;self.stop=threading.Event();self.session_done=threading.Event();self.render_size=(1280,720);self.volume=1.0;self.muted=False;self.save_at=0;self.connection_state='Connecting…';self.lock=threading.Lock();self.pcm=bytearray();self.frames=collections.deque();self.last_drawn=None;self.audio=None;self.sock=None;self.error='';self.stats=collections.Counter();self.peak=0;self.output_name='';self.first_video=None;self.first_audio=None;self.first_arrival=None;self.latest_pts={};self.arrival_origin=None;self.transport_growth_ms=0;self.decode_failure=None;self.started=time.perf_counter();self.pacer=FramePacer(self.stats);self.decoder_name='software';self.decoder_on_gpu=False;self.codec=0;self.console=None;self.video_hidden=False;self.sound_hidden=False;self.replay=ReplayBuffer(config().get('replay_seconds',60));self.replay_thread=None;self.link=ConsoleLink(STATE/'library',self.notify)
+  self.metrics=StreamMetrics();self.metrics_lock=threading.Lock();self.recorder=CaptureRecorder();self.last_native_frame=None;self.capture_info=None;self.notice='';self.notice_until=0;self.screenshot_thread=None;self.retry_at=0;self.intentional_disconnect=False;self.follow=config().get('host_auto',True);self.elsewhere=None;self.renderer=(('gdi' if args.headless or not config().get('direct_video',True) else 'd3d11') if sys.platform=='win32' else 'tk') if args.renderer=='auto' else args.renderer;self.timings=Timings();self.args=args;self.stop=threading.Event();self.session_done=threading.Event();self.render_size=(1280,720);self.volume=1.0;self.muted=False;self.save_at=0;self.connection_state='Connecting…';self.lock=threading.Lock();self.pcm=bytearray();self.frames=collections.deque();self.last_drawn=None;self.audio=None;self.sock=None;self.error='';self.stats=collections.Counter();self.peak=0;self.output_name='';self.first_video=None;self.first_audio=None;self.first_arrival=None;self.latest_pts={};self.arrival_origin=None;self.transport_growth_ms=0;self.decode_failure=None;self.started=time.perf_counter();self.pacer=FramePacer(self.stats);self.decoder_name='software';self.decoder_on_gpu=False;self.codec=0;self.console=None;self.video_hidden=False;self.sound_hidden=False;self.replay=ReplayBuffer(config().get('replay_seconds',60));self.replay_thread=None;self.link=ConsoleLink(STATE/'library',self.notify)
  def device(self):
   apis=sd.query_hostapis();devs=sd.query_devices();preferred=self.args.device
   if preferred is None:
@@ -159,7 +163,11 @@ class Player:
     except Exception:pass
  def find_console(self):
   # The console answers this with nothing loaded on it, so a moved address, rest mode or another firmware need no upload to find out.
-  self.console=locate(self.args.host)
+  found=locate(self.args.host);self.elsewhere=None
+  if found and found['ip']!=self.args.host and not self.follow:
+   # An address typed in Settings stays the one used. The console that answered elsewhere is only named if that address fails.
+   self.console=None;self.elsewhere=found['ip'];return
+  self.console=found
   if self.console is None:return
   if self.console['resting']:raise RuntimeError('Your PS5 is in rest mode. Turn it on, then connect.')
   if not supported(self.console):raise RuntimeError(f"Your PS5 runs firmware {firmware_name(self.console['firmware'])}. PlayBridge works on {firmware_name(SUPPORTED_FIRMWARE)} only, so nothing was sent to it.")
@@ -225,7 +233,7 @@ class Player:
     decode_done.set();decoder_thread.join(timeout=2)
     if record:record.close()
   except Exception as e:
-   if not self.stop.is_set() and not self.intentional_disconnect:self.error=('The PS5 closed the connection before streaming. In manual mode, load the current PlayBridge.elf.' if isinstance(e,(EOFError,ConnectionResetError)) and self.capture_info is None and self.args.connect_only else 'The PS5 connection ended. You can reconnect.' if isinstance(e,EOFError) else 'The PS5 stopped sending data.' if isinstance(e,socket.timeout) else 'Unable to connect to the PS5. Check its IP address and make sure the ELF loader is running.' if isinstance(e,OSError) else str(e));(STATE/'av3-error.log').write_text(traceback.format_exc(),encoding='utf8')
+   if not self.stop.is_set() and not self.intentional_disconnect:self.error=('The PS5 closed the connection before streaming. In manual mode, load the current PlayBridge.elf.' if isinstance(e,(EOFError,ConnectionResetError)) and self.capture_info is None and self.args.connect_only else 'The PS5 connection ended. You can reconnect.' if isinstance(e,EOFError) else 'The PS5 stopped sending data.' if isinstance(e,socket.timeout) else unreachable(self.args.host,self.elsewhere) if isinstance(e,OSError) else str(e));(STATE/'av3-error.log').write_text(traceback.format_exc(),encoding='utf8')
   finally:
    self.link.end()
    if self.sock:self.sock.close()

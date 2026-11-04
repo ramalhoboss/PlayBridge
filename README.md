@@ -1,6 +1,6 @@
 <p align="center"><img src="docs/images/banner.png" alt="PlayBridge: your PS5 games, video and audio on your Windows PC" width="100%"></p>
 <p align="center">
-  <a href="https://github.com/ramalhoboss/PlayBridge/releases/latest"><img alt="Download v1.4.0" src="docs/images/badge-download.png" height="36"></a>
+  <a href="https://github.com/ramalhoboss/PlayBridge/releases/latest"><img alt="Download v1.4.1" src="docs/images/badge-download.png" height="36"></a>
   <img alt="Windows x64" src="docs/images/badge-windows.png" height="36">
   <img alt="PS5 firmware 13.60" src="docs/images/badge-ps5.png" height="36">
   <img alt="Up to 4K60" src="docs/images/badge-4k.png" height="36">
@@ -21,6 +21,12 @@ No HDMI capture card. No official Remote Play client or PSN Remote Play pairing.
 
 > Screenshots show the real application. The Games page above shows a real PS5 library: covers and music come from your own console when you connect, and none are included in the download. The game pictures further down are PS5 captures saved with PlayBridge. PlayBridge is in English; the console's own language remains whatever you selected on the PS5.
 
+## New in v1.4.1
+
+- **Your IP address is kept:** an address you type in **Settings → Console** is now always the one PlayBridge uses. Before, when nothing answered at that address and one PS5 answered elsewhere on the network, PlayBridge switched to that console without saying so.
+- **Clearer connection errors:** the message names the address PlayBridge tried, and the address of a PS5 that answered instead, if there is one.
+- PlayBridge still finds your console by itself while you have never typed an address, and still follows it when your router gives it a new one. The payload is the same as in v1.4.0.
+
 ## New in v1.4.0
 
 - **Your games on the PC:** a Games page reads the library from your PS5, with each game's cover, its own music, your play time and its size. Select **Play** to launch a game, then resume or close it from the PC.
@@ -40,14 +46,14 @@ Automatic mode includes the updated payload. Manual users should load the v1.4.0
 
 | File | What it contains |
 |---|---|
-| [PlayBridge.exe](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.0/PlayBridge.exe) | Portable Windows application, including Python dependencies and the embedded ELF. |
-| [PlayBridge.elf](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.0/PlayBridge.elf) | Standalone PS5 payload for manual loading. |
-| [PlayBridge-Windows-v1.4.0.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.0/PlayBridge-Windows-v1.4.0.zip) | Windows EXE and quick-start instructions. |
-| [PlayBridge-Payload-v1.4.0.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.0/PlayBridge-Payload-v1.4.0.zip) | ELF and manual-mode instructions. |
-| [PlayBridge-Complete-v1.4.0.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.0/PlayBridge-Complete-v1.4.0.zip) | Both files, quick-start instructions and component notices. |
-| [Third-party-licenses.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.0/Third-party-licenses.zip) | Component notices for standalone downloads. |
-| [PlayBridge-Source-v1.4.0.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.0/PlayBridge-Source-v1.4.0.zip) | Application and payload source, assets, tests and build instructions. |
-| [SHA256SUMS.txt](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.0/SHA256SUMS.txt) | Checksums for the release downloads. |
+| [PlayBridge.exe](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.1/PlayBridge.exe) | Portable Windows application, including Python dependencies and the embedded ELF. |
+| [PlayBridge.elf](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.1/PlayBridge.elf) | Standalone PS5 payload for manual loading. |
+| [PlayBridge-Windows-v1.4.1.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.1/PlayBridge-Windows-v1.4.1.zip) | Windows EXE and quick-start instructions. |
+| [PlayBridge-Payload-v1.4.1.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.1/PlayBridge-Payload-v1.4.1.zip) | ELF and manual-mode instructions. |
+| [PlayBridge-Complete-v1.4.1.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.1/PlayBridge-Complete-v1.4.1.zip) | Both files, quick-start instructions and component notices. |
+| [Third-party-licenses.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.1/Third-party-licenses.zip) | Component notices for standalone downloads. |
+| [PlayBridge-Source-v1.4.1.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.1/PlayBridge-Source-v1.4.1.zip) | Application and payload source, assets, tests and build instructions. |
+| [SHA256SUMS.txt](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.1/SHA256SUMS.txt) | Checksums for the release downloads. |
 
 Download the release assets above to run the application. To inspect or build it, browse [app/](app/), [payload/](payload/) and [tools/](tools/), or download the source archive. GitHub's source archives contain source files, not the Windows EXE.
 
@@ -69,7 +75,7 @@ The payload explicitly checks firmware value **0x13600007**. Other firmware vers
 1. Start your PS5 and open **Payload Manager**. Make sure its ELF loader is available on port **9021**.
 2. Open **PlayBridge.exe** on the PC. No separate Python installation is needed.
 3. Select the **gear** at the top right, or press **Ctrl+,**, to open **Settings**.
-4. Under **Console**, select **Find console**, or type your console's local IP address, such as **192.168.1.100**.
+4. Under **Console**, select **Find console**, or type your console's local IP address, such as **192.168.1.100**. With one PS5 on your network you can also leave the address as it is: PlayBridge finds the console by itself. An address you type is always used as typed.
 5. Under **Picture**, choose a **Quality profile**. **Balanced** is a good place to start.
 6. Leave **ELF already loaded in Payload Manager** switched **off**, then select **Save changes**.
 
@@ -191,7 +197,7 @@ The standalone ELF waits for one viewer per execution. After ending a manual ses
 | Window modes | Resizable window, fullscreen, centered image and preserved aspect ratio. Black bars can appear when the available area is not 16:9. |
 | Sound controls | Output-device selector, volume slider and mute/unmute button. The library's music and navigation sounds have their own switches and volume, and use a separate output that is closed while a game is on screen. |
 | Session controls | Connect/disconnect, automatic/manual loading modes and optional automatic reconnect. |
-| Console discovery | **Find console** listens for PS5 replies and scans the local network for Payload Manager. Before sending the ELF, PlayBridge asks the console for its state, and stops with a message if it is resting or runs a firmware other than 13.60. Manual IP entry stays available. |
+| Console discovery | **Find console** listens for PS5 replies and scans the local network for Payload Manager. When the saved address does not answer and one PS5 does, PlayBridge follows that console, unless you typed the address yourself. Before sending the ELF, PlayBridge asks the console for its state, and stops with a message if it is resting or runs a firmware other than 13.60. Manual IP entry stays available. |
 | Screenshots | Native-source-size PNG with F8; UI controls and window bars are excluded. |
 | Recording | Packet-copy H.264/AAC MP4 with F9, bounded background writing and graceful stop/finalization. |
 | Instant replay | The last 30 s, 60 s or 2 minutes of the stream kept in PC memory (up to 1 GB) and saved as an MP4 with F10, without re-encoding. |
@@ -299,7 +305,8 @@ These are **PC pipeline measurements**, not total HDMI-to-PC latency, controller
 | Symptom | Check |
 |---|---|
 | Windows warns before opening the EXE | The EXE is not signed. Compare it with SHA256SUMS.txt, then choose **More info → Run anyway** if you trust it. |
-| Cannot connect | Console IP, same LAN, Payload Manager's ELF loader on 9021, and no other active viewer. |
+| Cannot connect | Console IP, same LAN, Payload Manager's ELF loader on 9021, and no other active viewer. The message names the address PlayBridge tried. |
+| PlayBridge says no PS5 answered at your address, but one did at another | The address you typed does not belong to your console. Enter the address in the message, or select **Find console**. |
 | **Find console** finds nothing | VPNs, network isolation and firewalls can block it. Type the IP address instead. Discovery does not wake the console or start Payload Manager. |
 | PlayBridge says the PS5 is in rest mode, or runs another firmware | Wake the console and load your exploit. Other firmware than 13.60 is refused before anything is sent. |
 | The Games page is empty | Games are read once connected. Use **⋯ → Refresh library**. Covers and music arrive one by one the first time. |
@@ -323,6 +330,7 @@ Preferences, the game library and local diagnostic files are stored in <code>%LO
 
 ## Release history
 
+- **v1.4.1:** an IP address typed in Settings is always used, and connection errors name the address tried and any PS5 that answered elsewhere.
 - **v1.4.0:** Games page with Play, Resume and Close, Gaming Mode, Direct3D 11 output with GPU decoding, instant replay, a new one-window design, console status and power, a steadier refresh clock, sharper scaling, encoder recovery and firmware-aware discovery.
 - **v1.3.0:** experimental 1440p and 4K, refresh-paced presentation, larger encoder frame budget, flicker fix, black and gold desktop, capture library with thumbnails, stats panel, console discovery, favourites and diagnostics export.
 - **v1.2.0:** native PNG screenshots, MP4 recording with sound, capture library, quality targets and automatic reconnect.

@@ -234,7 +234,9 @@ def run_ui(app):
    except ValueError:error.configure(text='Enter a valid IPv4 address.',text_color=ALERT);return
    # A new connection sends the ELF again, so only what needs one starts one.
    chosen=(typed,manual.get(),profiles[profile.get()]);changed=chosen!=(app.args.host,app.args.connect_only,app.args.profile) or not app.worker.is_alive()
-   app.args.host,app.args.connect_only,app.args.profile=chosen;app.args.auto_reconnect=reconnect.get();core.save_config(host=app.args.host,connect_only=app.args.connect_only,profile=app.args.profile,auto_reconnect=app.args.auto_reconnect);host_label.configure(text=app.args.host)
+   # A new address from the user is kept from now on, even when another PS5 answers.
+   if typed!=app.args.host:app.follow=False
+   app.args.host,app.args.connect_only,app.args.profile=chosen;app.args.auto_reconnect=reconnect.get();core.save_config(host=app.args.host,host_auto=app.follow,connect_only=app.args.connect_only,profile=app.args.profile,auto_reconnect=app.args.auto_reconnect);host_label.configure(text=app.args.host)
    error.configure(text='Saved. Connecting to your PS5…' if changed else 'Saved.',text_color=MUTED)
    if not changed:return
    disconnect()
