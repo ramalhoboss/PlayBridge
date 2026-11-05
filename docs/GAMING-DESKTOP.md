@@ -5,9 +5,9 @@
 One window holds every page. The top bar has **Games**, **Live** and **Media** on the left, and the console's state, the time, search, Settings, fullscreen and power on the right.
 
 - **Games** lists the games installed on the PS5, read through the payload's control port during a session. Each game shows its cover, title, when it was last played and for how long, and its size. The selected game's art fills the page, and four cards show your time, its size on the PS5, the stream and the console's temperature. **Play** launches the game and switches to **Live** when its picture arrives; **Resume** returns to a game that is already running. The **⋯** button closes the running game, refreshes the library or opens the Live view. Covers and music are saved on the PC, so the page opens quickly next time.
-- **Live** shows the stream, with capture, replay, session and audio controls below it.
-- **Media** lists local photos and MP4 recordings. They can be filtered, paged, refreshed and opened in the system's default app. Thumbnails are read in a background worker, and a recording's thumbnail is a still from a quarter of the way in. It lists up to 120 newest captures from the app's Screenshots and Recordings folders. Empty files, symbolic links and unfinished .partial.mp4 recordings are excluded.
-- **Settings** has five sections: **Console** (address, Find console, favourites, connection and power), **Picture** (quality profile, performance stats, GPU video output, sharpening and FSR 1 upscaling), **Captures** (instant replay, capture folder and diagnostics export), **Sound** (the library's music, navigation sounds and their volume) and **Appearance** (Gaming Mode and animations).
+- **Live** shows the stream, with capture, replay, small window, Go live, session and audio controls below it. While no picture has arrived, it shows PlayBridge's own blue and violet picture.
+- **Media** lists local photos (PNG, JPEG, WebP) and recordings (MP4, WebM). They can be filtered, paged, refreshed and opened in the system's default app. Thumbnails are read in a background worker, and a recording's thumbnail is a still from a quarter of the way in. It lists up to 120 newest captures from the app's Screenshots and Recordings folders. Empty files, symbolic links and unfinished .partial.mp4 recordings are excluded. **From your PS5** lists the screenshots and clips the console saved itself, through the control port during a session, and copies the new ones or the ones you select into the capture folder. The payload lets the PC read only the console's capture folders.
+- **Settings** has six sections: **Console** (address, Find console, favourites, Send a payload, connection and power), **Picture** (quality profile, graphics card, performance stats, GPU video output, sharpening and FSR 1 upscaling), **Captures** (instant replay, capture folder and diagnostics export), **Sound** (the library's music, navigation sounds and their volume), **Streaming** (Go live to Twitch, YouTube, any RTMP server or OBS) and **Appearance** (Gaming Mode and animations). Its panels flow into one to four columns with the window's width.
 
 The **session panel** (**Ctrl+I**) sits beside any page. It shows the frame rate, the source size, the PC's time from receiving a frame to presenting it, the game on the console with its close and power buttons, the received bitrate for the last 60 seconds, the audio buffer and the recording state. Missing measurements remain blank. PC timings are not end-to-end console latency.
 
@@ -29,9 +29,11 @@ On the Games page, the app plays quiet background music of its own, or the selec
 | F8 | Native-frame PNG screenshot |
 | F9 | Start or stop packet-copy MP4 recording |
 | F10 | Save the instant replay |
-| F11 / double-click video | Fullscreen |
+| F11 / double-click video | Fullscreen; in the small window, double-click returns to the full window |
 | Escape | Leave fullscreen |
 | Ctrl+G | Gaming Mode on or off |
+| Ctrl+M | Small window above other windows, and back |
+| Ctrl+B | Go live, or end the broadcast |
 | Ctrl+L | Media |
 | Ctrl+I | Session panel |
 | Ctrl+, | Settings |

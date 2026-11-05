@@ -56,6 +56,25 @@ class MediaTests(unittest.TestCase):
    calls.append(1)
    if len(calls)==2:p.intentional_disconnect=True
   p.network_session=session;p.network();self.assertEqual(len(calls),2);self.assertEqual(p.stats['reconnection_attempts'],1);self.assertTrue(p.session_done.is_set())
+ def test_the_end_of_a_stream_says_whether_the_pc_stopped_reading(self):
+  # A video packet that took 1.37 s to handle, then little more: the PS5 gives up on a reader that stalls for 1 s.
+  text=core.last_seconds([(0.0,1,0.001),(0.016,2,0.017),(0.033,1,1.4),(1.41,1,1.411)],1.5)
+  self.assertIn('longest time on one packet 1367 ms (video)',text);self.assertIn('last packet 90 ms before the end',text)
+  # The PS5 that stopped sending shows as a long wait instead.
+  self.assertIn('longest wait for the PS5 1199 ms (before sound)',core.last_seconds([(0.0,1,0.001),(1.2,2,1.201)],1.3))
+  self.assertEqual(core.last_seconds([],5),'No packet in the last 3 s before the end')
+ def test_reconnect_waits_little_after_a_stream_and_longer_after_failures(self):
+  self.assertEqual([core.reconnect_delay(n) for n in range(6)],[.3,2,4,8,8,8])
+ def test_a_stream_that_played_reconnects_at_once(self):
+  # Closing a game used to end the session and wait seconds before the picture came back.
+  p=self.player();calls=[]
+  def session():
+   calls.append(time.perf_counter())
+   if len(calls)==1:p.stats['sessions_connected']+=1
+   else:p.intentional_disconnect=True
+  p.network_session=session;p.network();self.assertEqual(len(calls),2);self.assertLess(calls[1]-calls[0],1)
+  # The session's timeline says how long the picture was away.
+  self.assertIn('Connecting again in 0.3 s',[text for _,text in p.events])
  def test_reconnect_disabled(self):
   p=self.player();p.args.auto_reconnect=False;calls=[];p.network_session=lambda:calls.append(1);p.network();self.assertEqual(len(calls),1)
  def test_adts_validation(self):

@@ -16,12 +16,41 @@ __declspec(dllexport) size_t pb_headers(unsigned char*o,const unsigned char*h,ui
 __declspec(dllexport) size_t pb_delimiter(unsigned char*o,uint32_t c){return delimiter(o,c);}
 __declspec(dllexport) int pb_title(const char*t,size_t n){return valid_title(t,n);}
 __declspec(dllexport) int pb_file(const char*p,size_t n){return allowed_file(p,n);}
+__declspec(dllexport) int pb_folder(const char*p,size_t n){return allowed_folder(p,n);}
 __declspec(dllexport) int pb_pad(const unsigned char*w,size_t n,uint32_t*q,uint32_t*b,unsigned char*s){return read_pad_wire(w,n,q,b,s);}
 __declspec(dllexport) int pb_newer(uint32_t a,uint32_t b){return newer_sequence(a,b);}
 __declspec(dllexport) void pb_fill(unsigned char*d,uint32_t b,const unsigned char*s,uint64_t t){fill_pad_data(d,b,s,t);}
 __declspec(dllexport) uint32_t pb_supported(uint32_t r,uint32_t m){return supported_resolution(r,m);}
 __declspec(dllexport) uint32_t pb_apply(unsigned char*p,uint32_t r,uint32_t f,uint32_t b){return apply_resolution(p,r,f,b);}
 __declspec(dllexport) int pb_reopen(uint32_t c){return read_needs_reopen(c);}
+/* Stand-ins for the console: each status check and each open takes the next scripted answer, the last one repeating. */
+static const unsigned char*fake_flags;static const uint32_t*fake_opens;static int fake_flag_count,fake_open_count,fake_checks,fake_open_calls,fake_waited,fake_status_result;static uint32_t fake_mode;
+static int fake_caps(uint32_t*m){*m=fake_mode;return 0;}
+static int fake_status(void*a){unsigned char*b=a;int i=fake_checks++;b[0x14]=fake_flags[i<fake_flag_count?i:fake_flag_count-1];return fake_status_result;}
+static int fake_open(int64_t*h,void*p,int f){(void)p;(void)f;int i=fake_open_calls++;uint32_t r=fake_opens[i<fake_open_count?i:fake_open_count-1];if(r<0x80000000u)*h=0x1234;return (int)r;}
+static void fake_wait(int ms){fake_waited+=ms;}
+__declspec(dllexport) uint32_t pb_ready(const unsigned char*flags,int nf,const uint32_t*opens,int no,uint32_t mode,int status_result,uint32_t resolution,unsigned char*p,int*counts){
+ fake_flags=flags;fake_flag_count=nf;fake_opens=opens;fake_open_count=no;fake_mode=mode;fake_status_result=status_result;fake_checks=fake_open_calls=fake_waited=0;
+ struct capture_calls c={fake_caps,fake_status,fake_open,fake_wait};struct reopen_report r;unsigned char*z=(unsigned char*)&r;for(unsigned i=0;i<sizeof r;i++)z[i]=0;
+ int64_t h=0;uint32_t caps=0;uint32_t rv=open_when_ready(&c,&h,p,resolution,&caps,&r);
+ counts[0]=fake_checks;counts[1]=fake_open_calls;counts[2]=fake_waited;counts[3]=r.waited_ms;counts[4]=r.not_ready;counts[5]=r.busy;counts[6]=(int)caps;counts[7]=h!=0;counts[8]=r.checks;
+ return rv;
+}
+/* Stand-ins for the viewer wait: each accept and each options read takes the next scripted answer, the last one repeating, and each
+   accept moves the clock on by a set cost. */
+static const int*fake_accepts;static const int*fake_answers;static int fake_accept_count,fake_answer_count,fake_accept_calls,fake_option_calls,fake_drops,fake_last_dropped,fake_timeouts[8];static uint64_t fake_clock,fake_accept_cost;
+static int fake_accept(int t){int i=fake_accept_calls++;if(i<8)fake_timeouts[i]=t;fake_clock+=fake_accept_cost;return fake_accepts[i<fake_accept_count?i:fake_accept_count-1];}
+static int fake_options(int fd){(void)fd;int i=fake_option_calls++;return fake_answers[i<fake_answer_count?i:fake_answer_count-1];}
+static void fake_drop(int fd){fake_drops++;fake_last_dropped=fd;}
+static uint64_t fake_now(void){return fake_clock;}
+__declspec(dllexport) int pb_viewer(const int*accepts,int na,const int*answers,int nb,uint32_t cost,int*counts){
+ fake_accepts=accepts;fake_accept_count=na;fake_answers=answers;fake_answer_count=nb;fake_accept_cost=cost;fake_clock=1000;fake_accept_calls=fake_option_calls=fake_drops=0;fake_last_dropped=-1;
+ for(int i=0;i<8;i++)fake_timeouts[i]=0;
+ struct viewer_calls c={fake_accept,fake_options,fake_drop,fake_now};int dropped=0,invalid=-1;int fd=first_viewer(&c,&dropped,&invalid);
+ counts[0]=fake_accept_calls;counts[1]=fake_option_calls;counts[2]=dropped;counts[3]=fake_drops;counts[4]=fake_last_dropped;counts[5]=invalid;
+ for(int i=0;i<8;i++)counts[6+i]=fake_timeouts[i];
+ return fd;
+}
 '''
 def compiler():
  found=shutil.which('clang')
@@ -36,9 +65,9 @@ class PayloadOptionTests(unittest.TestCase):
   cls.tmp=tempfile.TemporaryDirectory();source=Path(cls.tmp.name)/'harness.c';source.write_text(HARNESS,encoding='ascii');out=Path(cls.tmp.name)/'options.dll'
   subprocess.run([compiler(),'--target=x86_64-pc-windows-msvc','-O1','-ffreestanding','-fno-builtin','-nostdlib','-shared','-fuse-ld=lld','-Wl,/noentry','-Wall','-Wextra','-Werror','-I',str(ROOT/'payload'),str(source),'-o',str(out)],check=True)
   cls.lib=ctypes.WinDLL(str(out))
-  for name in ('pb_valid','pb_supported','pb_apply'):getattr(cls.lib,name).restype=ctypes.c_uint32
+  for name in ('pb_valid','pb_supported','pb_apply','pb_ready'):getattr(cls.lib,name).restype=ctypes.c_uint32
   for name in ('pb_headers','pb_delimiter','pb_title','pb_file'):getattr(cls.lib,name).restype=ctypes.c_size_t
-  for name in ('pb_title','pb_file'):getattr(cls.lib,name).argtypes=[ctypes.c_char_p,ctypes.c_size_t]
+  for name in ('pb_title','pb_file','pb_folder'):getattr(cls.lib,name).argtypes=[ctypes.c_char_p,ctypes.c_size_t]
   cls.lib.pb_fill.argtypes=[ctypes.c_char_p,ctypes.c_uint32,ctypes.c_char_p,ctypes.c_uint64]
  @classmethod
  def tearDownClass(cls):
@@ -81,6 +110,15 @@ class PayloadOptionTests(unittest.TestCase):
    self.assertTrue(self.lib.pb_file(path,len(path)),path)
   for path in (b'/user/catalog_downloader/appmeta/PPSA01234/param.json',b'/user/catalog_downloader/PPSA01234/pic0.png',b'/user/catalog_downloader/appmeta/../PPSA01234/pic0.png',b'',b'/',b'/system_data/priv/mms/app.db-shm',b'/system_data/priv/mms/app.db\x00.txt',b'/system_data/priv/mms/',b'/user/appmeta/PPSA01234/param.json',b'/user/appmeta/PPSA01234/../../home/icon0.png',b'/user/appmeta/../PPSA01234/icon0.png',b'/user/appmeta/ppsa01234/icon0.png',b'/user/appmeta/PPSA01234/icon0.png/',b'/data/other.txt',b'/user/home/PPSA01234/icon0.png',b'/user/app/PPSA01234/pic0.dds',b'/user/app/PPSA01234/eboot.bin',b'/user/app/PPSA01234/sce_sys/param.json',b'/user/app/PPSA01234/sce_sys/../eboot.bin',b'/user/app/PPSA01234/sce_sys',b'/user/appmeta/PPSA01234/sce_sys/pic0.dds',b'/user/app/ppsa01234/sce_sys/pic0.dds'):
    self.assertFalse(self.lib.pb_file(path,len(path)),path)
+ def test_the_consoles_own_captures_can_be_listed_and_read_and_nothing_beside_them(self):
+  for path in (b'/user/av_contents',b'/user/av_contents/content',b'/user/av_contents/content/Some Game',b'/mnt/ext0/user/av_contents',b'/mnt/ext1/user/av_contents/content'):
+   self.assertTrue(self.lib.pb_folder(path,len(path)),path)
+  for path in (b'',b'/',b'/user',b'/user/av_contents/',b'/user/av_contents/../app',b'/user/av_contents/content/..',b'/user/av_contents//x',b'/user/av_contents/./x',b'/user/av_contentsx',bytes([47])+b'user/av_contents/a'+bytes([92])+b'b',b'/user/av_contents/a'+bytes([10])+b'b',b'/user/home',b'/mnt/ext2/user/av_contents',b'user/av_contents'):
+   self.assertFalse(self.lib.pb_folder(path,len(path)),path)
+  for path in (b'/user/av_contents/content/Game/shot.jpg',b'/user/av_contents/content/Game/shot.JPG',b'/user/av_contents/x/clip.webm',b'/user/av_contents/x/clip.mp4',b'/user/av_contents/x/shot.png',b'/user/av_contents/x/shot.webp',b'/mnt/ext0/user/av_contents/x/clip.mp4'):
+   self.assertTrue(self.lib.pb_file(path,len(path)),path)
+  for path in (b'/user/av_contents/x/db.sqlite',b'/user/av_contents/x/../../app/PPSA01234/eboot.bin.mp4',b'/user/av_contents/.jpg',b'/user/av_contents/x/.mp4x',b'/user/av_contents/x/shot.jpg/',b'/user/home/shot.jpg',b'/user/av_contents/x'+bytes([1])+b'/shot.jpg'):
+   self.assertFalse(self.lib.pb_file(path,len(path)),path)
  def test_controller_packets_are_checked_and_masked(self):
   sequence=ctypes.c_uint32();buttons=ctypes.c_uint32();sticks=(ctypes.c_ubyte*6)()
   good=struct.pack('<4sIIBBBBBBH',b'PBP1',7,0xffffffff,1,2,3,4,5,6,0)
@@ -115,4 +153,45 @@ class PayloadOptionTests(unittest.TestCase):
  def test_only_encoder_failures_reopen_the_capture(self):
   for code in (0x81950003,0x81950008,0x81950009,0x8195000d):self.assertTrue(self.lib.pb_reopen(code),hex(code))
   for code in (0x81950002,0x81950004,0x8195000e,0x81950001):self.assertFalse(self.lib.pb_reopen(code),hex(code))
+ BUSY,NOT_READY,MODE_LOST=0x81950008,0x8195fff2,0x8195fff1
+ def ready(self,flags,opens,mode=0x13c,resolution=6,status_result=0):
+  f=(ctypes.c_ubyte*len(flags))(*flags);o=(ctypes.c_uint32*len(opens))(*opens);p=(ctypes.c_ubyte*0x2e8)();counts=(ctypes.c_int*9)()
+  rv=self.lib.pb_ready(f,len(flags),o,len(opens),ctypes.c_uint32(mode),status_result,ctypes.c_uint32(resolution),p,counts)
+  seen=dict(zip(('checks','opens','waited','reported_wait','not_ready','busy','caps','handle','reported_checks'),counts));seen['params_mode']=struct.unpack_from('<I',bytes(p),0x2a8)[0]
+  self.assertEqual((seen['waited'],seen['checks']),(seen['reported_wait'],seen['reported_checks']))
+  return rv,seen
+ def test_a_reopen_opens_at_once_when_the_console_says_it_can(self):
+  rv,s=self.ready([0],[0]);self.assertEqual((rv,s['checks'],s['opens'],s['waited'],s['handle']),(0,1,1,0,1))
+  self.assertEqual((s['caps'],s['params_mode']),(0x13c,0x13c))
+ def test_a_reopen_waits_16_ms_while_the_console_says_it_cannot_open(self):
+  rv,s=self.ready([1]*40+[0],[0]);self.assertEqual((rv,s['checks'],s['not_ready'],s['opens'],s['waited']),(0,41,40,1,640))
+ def test_a_busy_open_is_tried_again_16_ms_later(self):
+  rv,s=self.ready([0],[self.BUSY]*3+[0]);self.assertEqual((rv,s['opens'],s['busy'],s['waited']),(0,4,3,48))
+ def test_any_other_open_answer_is_final(self):
+  rv,s=self.ready([0],[0x81950009]);self.assertEqual((rv,s['opens'],s['waited'],s['handle']),(0x81950009,1,0,0))
+ def test_it_gives_up_after_two_seconds(self):
+  rv,s=self.ready([1],[0]);self.assertEqual((rv,s['opens'],s['checks'],s['waited']),(self.NOT_READY,0,125,2000))
+  rv,s=self.ready([0],[self.BUSY]);self.assertEqual((rv,s['opens'],s['waited']),(self.BUSY,125,2000))
+ def test_an_output_mode_without_the_resolution_ends_the_wait_before_any_open(self):
+  rv,s=self.ready([0],[0],mode=0x134,resolution=6);self.assertEqual((rv,s['checks'],s['opens']),(self.MODE_LOST,0,0))
+  rv,s=self.ready([0],[0],mode=0x114,resolution=5);self.assertEqual((rv,s['opens']),(self.MODE_LOST,0))
+  rv,s=self.ready([0],[0],mode=0,resolution=4);self.assertEqual((rv,s['opens'],s['params_mode']),(0,1,0))
+ def test_a_failed_status_query_ends_the_wait_without_an_open(self):
+  rv,s=self.ready([0],[0],status_result=-0x7e6affff);self.assertEqual((rv,s['checks'],s['opens']),(0x81950001,1,0))
+ READ,INVALID,DROPPED,NO_VIEWER,VIEWER_INVALID=0,-1,-2,-1,-2
+ def viewer(self,accepts,answers,cost=0):
+  a=(ctypes.c_int*len(accepts))(*accepts);b=(ctypes.c_int*len(answers))(*answers);counts=(ctypes.c_int*14)()
+  fd=self.lib.pb_viewer(a,len(accepts),b,len(answers),ctypes.c_uint32(cost),counts)
+  return fd,dict(zip(('accepts','option_reads','dropped','drops','last_dropped','invalid'),counts[:6])),list(counts[6:])
+ def test_a_connection_that_leaves_before_its_options_is_dropped_and_the_next_viewer_is_taken(self):
+  fd,seen,timeouts=self.viewer([7,8],[self.DROPPED,self.READ],cost=500)
+  self.assertEqual(fd,8);self.assertEqual((seen['dropped'],seen['drops'],seen['last_dropped'],seen['invalid']),(1,1,7,-1))
+  self.assertEqual(timeouts[:2],[60000,59500])
+ def test_a_viewer_whose_options_are_not_valid_ends_the_wait(self):
+  fd,seen,_=self.viewer([7,8],[self.INVALID,self.READ])
+  self.assertEqual(fd,self.VIEWER_INVALID);self.assertEqual((seen['invalid'],seen['drops'],seen['accepts']),(7,0,1))
+ def test_the_wait_ends_when_nobody_comes_or_the_minute_is_over(self):
+  fd,seen,_=self.viewer([-1],[self.READ]);self.assertEqual((fd,seen['option_reads']),(self.NO_VIEWER,0))
+  fd,seen,timeouts=self.viewer([7,8,9,10],[self.DROPPED],cost=25000)
+  self.assertEqual((fd,seen['accepts'],seen['drops']),(self.NO_VIEWER,3,3));self.assertEqual(timeouts[:3],[60000,35000,10000])
 if __name__=='__main__':unittest.main()

@@ -61,8 +61,8 @@ class PictureTests(unittest.TestCase):
   hero=scene.hero_picture(Image.new('RGB',(160,90),(200,200,200)),None,(800,450));self.assertGreater(hero.getpixel((640,140))[0],hero.getpixel((20,420))[0]+80);self.assertGreater(hero.getpixel((640,140))[0],130)
  def test_a_game_without_art_shows_its_cover_on_the_right(self):
   hero=scene.hero_picture(None,Image.new('RGB',(64,64),(250,30,30)),(800,450));self.assertGreater(hero.getpixel((700,180))[0],hero.getpixel((60,180))[0]);self.assertGreater(hero.getpixel((700,180))[0],hero.getpixel((700,180))[1])
- def test_with_nothing_at_all_the_page_is_dark_and_warm(self):
-  red,green,blue=scene.hero_picture(None,None,(400,225)).getpixel((300,60));self.assertLess(red,80);self.assertGreater(red,blue)
+ def test_with_nothing_at_all_the_page_is_dark_and_cool(self):
+  red,green,blue=scene.hero_picture(None,None,(400,225)).getpixel((300,60));self.assertLess(max(red,green,blue),150);self.assertGreater(blue,red);self.assertGreater(blue,green)
  def test_glass_darkens_and_blurs_what_is_behind_it(self):
   image=Image.new('RGB',(100,100),(220,220,220));image.paste((0,0,0),(50,0,100,100));scene.glass(image,(10,10,90,90),8);self.assertLess(image.getpixel((30,50))[0],160);self.assertGreater(image.getpixel((48,50))[0],image.getpixel((70,50))[0]);self.assertLess(image.getpixel((48,50))[0]-image.getpixel((52,50))[0],40)
  def test_a_long_title_takes_two_lines_and_stays_inside_the_width(self):

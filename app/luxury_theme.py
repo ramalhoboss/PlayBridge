@@ -155,7 +155,8 @@ def label_font(pixels):
 def button_image(size, text='', icon=None, tone='plain', hovering=False, selected=False, enabled=True, behind=PANEL, radius=12, text_size=12, icon_size=20, text_colour=None, compound='left', factor=1, align='middle'):
     """A button as one picture: its face, a hairline rim, its icon and its label. The main action is solid white and turns gold under the pointer, as the library's Play does."""
     width, height = size
-    image = Image.new('RGB', size, behind)
+    # behind is one colour, or the piece of a picture the button sits on.
+    image = behind.convert('RGB').resize(size) if isinstance(behind, Image.Image) else Image.new('RGB', size, behind)
     whole, inner = rounded_mask(size, 0, radius), rounded_mask(size, factor, radius-factor)
     ink = text_colour or TEXT if enabled else DISABLED
     if tone == 'main':
@@ -209,6 +210,7 @@ class LuxButton(tk.Canvas):
         self.clickable = clickable
         self.align = align
         self.hovering = False
+        self.under = None
         self.pictures = {}
         self.item = self.create_image(0, 0, anchor='nw')
         self.bind('<Configure>', lambda _: self.draw(), add='+')
@@ -227,6 +229,12 @@ class LuxButton(tk.Canvas):
             if 'enabled' in look and self.clickable:
                 self.configure(cursor='hand2' if self.enabled else '')
             self.draw()
+    def set_under(self, image):
+        """The picture behind a button that sits on art rather than on one colour: its corners, and a ghost button's face, show it."""
+        if image is not self.under:
+            self.under = image
+            self.pictures.clear()
+            self.draw()
     def hover(self, on):
         self.hovering = on
         self.draw()
@@ -240,7 +248,8 @@ class LuxButton(tk.Canvas):
         hovering = self.hovering and self.enabled
         key = (size, self.text, id(self.icon), self.tone, hovering, self.selected, self.enabled, self.text_colour)
         if key not in self.pictures:
-            self.pictures[key] = ImageTk.PhotoImage(button_image(size, self.text, self.icon, self.tone, hovering, self.selected, self.enabled, self.behind, self.radius, self.text_size, self.icon_size, self.text_colour, self.compound, self.factor, self.align), master=self)
+            behind = self.under if self.under is not None else self.behind
+            self.pictures[key] = ImageTk.PhotoImage(button_image(size, self.text, self.icon, self.tone, hovering, self.selected, self.enabled, behind, self.radius, self.text_size, self.icon_size, self.text_colour, self.compound, self.factor, self.align), master=self)
         self.itemconfigure(self.item, image=self.pictures[key])
 
 def dark_title_bar(window):
@@ -296,6 +305,7 @@ class AmbientScene:
         self.animations = animations
         self.active = False
         self.size = None
+        self.key = None
         self.status = None
         self.background = None
         self.turn = None
@@ -316,10 +326,12 @@ class AmbientScene:
             c.itemconfigure('ambient', state='normal')
             c.tag_raise('ambient')
         size = (max(1, c.winfo_width()), max(1, c.winfo_height()))
-        if size != self.size:
-            self.size = size
+        if size != self.key:
+            self.key = size
             self.background = ImageTk.PhotoImage(self.backdrop(size), master=c)
             c.itemconfigure(self.bg, image=self.background)
+        if size != self.size:
+            self.size = size
             x, y = size[0]*.06, size[1]*.62
             c.coords(self.subtitle, x, y)
             c.itemconfigure(self.subtitle, width=max(200, size[0]*.55))
@@ -333,6 +345,7 @@ class AmbientScene:
             c.itemconfigure(self.loader, image=self.spinner[turn])
     @staticmethod
     def backdrop(size):
+        """The same picture as behind Settings and Media, whatever game was played."""
         from scene import grain, no_art, ui_font
         image = ImageChops.add(no_art(size), grain(size), 1, -128)
         pixels = round(min(size[1]/1000, size[0]/1500)*66)

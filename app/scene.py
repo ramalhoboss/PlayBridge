@@ -167,9 +167,11 @@ def grain(size):
  """Fine noise, because so gentle a ramp in so few steps of dark would show bands."""
  noise=Image.effect_noise(size,2.6);return Image.merge('RGB',(noise,noise,noise))
 def no_art(size):
- """The page with no game behind it: near black with a warm light from the top right."""
- y,x=np.mgrid[0:90,0:160];u=x/159;v=y/89;light=np.exp(-((u-.74)**2/.2+(v-.26)**2/.24))[...,None]
- return Image.fromarray((np.array((6,6,8),dtype=float)+light*np.array((64,48,20),dtype=float)).astype('uint8'),'RGB').resize(size,BICUBIC)
+ """The page with no game behind it: near black, with blue light from the top right and violet low on the right, original to PlayBridge."""
+ y,x=np.mgrid[0:90,0:160];u=x/159;v=y/89
+ blue=np.exp(-((u-.78)**2/.09+(v-.3)**2/.12))[...,None]*np.array((16,46,132),dtype=float)
+ violet=np.exp(-((u-.95)**2/.05+(v-.85)**2/.1))[...,None]*np.array((72,26,112),dtype=float)
+ return Image.fromarray(np.clip(np.array((8,9,14),dtype=float)+blue+violet,0,255).astype('uint8'),'RGB').resize(size,BICUBIC)
 def hero_picture(art,cover,size):
  """The page behind everything. A game's own art fills it. A game without art has its cover: far out of focus behind, and large and sharp on the right, melting into the blur."""
  width,height=size

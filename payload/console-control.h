@@ -2,6 +2,7 @@
 #include <pthread.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <dirent.h>
 #include "control-rules.h"
 int sceKernelGetCpuTemperature(int*);
 int sceKernelGetSocSensorTemperature(int,int*);
@@ -37,7 +38,8 @@ static int control_status(int fd){
 static int control_file(int fd,const char*path,uint32_t length){
  if(!allowed_file(path,length))return control_reply(fd,EACCES,0,0);
  int file=open(path,O_RDONLY);if(file<0)return control_reply(fd,errno,0,0);
- struct stat info;int failed=fstat(file,&info)<0||info.st_size>0x10000000;
+ /* Game files stay small. A clip can be long, but the reply's size field holds at most 4 GB. */
+ struct stat info;int failed=fstat(file,&info)<0||info.st_size>(capture_file(path,length)?0xfffffffeLL:0x10000000LL);
  if(failed){close(file);return control_reply(fd,EFBIG,0,0);}
  uint32_t left=(uint32_t)info.st_size;if(control_header(fd,0,left)<0){close(file);return -1;}
  static unsigned char chunk[0x10000];
@@ -45,6 +47,23 @@ static int control_file(int fd,const char*path,uint32_t length){
   /* About 4 MB/s, so a refresh does not take the Wi-Fi away from the video. */
   usleep(16000);}
  close(file);return 0;
+}
+/* One line for each entry of a capture folder: d or f, size, change time, name. Names that would break a line are left out. */
+static int control_list(int fd,const char*path,uint32_t length){
+ if(!allowed_folder(path,length))return control_reply(fd,EACCES,0,0);
+ DIR*dir=opendir(path);if(!dir)return control_reply(fd,errno,0,0);
+ static char out[0x10000];size_t used=0;struct dirent*entry;char full[600];
+ while((entry=readdir(dir))!=0){
+  const char*name=entry->d_name;if(name[0]=='.')continue;
+  int odd=0;for(int i=0;name[i];i++)if((unsigned char)name[i]<0x20||name[i]==127)odd=1;
+  if(odd)continue;
+  int n=snprintf(full,sizeof full,"%s/%s",path,name);if(n<0||n>=(int)sizeof full)continue;
+  struct stat info;if(stat(full,&info)<0)continue;
+  int w=snprintf(out+used,sizeof out-used,"%c\t%lld\t%lld\t%s\n",S_ISDIR(info.st_mode)?'d':'f',(long long)info.st_size,(long long)info.st_mtime,name);
+  if(w<0||(size_t)w>=sizeof out-used)break;
+  used+=(size_t)w;
+ }
+ closedir(dir);return control_reply(fd,0,out,(uint32_t)used);
 }
 static int control_launch(const char*title,uint32_t length){
  if(!valid_title(title,length))return EINVAL;
@@ -69,6 +88,7 @@ static void control_session(int fd){
   body[length]=0;int failed=0;
   if(command==CONTROL_STATUS)failed=control_status(fd);
   else if(command==CONTROL_FILE)failed=control_file(fd,body,length);
+  else if(command==CONTROL_LIST)failed=control_list(fd,body,length);
   else if(command==CONTROL_LAUNCH)failed=control_reply(fd,control_launch(body,length),0,0);
   else if(command==CONTROL_CLOSE)failed=control_reply(fd,control_close(),0,0);
   /* These three answer first: the console may be gone before they return. */

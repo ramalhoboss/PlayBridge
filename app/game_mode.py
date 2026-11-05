@@ -236,7 +236,8 @@ class GameShelf(tk.Frame):
   console=('Console',f'CPU {cpu}°' if cpu else 'Not connected' if not self.link.online else '—','  ·  '.join(part for part in (f'SoC {soc}°' if soc else '',open_name) if part))
   return ('live',layout.width,layout.height,stream,console),lambda:scene.live_cards(layout,stream,console)
  def plan(self):
-  """Tells the drawing thread what the page needs next, nearest first."""
+  """Tells the drawing thread what the page needs next, nearest first. Every tile in view comes before any page: a tile takes about
+  6 ms and a page 100 to 250 ms, and the far tiles used to wait behind three pages and stay blank while the row moved."""
   if self.layout is None or not self.shown:return
   layout=self.layout;focus=self.focused();near=[];later=[self.page_job(focus),self.live_job()]
   if focus:near+=[self.rest_job(focus),self.name_job(focus),self.faces_job(focus,layout.half)]
@@ -244,8 +245,12 @@ class GameShelf(tk.Frame):
   for reach in range(1,across+1):
    for index in (self.target+reach,self.target-reach if reach<4 else -1):
     if 0<=index<len(self.games):
-     game=self.games[index];(near if reach<4 else later).append(self.tile_job(game))
+     game=self.games[index];near.append(self.tile_job(game))
      if reach==1:near+=[self.faces_job(game,layout.half),self.name_job(game)];later+=[self.rest_job(game),self.page_job(game)]
+  # Once the row is still, the tiles a screen further each way, so a run along the row finds them drawn.
+  for reach in range(across+1,2*across+1):
+   for index in (self.target+reach,self.target-reach):
+    if 0<=index<len(self.games):later.append(self.tile_job(self.games[index]))
   with self.lock:self.wanted=near+later;self.near=len(near)
   self.wake.set();self.schedule()
 

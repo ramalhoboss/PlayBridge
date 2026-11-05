@@ -9,6 +9,9 @@ from game_mode import ConfirmDialog, GameShelf, PopMenu, TopStrip, power_items, 
 from sound_board import SoundBoard
 from console_control import CLOSE, GameFlow, POWER_OFF, REBOOT, REST, console_line, menu_in_front, running_title
 from pad_input import CONSOLE_PAD_READY, PadBridge
+from settings_look import GlassPage
+import graphics_card,payload_sender,live_broadcast
+from hang_watch import HangWatch
 from desktop_features import CursorHider, saved_consoles, remember_console
 from PIL import Image,ImageTk
 import sounddevice as sd
@@ -35,7 +38,8 @@ class Tooltip:
 def run_ui(app):
  core=sys.modules[app.__class__.__module__]
  def icon(name,colour=TEXT):return tint(Image.open(core.HERE/'assets'/(name+'.png')),colour)
- icons={name:icon(name) for name in ('speaker','muted','connect','disconnect','camera','folder','replay')}
+ icons={name:icon(name) for name in ('speaker','muted','connect','disconnect','camera','folder','replay','mini','live')}
+ icons['on_air']=icon('live','#FF5A64')
  icons['record']=Image.open(core.HERE/'assets/record.png').convert('RGBA')
  on_white={name:icon(name,INK) for name in ('connect','disconnect')}
  apply_theme()
@@ -77,7 +81,9 @@ def run_ui(app):
  record_button=round_tool(tools,icons['record'],app.toggle_recording);record_button.grid(row=0,column=1,padx=4)
  replay_button=round_tool(tools,icons['replay'],app.save_replay);replay_button.grid(row=0,column=2,padx=4)
  captures_button=round_tool(tools,icons['folder'],lambda:show_page('media'));captures_button.grid(row=0,column=3,padx=4)
- session_button=LuxButton(tools,'Session',lambda:toggle_session(),width=92,height=40,radius=20,text_size=13,behind=BG);session_button.grid(row=0,column=4,padx=(12,0))
+ mini_button=round_tool(tools,icons['mini'],lambda:small_window());mini_button.grid(row=0,column=4,padx=4)
+ live_button=round_tool(tools,icons['live'],lambda:toggle_live());live_button.grid(row=0,column=5,padx=4)
+ session_button=LuxButton(tools,'Session',lambda:toggle_session(),width=92,height=40,radius=20,text_size=13,behind=BG);session_button.grid(row=0,column=6,padx=(12,0))
  host_label=ctk.CTkLabel(link_zone,text=app.args.host,text_color=MUTED,font=('Segoe UI',11));host_label.grid(row=0,column=0,sticky='e',padx=14)
  def disconnect():
   app.intentional_disconnect=True
@@ -91,37 +97,33 @@ def run_ui(app):
  settings_page=None
  def build_settings():
   nonlocal settings_page
-  factor=ctk.ScalingTracker.get_widget_scaling(win)
-  page=tk.Frame(workspace,bg=BG);settings_page=page;page.grid_columnconfigure(1,weight=1);page.grid_rowconfigure(0,weight=1)
-  rail=tk.Frame(page,bg=BG);rail.grid(row=0,column=0,rowspan=2,sticky='ns',padx=(52,28),pady=(8,0))
-  heading(rail,'Settings',34).pack(anchor='w',pady=(0,16))
-  body=ctk.CTkScrollableFrame(page,fg_color=BG);thin_scrollbar(body);body.grid(row=0,column=1,sticky='nsew',padx=(0,52),pady=(8,0));body.grid_columnconfigure(0,minsize=round(660*factor))
-  sections={};rail_buttons={}
-  for key,label in (('console','Console'),('picture','Picture'),('captures','Captures'),('sound','Sound'),('look','Appearance')):
-   sections[key]=tk.Frame(body,bg=BG)
-   rail_buttons[key]=LuxButton(rail,label,lambda key=key:open_section(key),width=220,height=44,radius=10,text_size=15,behind=BG,tone='ghost',align='left');rail_buttons[key].pack(pady=2)
-  foot=tk.Frame(page,bg=BG);foot.grid(row=1,column=1,sticky='ew',padx=(0,52),pady=12)
+  page=GlassPage(workspace);settings_page=page
+  sections={}
+  for key,label,icon_name,subtitle in (('console','Console','controller','Address, favourites, connection and power'),('picture','Picture','fullscreen','Quality, graphics card, video output and upscaling'),('captures','Captures','camera','Instant replay, files and diagnostics'),('sound','Sound','speaker','Music and sounds on the Games page'),('live','Streaming','live','Twitch, YouTube, any RTMP server, or OBS on this PC'),('look','Appearance','games','Gaming Mode and motion')):
+   sections[key]=page.section(key,label,Image.open(core.HERE/'assets'/(icon_name+'.png')).convert('RGBA'),subtitle)
+  foot=page.footer
   def open_section(key):
-   for name,section in sections.items():
-    if name==key:section.grid(row=0,column=0,sticky='new')
-    else:section.grid_remove()
-    rail_buttons[name].restyle(selected=name==key)
+   page.open(key)
    # Only these two hold anything that waits for Save. Everything else applies at once.
-   if key in ('console','picture'):foot.grid()
-   else:foot.grid_remove()
-  def card(section,title=None):
-   box=Bezel(section,fill=CARD,outer=BG,radius=14);box.pack(fill='x',pady=(0,14))
-   inner=tk.Frame(box.body,bg=CARD);inner.pack(fill='x',padx=14,pady=10)
-   if title:ctk.CTkLabel(inner,text=title,font=('Segoe UI Semibold',14),text_color=TEXT).pack(anchor='w',pady=(0,6))
-   return inner
+   page.show_footer(key in ('console','picture'))
+  page.choose_hook=open_section;page.open_section=open_section
+  def card(section,title=None):return page.card(section,title)
+  # Settings reads from further away than the rest of the app, so its words and controls are a size up.
+  BODY=('Segoe UI',16);SMALL=('Segoe UI',15);FIELD_HEIGHT=44
   def note(parent,text):
-   label=ctk.CTkLabel(parent,text=text,font=('Segoe UI',11),text_color=MUTED,wraplength=590,justify='left');label.pack(anchor='w',pady=(2,8));return label
+   label=ctk.CTkLabel(parent,text=text,font=SMALL,text_color=MUTED,wraplength=590,justify='left');label.pack(anchor='w',pady=(2,10));return page.wrap(label)
+  def caption(parent,text):
+   return ctk.CTkLabel(parent,text=text,font=BODY,text_color=MUTED)
   def switch(parent,text,variable,command=None):
-   ctk.CTkSwitch(parent,text=text,variable=variable,command=command,font=('Segoe UI',12)).pack(anchor='w',pady=(2,6))
+   ctk.CTkSwitch(parent,text=text,variable=variable,command=command,font=BODY,switch_width=50,switch_height=26).pack(anchor='w',pady=(4,8))
   def wide_button(parent,text,command,**look):
-   button=LuxButton(parent,text,command,height=36,radius=18,behind=CARD,**look);button.pack(fill='x',pady=(2,8));return button
+   button=LuxButton(parent,text,command,height=48,radius=24,text_size=16,behind=CARD,**look);button.pack(fill='x',pady=(4,10));return button
+  def drop(parent,**options):
+   return rim_menu(parent,height=FIELD_HEIGHT,font=BODY,dropdown_font=BODY,**options)
+  def entry(parent,**options):
+   return rim_field(parent,height=FIELD_HEIGHT,font=BODY,**options)
   def menu(parent,**options):
-   rim_menu(parent,height=30,**options)[0].pack(fill='x',pady=(0,6))
+   drop(parent,**options)[0].pack(fill='x',pady=(0,8))
   # Console.
   favourites=saved_consoles(core.config(),core.PROFILES)
   favourite_map={item['name']+' · '+item['host']:item for item in favourites}
@@ -130,13 +132,13 @@ def run_ui(app):
    item=favourite_map[label];host.delete(0,'end');host.insert(0,item['host']);console_name.delete(0,'end');console_name.insert(0,item['name']);profile.set(core.PROFILES[item['profile']]['name'])
   place=card(sections['console'],'Your console')
   if favourite_map:menu(place,values=list(favourite_map),command=choose_favourite,variable=ctk.StringVar(value='Choose a saved console'))
-  ctk.CTkLabel(place,text='IP address',font=('Segoe UI',12),text_color=MUTED).pack(anchor='w')
-  host_rim,host=rim_field(place,height=32);host.insert(0,app.args.host);host_rim.pack(fill='x',pady=(2,8))
+  caption(place,'IP address').pack(anchor='w')
+  host_rim,host=entry(place);host.insert(0,app.args.host);host_rim.pack(fill='x',pady=(4,10))
   scan_results=queue.Queue();discovered={}
   scan_choice=ctk.StringVar(value='Select a console')
   def select_console(label):
    if label in discovered:host.delete(0,'end');host.insert(0,discovered[label])
-  found_rim,found_menu=rim_menu(place,variable=scan_choice,values=['Select a console'],command=select_console,height=30);found_rim.pack(fill='x',pady=(0,4))
+  found_rim,found_menu=drop(place,variable=scan_choice,values=['Select a console'],command=select_console);found_rim.pack(fill='x',pady=(0,6))
   scan_status=note(place,'Find your PS5 or enter its IP address above.')
   def finish_scan():
    try:items,problem=scan_results.get_nowait()
@@ -156,7 +158,7 @@ def run_ui(app):
    threading.Thread(target=work,name='Console discovery',daemon=True).start();win.after(100,finish_scan)
   scan_button=wide_button(place,'Find console',scan)
   place=card(sections['console'],'Favourite')
-  name_rim,console_name=rim_field(place,height=30,placeholder_text='My PS5');name_rim.pack(fill='x',pady=(0,4))
+  name_rim,console_name=entry(place,placeholder_text='My PS5');name_rim.pack(fill='x',pady=(0,6))
   match=next((c for c in favourites if c['host']==app.args.host),None)
   if match:console_name.insert(0,match['name'])
   favourite_status=note(place,'Save this IP and quality profile for next time.')
@@ -165,21 +167,57 @@ def run_ui(app):
    except ValueError:favourite_status.configure(text='Enter a valid console IP address.',text_color=ALERT);return
    core.save_config(consoles=items);favourite_status.configure(text='Favourite saved with this quality profile.',text_color=GOLD_SOFT)
   heart=local_image('heart.png');heart_icon=tint(heart,TEXT) if heart is not None else None
-  wide_button(place,'Save to favourites',save_favourite,icon=heart_icon,icon_size=16)
+  wide_button(place,'Save to favourites',save_favourite,icon=heart_icon,icon_size=20)
   place=card(sections['console'],'Connection')
   reconnect=ctk.BooleanVar(value=app.args.auto_reconnect);switch(place,'Reconnect automatically',reconnect)
   manual=ctk.BooleanVar(value=app.args.connect_only);switch(place,'ELF already loaded in Payload Manager',manual)
   note(place,'Off: PlayBridge uploads the ELF automatically.\nOn: load PlayBridge.elf, then connect within 60 seconds.')
+  place=card(sections['console'],'Send a payload')
+  recent_payloads=[item for item in core.config().get('recent_payloads',[]) if isinstance(item,str)]
+  def payload_label(path):return Path(path).name+'  ·  '+(Path(path).parent.name or str(Path(path).parent))
+  recent_choice=ctk.StringVar(value='Send a recent payload')
+  def send_recent(label):
+   path=next((item for item in recent_payloads if payload_label(item)==label),None);recent_choice.set('Send a recent payload')
+   if path:send_file(path)
+  recent_rim,recent_menu=drop(place,variable=recent_choice,values=[payload_label(item) for item in recent_payloads] or ['No payload sent yet'],command=send_recent);recent_rim.pack(fill='x',pady=(0,8))
+  def choose_payload():
+   from tkinter import filedialog
+   path=filedialog.askopenfilename(parent=win,title='Choose a payload',filetypes=[('ELF payload','*.elf'),('All files','*.*')])
+   if path:send_file(path)
+  wide_button(place,'Choose ELF and send',choose_payload)
+  payload_status=note(place,'Sends any ELF to the loader your exploit opened on port 9021. A payload runs with full access to the PS5, so send only files you trust.')
+  def send_file(path):
+   typed=host.get().strip()
+   try:ipaddress.IPv4Address(typed)
+   except ValueError:payload_status.configure(text='Enter a valid console IP address above first.',text_color=ALERT);return
+   try:data=payload_sender.read_payload(path)
+   except payload_sender.PayloadError as problem:payload_status.configure(text=str(problem),text_color=ALERT);return
+   name=Path(path).name
+   def send():
+    recent_payloads[:]=payload_sender.remember(recent_payloads,path);core.save_config(recent_payloads=recent_payloads);recent_menu.configure(values=[payload_label(item) for item in recent_payloads])
+    payload_status.configure(text=f'Sending {name}…',text_color=MUTED);results=queue.Queue()
+    def work():
+     try:payload_sender.send_payload(typed,data);results.put(None)
+     except payload_sender.PayloadError as problem:results.put(str(problem))
+    threading.Thread(target=work,name='PlayBridge payload',daemon=True).start()
+    def finish():
+     try:problem=results.get_nowait()
+     except queue.Empty:win.after(100,finish);return
+     if problem:payload_status.configure(text=problem,text_color=ALERT)
+     else:payload_status.configure(text=f'{name} reached the loader on {typed}.',text_color=GOLD_SOFT);app.notify(f'{name} sent to the PS5.')
+    win.after(100,finish)
+   ask_first('Send this payload?',f'{name}  ·  {payload_sender.size_label(len(data))}\nto the PS5 at {typed}.\n\nIt runs with full access to the console. Send only files you trust.','Send',send,height=250)
   place=card(sections['console'],'Power')
   actions=tk.Frame(place,bg=CARD);actions.pack(fill='x',pady=(0,4));actions.grid_columnconfigure((0,1),weight=1,uniform='power')
   for index,(label,command) in enumerate(power_actions):
-   LuxButton(actions,label,command,height=36,radius=18,behind=CARD).grid(row=index//2,column=index%2,sticky='ew',padx=3,pady=3)
+   LuxButton(actions,label,command,height=48,radius=24,text_size=16,behind=CARD).grid(row=index//2,column=index%2,sticky='ew',padx=4,pady=4)
   note(place,'These need the PS5 connected. After a reboot or a power off, load your exploit again.')
   # Picture.
   place=card(sections['picture'],'Quality profile')
   profiles={v['name']:k for k,v in core.PROFILES.items()};profile=ctk.StringVar(value=core.PROFILES[app.args.profile]['name'])
   menu(place,variable=profile,values=list(profiles))
   note(place,'Profiles apply on reconnect. 30 fps limits PC playback only.\n1440p and 4K need the PS5 video output set to that resolution.')
+  note(place,graphics_card.summary(app.graphics()))
   place=card(sections['picture'],'On screen')
   switch(place,'Show performance stats',diagnostic,lambda:core.save_config(diagnostic=diagnostic.get()))
   place=card(sections['picture'],'Video output')
@@ -211,6 +249,39 @@ def run_ui(app):
    if folder:core.save_config(capture_folder=folder);app.notify('Capture folder updated.')
   wide_button(place,'Choose capture folder',choose_capture_folder)
   wide_button(place,'Export diagnostics',export_session)
+  # Streaming.
+  place=card(sections['live'],'Go live')
+  services={name:key for key,name in live_broadcast.SERVICES.items()}
+  saved=core.config();service=ctk.StringVar(value=live_broadcast.SERVICES.get(saved.get('live_service'),'Twitch'))
+  server_label=caption(place,'Server address')
+  server_rim,server_field=entry(place,placeholder_text='rtmp://')
+  if isinstance(saved.get('live_server'),str):server_field.insert(0,saved['live_server'])
+  key_label=caption(place,'Stream key')
+  key_rim,key_field=entry(place,show='•')
+  key_field.insert(0,live_broadcast.unseal(saved.get('live_key','')))
+  live_go=LuxButton(place,'Go live',lambda:start_live(),height=48,radius=24,text_size=16,behind=CARD,tone='main')
+  live_status=note(place,'')
+  hints={'twitch':'Twitch recommends at most 6 Mbps, so the Data saver profile suits it best. Higher profiles work on many channels.','youtube':'YouTube takes every 1080p profile. The key travels over an encrypted connection.','custom':'Enter the server address and, if your service gives it separately, the stream key.','obs':f'In OBS, add a Media Source, untick Local File, and enter udp://127.0.0.1:{live_broadcast.OBS_PORT} as the input, with mpegts as its format. Then go live here.'}
+  def arrange(*_):
+   kind=services.get(service.get(),'twitch')
+   for widget in (server_label,server_rim,key_label,key_rim,live_go,live_status):widget.pack_forget()
+   if kind=='custom':server_label.pack(anchor='w');server_rim.pack(fill='x',pady=(4,10))
+   if kind!='obs':key_label.pack(anchor='w');key_rim.pack(fill='x',pady=(4,10))
+   live_go.pack(fill='x',pady=(4,10));live_status.pack(anchor='w',pady=(2,10));live_status.configure(text=hints[kind],text_color=MUTED)
+  menu(place,variable=service,values=list(services),command=arrange)
+  arrange()
+  def start_live():
+   if app.broadcast.active:app.end_live();return
+   kind=services[service.get()];key=key_field.get().strip();server=server_field.get().strip()
+   # The key is kept encrypted for this Windows user.
+   core.save_config(live_service=kind,live_server=server,live_key=live_broadcast.seal(key))
+   problem=app.go_live(kind,key,server)
+   if problem:live_status.configure(text=problem,text_color=ALERT)
+   else:live_status.configure(text='Waiting for the next keyframe…',text_color=MUTED)
+  page.live_controls=(live_go,live_status)
+  place=card(sections['live'],'How it works')
+  note(place,'PlayBridge sends on the video and sound the PS5 already made, without encoding them again, so it costs this PC almost nothing. The stream uses your quality profile, as H.264 and AAC, so check that its bitrate suits your channel.')
+  note(place,'Ctrl+B or the button beside the small window starts and ends it with these settings. Recording and instant replay keep working while you are live.')
   # Sound.
   place=card(sections['sound'],'In the library')
   music_on=ctk.BooleanVar(value=sounds.music_on);cues_on=ctk.BooleanVar(value=sounds.effects_on)
@@ -219,8 +290,8 @@ def run_ui(app):
   def change_cues():
    sounds.effects_on=cues_on.get();core.save_config(sound_cues=cues_on.get());sounds.play('move')
   switch(place,'Background music',music_on,change_music);switch(place,'Navigation sounds',cues_on,change_cues)
-  ctk.CTkLabel(place,text='Library volume',font=('Segoe UI',12)).pack(anchor='w')
-  level=ctk.CTkSlider(place,from_=0,to=1,command=lambda value:setattr(sounds,'volume',value),height=16);level.set(sounds.volume);level.pack(fill='x',pady=(4,4));level.bind('<ButtonRelease-1>',lambda _:core.save_config(sound_level=sounds.volume),add='+')
+  caption(place,'Library volume').pack(anchor='w',pady=(6,0))
+  level=ctk.CTkSlider(place,from_=0,to=1,command=lambda value:setattr(sounds,'volume',value),height=20);level.set(sounds.volume);level.pack(fill='x',pady=(6,8));level.bind('<ButtonRelease-1>',lambda _:core.save_config(sound_level=sounds.volume),add='+')
   note(place,'These sound only while your games are on screen, never over a game. A game with music of its own plays it; the others share the app\'s.')
   # Appearance.
   place=card(sections['look'],'Gaming Mode')
@@ -232,7 +303,7 @@ def run_ui(app):
    ambient.animations=animations.get();core.save_config(animations=animations.get())
   switch(place,'Animations',animations,change_motion)
   note(place,'The library\'s moving tiles and the waiting screen. Motion pauses during video playback.')
-  error=ctk.CTkLabel(foot,text='',text_color=ALERT,font=('Segoe UI',12))
+  error=ctk.CTkLabel(foot,text='',text_color=ALERT,font=BODY)
   def save():
    typed=host.get().strip()
    try:ipaddress.IPv4Address(typed)
@@ -250,7 +321,7 @@ def run_ui(app):
     if app.worker.is_alive():win.after(100,connect_when_ready)
     else:app.restart()
    win.after(100,connect_when_ready)
-  LuxButton(foot,'Save changes',save,width=170,height=42,radius=21,text_size=14,tone='main',behind=BG).pack(side='left')
+  LuxButton(foot,'Save changes',save,width=200,height=50,radius=25,text_size=17,tone='main',behind=BG).pack(side='left')
   error.pack(side='left',padx=14)
   open_section('console')
  library=CaptureLibrary(workspace,app)
@@ -292,7 +363,7 @@ def run_ui(app):
  def place_session():
   # The session panel belongs to the live view, and only if the window has room for it.
   nonlocal dock_visible
-  visible=session_wanted and page=='live' and not fullscreen and win.winfo_width()>=1180
+  visible=session_wanted and page=='live' and not fullscreen and mini is None and win.winfo_width()>=1180
   if visible!=dock_visible:
    dock_visible=visible
    if visible:dock.grid(row=0,column=1,sticky='nsew',padx=(10,0))
@@ -335,6 +406,8 @@ def run_ui(app):
   nonlocal page,back_page,games_shown,has_video,last_info,revealed_at
   if name==page:return
   PopMenu.close()
+  # The small window holds only the picture, so any other page brings the full window back.
+  if mini is not None and name!='live':small_window()
   # Everything is laid out before anything leaves, or the first visit shows the empty window for as long as it takes to build.
   if name=='settings' and settings_page is None:build_settings()
   if name=='media':library.open()
@@ -352,6 +425,7 @@ def run_ui(app):
    if presenter:presenter.frame=None
    if name=='games':games.grid(row=0,column=0,sticky='nsew');games.show(True)
    else:(library.page if name=='media' else settings_page).grid(row=0,column=0,sticky='nsew')
+   if name=='settings':settings_page.refresh()
   sounds.show(games_shown);show_strip();fit_shell();place_session()
  def show_games(on):show_page('games' if on else 'live')
  def next_tab(step):return TABS[(TABS.index(page)+step)%len(TABS)] if page in TABS else 'games'
@@ -376,7 +450,7 @@ def run_ui(app):
   else:page_actions[key]()
  strip=TopStrip(win,top_pressed);strip.grid(row=0,column=0,sticky='ew')
  pad=PadBridge(lambda:app.args.host,app.stop)
- Tooltip(session_button,'Session performance · Ctrl+I');Tooltip(screenshot_button,'Screenshot · F8');Tooltip(record_button,'Start / stop recording · F9');Tooltip(replay_button,'Save the last moments · F10');Tooltip(captures_button,'Your captures · Ctrl+L')
+ Tooltip(session_button,'Session performance · Ctrl+I');Tooltip(screenshot_button,'Screenshot · F8');Tooltip(record_button,'Start / stop recording · F9');Tooltip(replay_button,'Save the last moments · F10');Tooltip(captures_button,'Your captures · Ctrl+L');Tooltip(mini_button,'Small window on top · Ctrl+M');Tooltip(live_button,'Go live · Ctrl+B')
  Tooltip(mute_button,'Mute / unmute');Tooltip(output,'Audio output');Tooltip(volume,'Volume')
  bottom=tk.Frame(win,bg=BG);bottom.grid(row=3,column=0,sticky='ew',padx=20,pady=(0,6));bottom.grid_columnconfigure(0,weight=1)
  message=ctk.CTkLabel(bottom,text='',text_color=MUTED,font=('Segoe UI',10),anchor='w',height=16);message.grid(row=0,column=0,sticky='ew')
@@ -411,10 +485,10 @@ def run_ui(app):
   from gdi_presenter import GdiPresenter
   refresh.after=None;direct=False;surface.grid_remove();presenter=GdiPresenter(canvas);app.use_gdi()
  if direct:refresh.after=paint
- fullscreen=False;photo=None;photo_size=None;rate_at=time.perf_counter();rate_frames=0;fps=0;last_info=0;recording_at=None;cursor=CursorHider(win)
+ last_tick=time.perf_counter();watch=HangWatch(threading.get_ident(),app.stop);fullscreen=False;mini=None;photo=None;photo_size=None;rate_at=time.perf_counter();rate_frames=0;fps=0;last_info=0;recording_at=None;cursor=CursorHider(win)
  def fit_shell():
   # The library and fullscreen video have the whole window to themselves.
-  live=page=='live';bare=games_shown or live and fullscreen
+  live=page=='live';bare=games_shown or live and (fullscreen or mini is not None)
   # Configuring a widget grids it again, so this comes before anything is taken away.
   bottom.grid_configure(padx=20 if live else 52)
   for widget,shown in ((strip,not bare),(footer,live and not bare),(bottom,not bare)):
@@ -422,9 +496,53 @@ def run_ui(app):
    else:widget.grid_remove()
  def full():
   nonlocal fullscreen
+  if mini is not None:small_window()
   fullscreen=not fullscreen;fit_shell()
   place_session();win.attributes('-fullscreen',fullscreen)
   cursor.active=fullscreen;cursor.moved()
+ def on_screen(place):
+  """A saved place for the small window, if it is still on this screen."""
+  import re
+  found=re.fullmatch(r'(\d+)x(\d+)\+(-?\d+)\+(-?\d+)',place) if isinstance(place,str) else None
+  if not found:return False
+  width,height,x,y=map(int,found.groups())
+  return 160<=width<=2000 and 90<=height<=1200 and 0<=x<win.winfo_screenwidth()-100 and 0<=y<win.winfo_screenheight()-100
+ def show_live(on_air):
+  controls=getattr(settings_page,'live_controls',None)
+  if controls is None:return
+  button,status=controls
+  button.restyle(text='End live stream' if on_air else 'Go live',tone='danger' if on_air else 'main')
+  if app.broadcast.state=='live':status.configure(text='Live on '+app.broadcast.name+' for '+live_broadcast.clock(app.broadcast.elapsed())+'.',text_color=GOLD_SOFT)
+  elif not on_air and status.cget('text').startswith('Live on '):status.configure(text='The live stream ended.',text_color=MUTED)
+ def toggle_live():
+  if app.broadcast.active:app.end_live();return
+  saved=core.config();kind=saved.get('live_service');key=live_broadcast.unseal(saved.get('live_key',''));server=saved.get('live_server','')
+  ready=kind=='obs' or kind in ('twitch','youtube') and key or kind=='custom' and server
+  if not ready:
+   show_page('settings');settings_page.open_section('live');say('Choose where to go live, then select Go live.');return
+  problem=app.go_live(kind,key,server)
+  if problem:say(problem)
+ def small_window():
+  """Only the picture, in a small window above every other one: Ctrl+M or its button, and again to come back."""
+  nonlocal mini
+  if mini is None:
+   if gaming_mode:set_gaming(False)
+   if fullscreen:full()
+   if page!='live':show_page('live')
+   zoomed=win.state()=='zoomed';mini=(win.geometry(),zoomed)
+   if zoomed:win.state('normal')
+   fit_shell();place_session();win.minsize(320,180)
+   # Where it was left last time, or the lower right corner of the screen.
+   factor=ctk.ScalingTracker.get_window_scaling(win);width,height=480,270
+   place=core.config().get('mini_geometry')
+   if not on_screen(place):place=f'{width}x{height}+{win.winfo_screenwidth()-round((width+28)*factor)}+{win.winfo_screenheight()-round((height+110)*factor)}'
+   # In this order: on Windows, -topmost set after a move puts the window back where it was.
+   win.attributes('-topmost',True);win.geometry(place)
+  else:
+   geometry,zoomed=mini;core.save_config(mini_geometry=win.geometry());mini=None
+   win.attributes('-topmost',False);win.minsize(900,620);win.geometry(geometry)
+   if zoomed:win.state('zoomed')
+   fit_shell();place_session()
  win.bind('<Motion>',cursor.moved,add='+')
  page_actions.update(open=start_game,close=close_game,connect=connect_toggle,live=show_stream,media=lambda:show_page('media'),settings=lambda:show_page('settings'),fullscreen=lambda:set_gaming(not gaming_mode),rest=rest_console,off=power_off_console,reboot=reboot_console,soft_reset=soft_reset,recovery=recovery_console,exit=lambda:set_gaming(False))
  def close():app.stop.set();sounds.close();win.destroy()
@@ -434,6 +552,7 @@ def run_ui(app):
   elif games_shown and games.dismiss():pass
   elif page in ('media','settings'):show_page(back_page)
   elif gaming_mode:set_gaming(False)
+  elif mini is not None:small_window()
   elif fullscreen:full()
  def grid_key(event):
   if games_shown and games.navigate(event):return 'break'
@@ -459,13 +578,14 @@ def run_ui(app):
   elif event=='previous':show_page(next_tab(-1))
  def save_replay_key(_):
   app.save_replay();return 'break'
- win.protocol('WM_DELETE_WINDOW',close);win.bind('<Escape>',escape);win.bind('<F11>',lambda _:full());win.bind('<Control-i>',lambda _:toggle_session());win.bind('<Control-l>',lambda _:show_page('media'));win.bind('<Control-comma>',lambda _:show_page('settings'));win.bind('<F8>',lambda _:app.take_screenshot());win.bind('<F9>',lambda _:app.toggle_recording());win.bind('<F10>',save_replay_key);win.bind('<F6>',lambda _:reveal_game() if games_shown else show_games(True));win.bind('<Control-g>',lambda _:set_gaming(not gaming_mode));win.bind('<Left>',lambda _:grid_key('left'));win.bind('<Right>',lambda _:grid_key('right'));win.bind('<Up>',lambda _:grid_key('up'));win.bind('<Down>',lambda _:grid_key('down'));win.bind('<Return>',lambda _:grid_key('accept'));win.bind('<Prior>',lambda _:grid_key('previous'));win.bind('<Next>',lambda _:grid_key('next'));canvas.bind('<Double-Button-1>',lambda _:full())
+ win.protocol('WM_DELETE_WINDOW',close);win.bind('<Escape>',escape);win.bind('<F11>',lambda _:full());win.bind('<Control-i>',lambda _:toggle_session());win.bind('<Control-l>',lambda _:show_page('media'));win.bind('<Control-comma>',lambda _:show_page('settings'));win.bind('<F8>',lambda _:app.take_screenshot());win.bind('<F9>',lambda _:app.toggle_recording());win.bind('<F10>',save_replay_key);win.bind('<F6>',lambda _:reveal_game() if games_shown else show_games(True));win.bind('<Control-g>',lambda _:set_gaming(not gaming_mode));win.bind('<Control-m>',lambda _:small_window());win.bind('<Control-b>',lambda _:toggle_live());win.bind('<Left>',lambda _:grid_key('left'));win.bind('<Right>',lambda _:grid_key('right'));win.bind('<Up>',lambda _:grid_key('up'));win.bind('<Down>',lambda _:grid_key('down'));win.bind('<Return>',lambda _:grid_key('accept'));win.bind('<Prior>',lambda _:grid_key('previous'));win.bind('<Next>',lambda _:grid_key('next'));canvas.bind('<Double-Button-1>',lambda _:small_window() if mini is not None else full())
  def follow_console(now):
   # Runs once for each status, so the console's menu leaves the screen as soon as the status shows it.
   nonlocal menu_was_in_front,opened_title,opened_at,first_status
   playing=running_title(app.link.status)
   if app.link.online:
    change=flow.update(playing,now)
+   if change in ('started','closed'):app.event('Game '+change+' on the PS5')
    if change=='started':opened_title=playing;opened_at=now;show_games(False)
    elif change=='closed':
     # A game opened from the library comes back to it, and one that died at once says so instead of leaving the console's menu on screen.
@@ -497,8 +617,13 @@ def run_ui(app):
   return dict(name=(app.console or {}).get('name') or 'PS5',state='online' if app.link.online else 'connecting' if active else 'offline',pad=bool(pad.name),fps=decoded_rate if shown else None,picture=f"{health['decoded_width']}×{health['decoded_height']}" if shown else '',bitrate=f"{health['received_mbps']:.0f} Mbps" if linked and health['received_mbps'] is not None else '',cpu=degrees('cpu_c'),soc=degrees('soc_c'))
  def tick():
   nonlocal photo,photo_size,rate_at,rate_frames,fps,last_info,has_video,recording_at,seen_status,info_at,decoded_mark,decoded_rate,top_info,seen_presented
+  nonlocal last_tick
   if app.stop.is_set():close();return
   now=time.perf_counter()
+  # A window that stops answering shows in the timeline, so a frozen picture can be told apart from a stream that stopped.
+  stuck=watch.beat()
+  if now-last_tick>.3:app.event(f'Window busy for {round((now-last_tick)*1000)} ms on the {page} page'+(f', in {stuck}' if stuck else ''))
+  last_tick=now
   if app.args.seconds and now-app.started>=app.args.seconds:close();return
   win.update_idletasks();vw=max(1,canvas.winfo_width());vh=max(1,canvas.winfo_height());app.render_size=(vw,vh);canvas.coords(item_id,vw//2,vh//2);canvas.coords(placeholder,vw//2,vh//2)
   if direct and presenter.failed:leave_direct()
@@ -509,15 +634,16 @@ def run_ui(app):
    seconds=refresh.elapsed(now)
    with app.lock:item=app.pacer.advance(seconds,now) if seconds else None;queue_ms=len(app.pcm)/192
    if item and (item[0].width>vw or item[0].height>vh):item=None
+  # While PlayBridge connects again on its own, as when a game closes, the last picture stays on screen until the new one arrives.
   if not app.worker.is_alive() and has_video:
    has_video=False;canvas.itemconfigure(item_id,image='');photo=None;photo_size=None
    if presenter:presenter.frame=None
    if direct:surface.grid_remove()
   if direct:
    presented=app.stats['video_presented']
-   if presented!=seen_presented:
-    rate_frames+=presented-seen_presented;seen_presented=presented
-    if not has_video:has_video=True;ambient.show(False,'',now);surface.grid(row=0,column=0,sticky='nsew')
+   if presented!=seen_presented:rate_frames+=presented-seen_presented;seen_presented=presented
+   # The video window shows as soon as a picture waits for it, because the presenter makes its swap chain only on a window that shows.
+   if not has_video and presenter.frame is not None and app.connection_state=='Connected' and app.worker.is_alive():has_video=True;ambient.show(False,'',now);surface.grid(row=0,column=0,sticky='nsew')
   elif item:
    has_video=True;ambient.show(False,'',now)
    canvas.itemconfigure(placeholder,state='hidden');image,arrived,prepared=item;paint_at=time.perf_counter();app.timings.add('prepared_slot_wait_ms',(paint_at-prepared)*1000)
@@ -538,7 +664,7 @@ def run_ui(app):
    decoded=app.stats.get('video_decoded',0);decoded_rate=(decoded-decoded_mark)/(now-rate_at);decoded_mark=decoded
    fps=rate_frames/(now-rate_at);app.stats['presented_fps']=round(fps,1);rate_frames=0;rate_at=now;app.snapshot()
   if now-last_info>.25:
-   last_info=now;app.poll_capture_events();record_button.restyle(icon=icons['disconnect'] if app.recorder.active else icons['record'],tone='danger' if app.recorder.active else 'plain');active=app.worker.is_alive();linked=app.connection_state=='Connected' and active
+   last_info=now;app.poll_capture_events();record_button.restyle(icon=icons['disconnect'] if app.recorder.active else icons['record'],tone='danger' if app.recorder.active else 'plain');on_air=app.broadcast.active;live_button.restyle(icon=icons['on_air'] if on_air else icons['live']);show_live(on_air);active=app.worker.is_alive();linked=app.connection_state=='Connected' and active
    connect_button.restyle(text='Disconnect' if active else 'Connect',icon=on_white['disconnect'] if active else on_white['connect'])
    with app.metrics_lock:health=app.metrics.summary()
    if app.recorder.active and app.recorder.state=='recording':
@@ -565,15 +691,18 @@ def run_ui(app):
    if dock_visible and not fullscreen:dock.update_console(app.link.game_name(playing) if playing else 'No game open' if app.link.online else 'Not connected',readings)
    if dock_visible and not fullscreen:dock.update_session(app,health,fps,queue_ms,linked,now,now-recording_at if recording_at is not None else None)
    dimensions=f"{health['decoded_width']} × {health['decoded_height']}" if health['decoded_width'] else 'Waiting for video'
-   info=app.error or (dimensions+'  ·  Stereo' if linked else 'Ready to connect')
+   info=app.error or (dimensions+'  ·  Stereo' if linked else app.connection_state if active else 'Ready to connect')
    if linked:
     confirmed=app.capture_info and app.capture_info.get('confirmed');info+='  ·  '+(str(app.capture_info.get('fps_target'))+' fps target / '+str(app.capture_info.get('bitrate_target',0)//1000000)+' Mbps' if confirmed else 'Legacy payload: quality profile not confirmed')
    notice=core.resolution_notice(app.capture_info)
    if linked and notice:info+='  ·  '+notice
    if linked and health['received_mbps'] is not None:info+=f"  ·  {health['received_mbps']:.1f} Mbps received"
    if linked and app.decoder_name=='gpu':info+='  ·  GPU decoding'
+   elif linked and health['decoded_width'] and (app.capture_info or {}).get('resolution',4)>=5:info+='  ·  Processor decoding'
    if core.PROFILES[app.args.profile].get('playback_fps'):info+='  ·  30 fps PC playback'
    if app.recorder.active:info+='  ·  '+(('REC '+str(int(now-recording_at))+' s') if recording_at is not None else 'Recording: '+app.recorder.state)
+   if app.broadcast.state=='live':info+='  ·  LIVE '+live_broadcast.clock(app.broadcast.elapsed())+' on '+app.broadcast.name
+   elif app.broadcast.active:info+='  ·  Going live…'
    if now<app.notice_until:info=app.notice
    if diagnostic.get():info+=f'   |   {fps:.0f} fps · PC {app.stats["last_frame_to_ui_ms"]:.1f} ms · audio queue {queue_ms:.0f} ms'
    message.configure(text=info,text_color='#FFAAA5' if app.error else MUTED)

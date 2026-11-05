@@ -13,7 +13,8 @@ class CaptureItem:
 def capture_items(folder, kind='All', limit=120):
     root = Path(folder).resolve()
     def records():
-        for name, suffix, label in (('Screenshots', '.png', 'Photos'), ('Recordings', '.mp4', 'Videos')):
+        # Photos and clips copied from the PS5 come as JPEG, WebP or WebM as well.
+        for name, suffixes, label in (('Screenshots', ('.png', '.jpg', '.jpeg', '.webp'), 'Photos'), ('Recordings', ('.mp4', '.webm'), 'Videos')):
             if kind not in ('All', label):
                 continue
             directory = root / name
@@ -21,7 +22,7 @@ def capture_items(folder, kind='All', limit=120):
                 continue
             try:
                 for path in directory.iterdir():
-                    if path.suffix.lower() != suffix or path.name.lower().endswith('.partial.mp4') or path.is_symlink():
+                    if path.suffix.lower() not in suffixes or path.name.lower().endswith('.partial.mp4') or path.is_symlink():
                         continue
                     try:
                         if not path.is_file() or path.resolve().parent != directory.resolve():

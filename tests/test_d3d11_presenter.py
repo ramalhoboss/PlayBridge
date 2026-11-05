@@ -79,6 +79,14 @@ class FailureTests(unittest.TestCase):
   output.wanted=(20,20);output.refresh();self.assertEqual(shown,['old'])
   output.wanted=(10,10);output.pending=True;output.refresh();self.assertEqual(shown,['old','old'])
 
+ def test_the_swap_chain_waits_for_its_window_to_show(self):
+  # Made on a hidden window of one pixel, it sometimes showed the picture black or enlarged from the middle for a whole session.
+  output=d.D3D11Presenter.__new__(d.D3D11Presenter);output.swap=None;output.hwnd=1;opened=[];output.open_swap_chain=lambda:opened.append(1)
+  with patch.object(d,'showing',lambda hwnd:False):self.assertFalse(output.fit())
+  self.assertEqual(opened,[])
+  with patch.object(d,'showing',lambda hwnd:True):self.assertTrue(output.fit())
+  self.assertEqual(opened,[1])
+
 class ChoiceTests(unittest.TestCase):
  def test_windows_uses_the_gpu_output_unless_it_is_turned_off(self):
   with patch.object(core.sys,'platform','win32'):
@@ -206,6 +214,19 @@ class DrawingTests(unittest.TestCase):
  def test_a_new_decoder_brings_a_new_device(self):
   first=self.gpu_frames();self.drawn(first[-1]);device=self.output.device;del first
   second=self.gpu_frames();self.assert_the_colour(self.drawn(second[-1]));self.assertNotEqual(self.output.device,device)
+ def test_a_hidden_window_gets_its_picture_once_it_shows(self):
+  hidden=tk.Frame(self.root,bg='',width=1,height=1);self.root.update();output=d.D3D11Presenter(hidden)
+  try:
+   self.assertFalse(d.showing(hidden.winfo_id()))
+   frame=av.VideoFrame(640,360,'yuv420p')
+   for plane,value in zip(frame.planes,(Y,U,V)):plane.update(bytes([value])*plane.buffer_size)
+   output.wanted=(320,200);self.assertFalse(output.draw(frame));self.assertIsNone(output.swap);self.assertTrue(output.pending)
+   hidden.place(x=0,y=0,width=320,height=200);self.root.update();self.assertTrue(d.showing(hidden.winfo_id()))
+   for _ in range(5):
+    if output.draw(frame):break
+    time.sleep(.02)
+   self.assertIsNotNone(output.swap);self.assertIsNone(output.failed)
+  finally:output.detach();hidden.destroy();self.root.update()
  def test_a_screenshot_reads_the_same_picture_back(self):
   frame=self.gpu_frames()[-1];picture=d.to_system(frame);self.assertEqual((picture.format.name,picture.width,picture.height),('nv12',640,360))
   rows=np.frombuffer(picture.planes[0],np.uint8).reshape(-1,picture.planes[0].line_size);self.assertAlmostEqual(int(rows[180,320]),Y,delta=2)

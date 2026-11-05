@@ -2,7 +2,7 @@
 
 The line at the bottom of the window displays the dimensions of the last decoded video frame. These are source-stream dimensions, independent of window size. The received Mbps value measures media payload arriving at the PC over a rolling five-second window; it becomes available after at least one second. It is not the encoder's configured target or total network bandwidth.
 
-Open Settings → Captures, or the session panel, and choose **Export diagnostics** to save a ZIP containing diagnostics.json and a short explanation. It includes measured resolution, received bitrate, audio queue/underrun counters and PC-stage timing percentiles. IP addresses, output-device names, file paths, exception logs, screenshots, audio and arbitrary acknowledgement fields are excluded. Review any diagnostic file before sharing.
+Open Settings → Captures, or the session panel, and choose **Export diagnostics** to save a ZIP containing diagnostics.json and a short explanation. It includes measured resolution, received bitrate, audio queue/underrun counters and PC-stage timing percentiles. The graphics card's model is included. IP addresses, output-device names, file paths, exception logs, screenshots, audio and arbitrary acknowledgement fields are excluded. During each session PlayBridge also keeps copies of the payload's own logs on this PC, in the ps5-logs folder next to the preferences; they are never put in the export. Review any diagnostic file before sharing.
 
 Timings describe PC processing. They do not measure total console-to-screen latency. Video packet rate is separate from decoded/presented frame rate. Metrics reset their stream window when a new session starts.
 

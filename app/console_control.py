@@ -1,14 +1,16 @@
 """Game library, console status and power, through the control port the payload opens during a session."""
-import json,queue,re,socket,sqlite3,struct,tempfile,threading,time
+import json,os,queue,re,socket,sqlite3,struct,tempfile,threading,time
 from datetime import datetime
 from pathlib import Path
 from PIL import Image
 
 CONTROL_PORT=9077
-STATUS,FILE,LAUNCH,CLOSE,REST,POWER_OFF,REBOOT=1,2,3,4,6,7,8
+STATUS,FILE,LAUNCH,CLOSE,REST,POWER_OFF,REBOOT,LIST=1,2,3,4,6,7,8,9
 REQUEST=struct.Struct('<4sII');REPLY=struct.Struct('<4siI')
 SHORT_REPLY=4096;FILE_LIMIT=0x10000000
 DATABASE='/system_data/priv/mms/app.db'
+# The payload's own logs, which it already lets the PC read: this capture run's, and the control thread's from the run before.
+CAPTURE_LOG='/data/ps5screen-av3.txt';PREVIOUS_CONTROL_LOG='/data/playbridge-control.old.txt'
 ICON_ROOTS=('/user/appmeta/','/user/appmeta/external/','/mnt/ext0/user/appmeta/','/mnt/ext1/user/appmeta/')
 TITLE=re.compile('[A-Z]{4}[0-9]{5}')
 # Big enough to fill a 1440p window. Past that, under the page's shading, nobody can tell.
@@ -49,17 +51,19 @@ def call(sock,command,body=b''):
  result,size=reply_header(sock)
  if size>SHORT_REPLY:raise ValueError('Oversized control reply')
  return result,read_exact(sock,size)
-def fetch(sock,path,target):
+def fetch(sock,path,target,limit=FILE_LIMIT,progress=None):
  """Saves one console file. False when the console does not have it or does not allow it."""
- name=path.encode('ascii');sock.sendall(REQUEST.pack(b'PBC1',FILE,len(name))+name)
+ name=path.encode('utf8');sock.sendall(REQUEST.pack(b'PBC1',FILE,len(name))+name)
  result,size=reply_header(sock)
  if result:return False
- if size>FILE_LIMIT:raise ValueError('Oversized console file')
+ if size>limit:raise ValueError('Oversized console file')
+ total=size
  with Path(target).open('wb') as out:
   while size:
    part=sock.recv(min(size,65536))
    if not part:raise EOFError('The console closed the control port')
    out.write(part);size-=len(part)
+   if progress:progress(total-size,total)
  return True
 
 def when(value):
@@ -170,13 +174,15 @@ class GameFlow:
 class ConsoleLink:
  """Owns the control connection: one thread per capture session, which ends with the session."""
  # Often enough that the console's menu, after the PS button or a game closing on the console, is on the PC for only a moment.
- STATUS_EVERY=.25
+ STATUS_EVERY=.25;LOG_EVERY=.1
  def __init__(self,folder,notify=lambda message:None):
   self.folder=Path(folder);self.small_icons=self.folder/'icons';self.icons=self.folder/'covers';self.arts=self.folder/'art';self.tracks=self.folder/'music';self.notify=notify;self.status={};self.online=False;self.revision=0;self.refreshing=False;self.jobs=queue.SimpleQueue();self.session=None;self.want_library=True
   self.browsing=False;self.focus='';self.extras=[]
+  # When set, each session keeps copies of the payload's logs in this folder on the PC, numbered by session.
+  self.log_folder=None;self.log_session=0
   self.games=load_games(self.folder/'games.json')
  def begin(self,host):
-  self.end();stop=threading.Event();self.session=stop;self.want_library=True
+  self.end();stop=threading.Event();self.session=stop;self.want_library=True;self.log_session+=1
   threading.Thread(target=self.run,args=(host,stop),name='PlayBridge console link',daemon=True).start()
  def end(self):
   if self.session is not None:self.session.set();self.session=None
@@ -185,6 +191,19 @@ class ConsoleLink:
   """Queues a command. False without a connection, so that nothing fires later by surprise."""
   if not self.online:return False
   self.jobs.put((command,body,done));return True
+ def work(self,job,done):
+  """Runs job(sock) on the link's connection, between status readings, and gives done what it returns."""
+  if not self.online:return False
+  self.jobs.put((job,b'',done));return True
+ def keep(self,sock,path,name):
+  """Copies one payload log to this session's file, replacing the earlier copy only once the new one has arrived whole."""
+  target=self.log_folder/f'session-{self.log_session}-{name}.txt';part=target.with_suffix('.part')
+  if fetch(sock,path,part,limit=1<<20):os.replace(part,target)
+ def last_look(self,wait=.4):
+  """One more copy of the capture log as the stream ends, while the payload may still answer."""
+  if self.log_folder is None or not self.online:return
+  done=threading.Event()
+  if self.work(lambda sock:self.keep(sock,CAPTURE_LOG,'capture-end'),lambda _:done.set()):done.wait(wait)
  def launch(self,title,done=None):
   return is_game_title(title) and self.send(LAUNCH,title.encode('ascii'),done)
  def refresh(self):
@@ -213,19 +232,22 @@ class ConsoleLink:
   while True:
    try:self.jobs.get_nowait()
    except queue.Empty:break
-  status_at=0;missing=[]
+  status_at=0;missing=[];log_at=0
+  if self.log_folder is not None:self.keep(sock,PREVIOUS_CONTROL_LOG,'control-before')
   while not stop.is_set():
    now=time.monotonic()
    if now>=status_at:
     _,body=call(sock,STATUS);status_at=now+self.STATUS_EVERY;info=json.loads(body)
     if isinstance(info,dict) and self.session is stop:self.status=info;self.online=True
+   if self.log_folder is not None and now>=log_at:self.keep(sock,CAPTURE_LOG,'capture');log_at=now+self.LOG_EVERY
    try:command,body,done=self.jobs.get(timeout=.02 if self.want_library or missing or self.extra_due() else .1)
    except queue.Empty:
     if self.want_library:missing=self.read_library(sock)
     elif missing:self.fetch_icon(sock,missing.pop(0))
     elif self.extra_due():self.fetch_extra(sock,self.next_extra())
     continue
-   result,_=call(sock,command,body)
+   if callable(command):result=command(sock)
+   else:result,_=call(sock,command,body)
    if done is not None:done(result)
  def read_library(self,sock):
   """Takes the database and returns the games still without an icon."""

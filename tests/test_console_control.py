@@ -143,6 +143,23 @@ class LinkTests(unittest.TestCase):
   self.assertTrue(wait_for(lambda:link.online and link.games and link.icon('PPSA00001')),self.notes)
   self.assertEqual(link.status['cpu_c'],50);self.assertEqual(link.games[0]['title'],'PPSA00001');self.assertIsNone(link.icon('PPSA00002'))
   self.assertEqual(link.game_name('PPSA00001'),'OlderGame');self.assertEqual(control.ConsoleLink(self.folder).games,link.games)
+ def test_a_session_keeps_the_payload_logs_on_the_pc(self):
+  files={control.DATABASE:self.source.read_bytes(),control.CAPTURE_LOG:b'Resource channel=2 mode=1\n',control.PREVIOUS_CONTROL_LOG:b'close app=00002018\n'}
+  port=FakeControlPort(files);logs=Path(self.tmp.name)/'logs';logs.mkdir()
+  link=control.ConsoleLink(self.folder);link.log_folder=logs;self.addCleanup(link.end);self.addCleanup(port.close)
+  original=control.CONTROL_PORT;control.CONTROL_PORT=port.port;self.addCleanup(setattr,control,'CONTROL_PORT',original);link.begin('127.0.0.1')
+  capture=logs/'session-1-capture.txt';before=logs/'session-1-control-before.txt'
+  self.assertTrue(wait_for(lambda:capture.is_file() and before.is_file()))
+  self.assertEqual(capture.read_bytes(),b'Resource channel=2 mode=1\n');self.assertEqual(before.read_bytes(),b'close app=00002018\n')
+  # It looks again while the stream plays, and once more as it ends.
+  port.files[control.CAPTURE_LOG]=b'Resource channel=2 mode=1\nVideo error=81950003\n'
+  self.assertTrue(wait_for(lambda:b'Video error' in capture.read_bytes()))
+  link.last_look(2);self.assertIn(b'Video error',(logs/'session-1-capture-end.txt').read_bytes())
+ def test_without_a_log_folder_no_log_is_asked_for(self):
+  port=FakeControlPort({control.DATABASE:self.source.read_bytes()});link=self.link(port)
+  self.assertTrue(wait_for(lambda:link.online and link.games));link.last_look();time.sleep(.6)
+  asked=[body.decode() for command,body in port.commands if command==control.FILE]
+  self.assertNotIn(control.CAPTURE_LOG,asked);self.assertNotIn(control.PREVIOUS_CONTROL_LOG,asked)
  def extras(self,port,games,**values):
   link=control.ConsoleLink(self.folder);link.games=games;link.extras=link.extras_missing(games)
   for name,value in values.items():setattr(link,name,value)
@@ -192,5 +209,5 @@ class LinkTests(unittest.TestCase):
   self.assertIsNone(flow.update('PPSA00001',2));self.assertEqual(flow.update('',3),'launch');self.assertEqual(flow.waiting,'PPSA00001');self.assertIsNone(flow.update('',4));self.assertEqual(flow.update('PPSA00001',5),'started')
  def test_the_commands_match_the_payload(self):
   rules=(Path(__file__).resolve().parents[1]/'payload'/'control-rules.h').read_text(encoding='utf8');found={name:int(value) for name,value in re.findall(r'CONTROL_([A-Z_]+)=(\d+)',rules)}
-  self.assertEqual(found,dict(STATUS=control.STATUS,FILE=control.FILE,LAUNCH=control.LAUNCH,CLOSE=control.CLOSE,REST=control.REST,POWER_OFF=control.POWER_OFF,REBOOT=control.REBOOT))
+  self.assertEqual(found,dict(STATUS=control.STATUS,FILE=control.FILE,LAUNCH=control.LAUNCH,CLOSE=control.CLOSE,REST=control.REST,POWER_OFF=control.POWER_OFF,REBOOT=control.REBOOT,LIST=control.LIST))
 if __name__=='__main__':unittest.main()

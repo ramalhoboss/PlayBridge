@@ -45,6 +45,21 @@ class ShelfTests(unittest.TestCase):
    # The grid never places a widget that asks for no room.
    self.assertGreater(shelf.winfo_reqwidth(),1);self.assertGreater(shelf.winfo_reqheight(),1)
   finally:root.destroy()
+ def test_every_tile_in_view_is_drawn_before_any_page(self):
+  try:root=tk.Tk()
+  except tk.TclError:self.skipTest('no display')
+  try:
+   import scene
+   many=[{'title':f'PPSA{n:05d}','name':f'Game {n}','played':n,'seconds':60} for n in range(1,61)]
+   link=Link(many);link.icon=lambda title:None;link.art=lambda title:None;link.game_name=lambda title:title;link.revision=0
+   layout=scene.page_layout(1920,1080);across=(layout.width-layout.margin)//(layout.small+layout.gap)+3
+   shelf=GameShelf(root,link,{});shelf.games=list(many);shelf.layout=layout;shelf.shown=True;shelf.target=20;shelf.position=20.0;shelf.plan()
+   kinds=[job[0][0] for job in shelf.wanted];first={job[0][2] for job in shelf.wanted[:shelf.near] if job[0][0]=='tile'}
+   self.assertNotIn('page',kinds[:shelf.near])
+   self.assertLessEqual({many[index]['title'] for index in shelf.visible() if index!=shelf.target},first)
+   # Once still, the next screen of tiles is drawn too, after the pages.
+   self.assertLessEqual({many[index]['title'] for index in range(21,min(60,21+2*across))},{job[0][2] for job in shelf.wanted if job[0][0]=='tile'})
+  finally:root.destroy()
  def test_the_big_button_says_what_it_will_do(self):
   try:root=tk.Tk()
   except tk.TclError:self.skipTest('no display')

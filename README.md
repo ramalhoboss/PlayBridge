@@ -1,6 +1,6 @@
 <p align="center"><img src="docs/images/banner.png" alt="PlayBridge: your PS5 games, video and audio on your Windows PC" width="100%"></p>
 <p align="center">
-  <a href="https://github.com/ramalhoboss/PlayBridge/releases/latest"><img alt="Download v1.4.2" src="docs/images/badge-download.png" height="36"></a>
+  <a href="https://github.com/ramalhoboss/PlayBridge/releases/latest"><img alt="Download v1.5.0" src="docs/images/badge-download.png" height="36"></a>
   <img alt="Windows x64" src="docs/images/badge-windows.png" height="36">
   <img alt="PS5 firmware 13.60" src="docs/images/badge-ps5.png" height="36">
   <img alt="Up to 4K60" src="docs/images/badge-4k.png" height="36">
@@ -19,31 +19,26 @@ No HDMI capture card. No official Remote Play client or PSN Remote Play pairing.
 
 <p align="center"><img src="docs/images/playbridge-games.jpg" alt="PlayBridge Games page with a row of game covers, the selected game's art filling the window, its title, a Play button and cards for play time, size, a 4K 60 fps stream and console temperature" width="100%"></p>
 
-> Screenshots show the real application. The Games page above shows a real PS5 library: covers and music come from your own console when you connect, and none are included in the download. The game pictures further down are PS5 captures saved with PlayBridge. PlayBridge is in English; the console's own language remains whatever you selected on the PS5.
+> Screenshots show the real application. The Games page above shows a real PS5 library: covers and music come from your own console when you connect, and none are included in the download. The game pictures further down are PS5 captures saved with PlayBridge; the one on the Live page was played back to the app on the PC to take the screenshot. PlayBridge is in English; the console's own language remains whatever you selected on the PS5.
+
+## New in v1.5.0
+
+- **Closing a game no longer ends the stream:** when you close a game from the PS5 menu, the console stops every capture while its close screen is up. The payload now waits for the console and opens the capture again, as the PS5's own Remote Play does, so the session carries on after a pause of about a second. It held through every game close tried on the owner's PS5, at 4K and at 1080p.
+- **Faster first connect:** a connection that reached the PS5 before the payload was ready could leave PlayBridge waiting for about half a minute. The payload now keeps listening, and PlayBridge keeps trying for 10 seconds. On the owner's PS5 it connected in about a second.
+- **Captures from your PS5:** **Media → From your PS5** lists the screenshots and clips the console saved, and copies the new ones, or the ones you select, to your PC.
+- **Go live:** **Settings → Streaming** sends the console's own video and sound to Twitch, YouTube, any RTMP server or OBS on this PC, without encoding them again (**Ctrl+B**). The stream key is kept encrypted for your Windows user and never appears in messages, logs or diagnostics.
+- **Send a payload:** **Settings → Console** sends any ELF you choose to the loader your exploit opened on port 9021, after asking, and keeps your five most recent.
+- **Small window:** **Ctrl+M**, or the button below the picture, keeps the game in a small window above your other windows.
+- **New Settings and Media:** frosted panels over PlayBridge's own blue and violet picture, in columns that use the width of the window, with larger text. Settings, Media and the Live waiting screen share that one picture.
+- **Graphics card check:** **Settings → Picture** names the card that decodes the stream and the largest profile it can decode.
+- **Fixes:** on the Games page, every tile in view is drawn before the large game pictures, so tiles no longer stay blank while the row moves. The GPU video output no longer starts black or enlarged, which happened in about one start in four.
+
+The payload changed: automatic mode sends the new one, and manual users should load the v1.5.0 ELF. Earlier versions are described in the [changelog](CHANGELOG.md).
 
 ## New in v1.4.2
 
 - **FSR 1 upscaling:** a new switch in **Settings → Picture**, off by default. When your screen is larger than the stream, such as a 1080p stream on a 1440p or 4K monitor, AMD FidelityFX Super Resolution 1 enlarges the picture along its edges, and **Sharpen picture** uses FSR's own sharpening. It works with the GPU video output on any graphics card.
-- Includes the v1.4.1 fix: the IP address you type in Settings is the one PlayBridge uses. The payload is the same as in v1.4.0.
-
-## New in v1.4.1
-
-- **Your IP address is kept:** an address you type in **Settings → Console** is now always the one PlayBridge uses. Before, when nothing answered at that address and one PS5 answered elsewhere on the network, PlayBridge switched to that console without saying so.
-- **Clearer connection errors:** the message names the address PlayBridge tried, and the address of a PS5 that answered instead, if there is one.
-- PlayBridge still finds your console by itself while you have never typed an address, and still follows it when your router gives it a new one. The payload is the same as in v1.4.0.
-
-## New in v1.4.0
-
-- **Your games on the PC:** a Games page reads the library from your PS5, with each game's cover, its own music, your play time and its size. Select **Play** to launch a game, then resume or close it from the PC.
-- **Gaming Mode:** your games fullscreen on the PC, with the console's menu kept off the PC screen. The TV still shows the PS5 as usual.
-- **GPU video:** the graphics card decodes and draws the video. On the owner's PS5 over Wi-Fi this used about 0.22 processor cores instead of 1.3–1.4, with steadier frame timing. If it cannot start, PlayBridge falls back to the previous output by itself.
-- **Instant replay:** keep the last 30 seconds, 60 seconds or 2 minutes in PC memory, and save it with **F10**.
-- **New look:** one window with Games, Live and Media at the top, and Settings as a page of its own.
-- **Console status and power:** the game in front, CPU and SoC temperature, rest mode, and soft reset (close and launch the game again). Reboot and Turn off are included but have not yet been tested on a console.
-- **Steadier picture:** a sharper scaling filter, a frame clock that no longer runs fast after a missed monitor refresh, and an encoder that reopens after certain read errors.
-- **Safer connect:** before sending the ELF, PlayBridge asks the console for its state, and stops with a message if it is resting or runs a firmware other than 13.60.
-
-Automatic mode includes the updated payload. Manual users should load the v1.4.0 ELF.
+- Includes the v1.4.1 fix: the IP address you type in Settings is the one PlayBridge uses.
 
 ## Download
 
@@ -51,14 +46,14 @@ Automatic mode includes the updated payload. Manual users should load the v1.4.0
 
 | File | What it contains |
 |---|---|
-| [PlayBridge.exe](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.2/PlayBridge.exe) | Portable Windows application, including Python dependencies and the embedded ELF. |
-| [PlayBridge.elf](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.2/PlayBridge.elf) | Standalone PS5 payload for manual loading. |
-| [PlayBridge-Windows-v1.4.2.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.2/PlayBridge-Windows-v1.4.2.zip) | Windows EXE and quick-start instructions. |
-| [PlayBridge-Payload-v1.4.2.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.2/PlayBridge-Payload-v1.4.2.zip) | ELF and manual-mode instructions. |
-| [PlayBridge-Complete-v1.4.2.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.2/PlayBridge-Complete-v1.4.2.zip) | Both files, quick-start instructions and component notices. |
-| [Third-party-licenses.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.2/Third-party-licenses.zip) | Component notices for standalone downloads. |
-| [PlayBridge-Source-v1.4.2.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.2/PlayBridge-Source-v1.4.2.zip) | Application and payload source, assets, tests and build instructions. |
-| [SHA256SUMS.txt](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.4.2/SHA256SUMS.txt) | Checksums for the release downloads. |
+| [PlayBridge.exe](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.0/PlayBridge.exe) | Portable Windows application, including Python dependencies and the embedded ELF. |
+| [PlayBridge.elf](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.0/PlayBridge.elf) | Standalone PS5 payload for manual loading. |
+| [PlayBridge-Windows-v1.5.0.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.0/PlayBridge-Windows-v1.5.0.zip) | Windows EXE and quick-start instructions. |
+| [PlayBridge-Payload-v1.5.0.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.0/PlayBridge-Payload-v1.5.0.zip) | ELF and manual-mode instructions. |
+| [PlayBridge-Complete-v1.5.0.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.0/PlayBridge-Complete-v1.5.0.zip) | Both files, quick-start instructions and component notices. |
+| [Third-party-licenses.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.0/Third-party-licenses.zip) | Component notices for standalone downloads. |
+| [PlayBridge-Source-v1.5.0.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.0/PlayBridge-Source-v1.5.0.zip) | Application and payload source, assets, tests and build instructions. |
+| [SHA256SUMS.txt](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.0/SHA256SUMS.txt) | Checksums for the release downloads. |
 
 Download the release assets above to run the application. To inspect or build it, browse [app/](app/), [payload/](payload/) and [tools/](tools/), or download the source archive. GitHub's source archives contain source files, not the Windows EXE.
 
@@ -88,7 +83,7 @@ PlayBridge uploads its embedded ELF and connects on port **9076**. The mark next
 
 From then on, the usual workflow is simply **open Payload Manager → open PlayBridge**. It connects at startup using your saved settings.
 
-<p align="center"><img src="docs/images/playbridge-settings.png" alt="PlayBridge Settings page with the Console section: IP address, saved consoles, Find console, favourites and connection switches" width="720"></p>
+<p align="center"><img src="docs/images/playbridge-settings.png" alt="PlayBridge Settings page, Console section: frosted panels over a blue and violet picture with the IP address, saved consoles, Find console, Send a payload, favourites and connection switches" width="720"></p>
 
 ### 2. Your games
 
@@ -136,7 +131,7 @@ A 1080p PC monitor shows a 4K stream scaled down to its own pixels. Screenshots 
 
 ### 5. While you play
 
-<p align="center"><img src="docs/images/playbridge-live.png" alt="PlayBridge Live page showing a 3840 by 2160 PS5 game capture, with the capture buttons and audio controls below it" width="100%"></p>
+<p align="center"><img src="docs/images/playbridge-live.png" alt="PlayBridge Live page showing a 3840 by 2160 PS5 game capture, with the capture, small window and Go live buttons and the audio controls below it" width="100%"></p>
 
 | Control | Action |
 |---|---|
@@ -147,6 +142,8 @@ A 1080p PC monitor shows a 4K stream scaled down to its own pixels. Screenshots 
 | Record icon / **F9** | Start or stop an MP4 with console audio, without re-encoding. |
 | Replay icon / **F10** | Save the instant replay as an MP4. |
 | Folder icon / **Media** / **Ctrl+L** | Open your captures. |
+| Small window icon / **Ctrl+M** | Keep the game in a small window above your other windows. Press again to return. |
+| Go live icon / **Ctrl+B** | Start or end a broadcast with the settings in **Settings → Streaming**. |
 | **Session** / **Ctrl+I** | Show or hide the session panel: frame rate, source size, PC timing, the game in front, a 60-second bitrate graph and the recording state. |
 | Gear / **Ctrl+,** | Open Settings. |
 | Power icon | Console power, and leaving Gaming Mode. |
@@ -157,7 +154,9 @@ Captures are saved in **Videos/PlayBridge**, in the Screenshots and Recordings f
 
 **Instant replay** is set in **Settings → Captures**: Off, the last 30 seconds, 60 seconds or 2 minutes. It keeps the stream as it arrives, without re-encoding, in this PC's memory up to 1 GB, and nothing changes on the PS5.
 
-<p align="center"><img src="docs/images/playbridge-media.png" alt="PlayBridge Media page with a recording and a photo, both showing real thumbnails" width="720"></p>
+<p align="center"><img src="docs/images/playbridge-media.png" alt="PlayBridge Media page with three PS5 game screenshots as thumbnails, the All, Photos and Videos filters, and the From your PS5 and Open folder buttons" width="720"></p>
+
+**From your PS5**, at the top of **Media**, lists the screenshots and clips the console saved itself, while a session runs. **Copy new** copies the ones not yet on your PC, and **Copy selected** the ones you tick. Copies go to your capture folder and appear with your other captures. PlayBridge reads only the console's capture folders.
 
 The line at the bottom of the window shows the stream's size, bitrate target, received bitrate and whether the GPU is decoding. **Settings → Picture → Show performance stats** adds the frame rate, PC timing and audio queue to it.
 
@@ -176,6 +175,18 @@ The power icon, and **Settings → Console → Power**, need a connected PS5. Ea
 ### Save your consoles
 
 In **Settings → Console**, type a name under **Favourite** and select **Save to favourites**. Each favourite keeps its IP address and quality profile. Choosing one from the console menu fills in the settings; select **Save changes** to use it.
+
+### Go live
+
+In **Settings → Streaming**, choose **Twitch**, **YouTube**, **Other RTMP server** or **OBS on this PC**, enter your stream key or server where asked, and select **Go live**. **Ctrl+B**, or the Go live icon below the picture, starts and ends it with those settings.
+
+PlayBridge sends on the H.264 video and AAC sound the PS5 already made, without encoding them again, so it costs the PC almost nothing, and recording and instant replay keep working while you are live. The broadcast uses your quality profile: Twitch recommends at most 6 Mbit/s, so **Data saver** suits it best. **OBS on this PC** receives the stream on UDP port 9100 of this PC.
+
+<p align="center"><img src="docs/images/playbridge-streaming.png" alt="PlayBridge Settings page, Streaming section: the Go live panel with the service menu set to Twitch, the stream key field and the Go live button, and a panel explaining how it works" width="720"></p>
+
+### Send a payload
+
+**Settings → Console → Send a payload** sends any ELF file you choose to the loader on port 9021, the same way PlayBridge sends its own. It asks first, and the menu keeps your five most recent files. A payload runs with full access to the PS5, so send only files you trust.
 
 ### Manual mode
 
@@ -196,6 +207,7 @@ The standalone ELF waits for one viewer per execution. After ending a manual ses
 | Gaming Mode | Your games fullscreen on the PC; when the console's menu comes to the front, the PC shows your games instead. |
 | Console status | The game in front, CPU and SoC temperature, and whether a console found on the network is resting. |
 | Power | Rest mode, soft reset (close and relaunch the game), and reboot and turn off (not yet tested on a console). Each asks first. |
+| Graphics card | Settings names the card that decodes the stream and asks it which stream sizes it can decode. |
 | Presentation | **Direct3D 11** by default: the GPU decodes the video, converts its colour, scales it and presents it, with optional sharpening and optional AMD FSR 1 upscaling when the screen is larger than the stream. Windows **GDI** remains as the automatic fallback and as a switch in Settings. Both show one frame per monitor refresh from a short queue, and skip frames rather than letting the delay grow. |
 | Decoding | Separate from the network thread, so a slow decoder drops video until the next keyframe instead of stalling audio or the connection. Software decoding uses frame threads above 1080p. |
 | Audio buffering | Bounded PCM queue; if it exceeds approximately **60 ms**, it is trimmed toward **40 ms**. Above 1080p these limits are **160 ms** and **120 ms**. |
@@ -206,9 +218,13 @@ The standalone ELF waits for one viewer per execution. After ending a manual ses
 | Screenshots | Native-source-size PNG with F8; UI controls and window bars are excluded. |
 | Recording | Packet-copy H.264/AAC MP4 with F9, bounded background writing and graceful stop/finalization. |
 | Instant replay | The last 30 s, 60 s or 2 minutes of the stream kept in PC memory (up to 1 GB) and saved as an MP4 with F10, without re-encoding. |
-| Media | Photos and MP4 recordings with thumbnails, filters and paging, read in the background. |
+| Media | Photos and MP4 recordings with thumbnails, filters and paging, read in the background. **From your PS5** lists the console's own screenshots and clips and copies them to the PC. |
+| Go live | The console's H.264 and AAC copied, without encoding again, to Twitch, YouTube (RTMPS), any RTMP server, or OBS over UDP on this PC. The stream key is kept encrypted with Windows DPAPI. |
+| Game close | When the console stops the capture, for example while a game closes from its menu, the payload waits for it and opens the capture again, so the session continues after a short pause. |
+| Send a payload | Any ELF up to 64 MB sent to the loader on port 9021, after a question. |
+| Small window | The game in a small window that stays above other windows (Ctrl+M). |
 | Diagnostics | Session panel and status line, plus an exported ZIP without IP addresses, device names, file paths or logs. |
-| Interface | English. Black, frosted cards with a hairline rim, white type and gold as a small accent. Animations are optional, and nothing is redrawn for video frames. |
+| Interface | English. Frosted panels with a hairline rim over PlayBridge's own blue and violet picture, white type and gold as a small accent. Settings flows into columns that use the window's width. Animations are optional, and nothing is redrawn for video frames. |
 | PC controller | A controller connected to the PC (XInput or a standard Windows game controller) can move around the games page. It is not sent to the console. |
 | Distribution | A portable single-file Windows EXE; no separate Python installation. |
 | Preferences | Saved console, favourites, quality profile, audio output, capture folder, replay length, video output, sounds and Gaming Mode. |
@@ -219,11 +235,11 @@ The standalone ELF waits for one viewer per execution. After ending a manual ses
 <img src="docs/images/architecture.png" alt="Payload Manager ELF loader on port 9021 → PS5 payload with native H.264 and AAC capture, status, games and power → local network with the stream on port 9076 and control on port 9077 ↔ PlayBridge PC with GPU decoding to Direct3D 11 and audio to WASAPI" width="100%">
 
 1. **Load:** the PC sends PlayBridge.elf to the existing loader. It does not install firmware or create a jailbreak.
-2. **Reserve and capture:** the payload uses firmware-specific native capture/resource interfaces, including **SceAvcap2** and **ResourceArbitrator**, to open the capture session and its resources. It reads the console's video output first and picks the highest capture that output allows.
+2. **Reserve and capture:** the payload uses firmware-specific native capture/resource interfaces, including **SceAvcap2** and **ResourceArbitrator**, to open the capture session and its resources. It reads the console's video output first and picks the highest capture that output allows. When the console stops the capture, it asks for the capture's state and opens it again once the console allows it.
 3. **Encode on the console:** the PS5's capture pipeline supplies H.264 video and AAC audio. The payload sends encoded data rather than uncompressed framebuffer pixels.
 4. **Transport:** a small custom TCP framing protocol carries packet type, size and PTS/DTS. TCP_NODELAY and a bounded send buffer help avoid unnecessary batching.
 5. **Decode and present:** the PC uses PyAV for H.264/AAC, with Direct3D 11 video decoding on the GPU when it is available. A short frame queue is paced to the monitor's refresh, and Direct3D 11 converts, scales and presents each frame, with GDI as the fallback. Audio uses sounddevice/PortAudio with WASAPI.
-6. **Control:** during a session the payload also opens a control port, 9077, on which the PC asks for the console's status and game library, and sends launch, close and power commands. It answers only while the session runs.
+6. **Control:** during a session the payload also opens a control port, 9077, on which the PC asks for the console's status and game library, lists and copies the console's own captures, and sends launch, close and power commands. It answers only while the session runs.
 7. **Release:** closing/disconnecting the receiver ends the session; the payload stops and closes capture resources through the normal client interfaces.
 
 ### How we developed it
@@ -236,11 +252,13 @@ For v1.3.0, live runs on a 4K console output showed where fluidity was being los
 
 For v1.4.0, the console's own system interfaces were used to read the game library and status, launch and close games, and put the console to rest, each tried on the owner's PS5 before it went into the app. The GPU output was measured against GDI on the same console, and a run that skipped frames in clusters led to the refresh clock fix.
 
+For v1.5.0, the stream ended whenever a game was closed from the PS5 menu. The payload's log showed that the console stops every capture while its close screen is up, and refuses a new one as busy for a fraction of a second. The payload now asks again every 16 ms for up to two seconds, as Remote Play does, and the fix was tried on the owner's PS5 at 4K and 1080p before it went into the app.
+
 This project does **not** distribute the console's firmware dumps, extracted proprietary system modules or extracted console artwork. Game covers and music shown on the Games page are read from your own console while you use the app, and stay on your PC. Native console modules remain on the user's PS5. The PC receiver, UI, conversion code, native C payload and build scripts are published in this repository. See [Building from source](docs/BUILDING.md). The matching homebrew SDK and third-party libraries are external dependencies; console firmware dumps are not required to build these sources.
 
 ## Source code
 
-- **[app/](app/)** — Python receiver, English interface, Games page and Gaming Mode, Direct3D 11 and GDI presenters, frame pacing, console control, the library's sounds, Media page and diagnostics.
+- **[app/](app/)** — Python receiver, English interface, Games page and Gaming Mode, Direct3D 11 and GDI presenters, frame pacing, console control, the console's captures, Go live, payload sending, the library's sounds, Media page and diagnostics.
 - **[payload/](payload/)** — firmware-13.60 C capture sender, console control port, capture options and packet framing.
 - **[app/assets/](app/assets/)** — application icon and control artwork.
 - **[tools/](tools/)** — payload compiler wrapper, the app's artwork generator and the README art, drawn with the app's own code.
@@ -276,6 +294,12 @@ These come from the owner's PS5 13.60 and PC (Radeon RX 6600, 1080p monitor at 5
 - Some runs, with either output, skipped 20–28 frames in clusters about a second long. This was traced to the refresh clock running fast after a missed monitor refresh. With the fix, local runs of 30 seconds skipped 0, 0 and 1 frames instead of 1, 2 and 28. The fix has not yet been measured on the console.
 - On the Games page, a library of 54 games read all its covers and music, and a game's picture appeared about 1.1 seconds after selecting **Play**.
 
+**v1.5.0**, on the owner's PS5:
+
+- The session held through every game close tried from the PS5 menu, at 4K and at 1080p. Each close stops the capture twice, for about 0.3 seconds of busy answers plus about 0.3 seconds to open it again each time, so the picture pauses for about a second.
+- The first connect took about 1.1 seconds. Before, a connection dropped while the payload started could make it about 36 seconds.
+- On the Games page, a tile takes about 5–7 ms to draw and a full game picture 100 ms at 1080p to about 250 ms at 4K, which is why tiles in view now come first.
+
 **v1.3.0, packaged app, GDI output**, runs of about 30 seconds on a 60 Hz monitor:
 
 | | 1080p | 4K (80 Mbit/s profile) |
@@ -299,6 +323,8 @@ These are **PC pipeline measurements**, not total HDMI-to-PC latency, controller
 - **Reboot and Turn off are untested.** They are in the app, each behind a question, but have not yet been run on a console. Rest mode is confirmed. After a reboot or power off you need to load your exploit again.
 - **No Home button.** Calls that should show the console's home screen returned success and changed nothing, so the command was removed. In Gaming Mode the PC shows your games instead.
 - **One game at a time.** This is how the PS5 works: launching another game closes the one that is open.
+- **Closing a game pauses the picture** for about a second while the console's close screen is up.
+- **Go live has not yet been run on a real Twitch or YouTube broadcast.** A local listener on the PC saw it begin the RTMP and RTMPS connections.
 - **GPU output tested on one PC.** It needs Direct3D 11 video decoding; other GPUs and monitors above 60 Hz have not been tried. If it fails, PlayBridge falls back to GDI, and **Settings → Picture → GPU video output** turns it off.
 - **One viewer per payload execution.** Only one PlayBridge/legacy receiver session should run on the PC at once.
 - **Trusted local network.** No encrypted Internet relay, remote account service or authenticated stream transport is provided.
@@ -315,6 +341,9 @@ These are **PC pipeline measurements**, not total HDMI-to-PC latency, controller
 | **Find console** finds nothing | VPNs, network isolation and firewalls can block it. Type the IP address instead. Discovery does not wake the console or start Payload Manager. |
 | PlayBridge says the PS5 is in rest mode, or runs another firmware | Wake the console and load your exploit. Other firmware than 13.60 is refused before anything is sent. |
 | The Games page is empty | Games are read once connected. Use **⋯ → Refresh library**. Covers and music arrive one by one the first time. |
+| The picture pauses for about a second when I close a game | Expected: the console stops the capture while its close screen is up, and PlayBridge opens it again. |
+| Go live stops with an error | Check the stream key, or the server address for another RTMP server. A broadcast needs a connected session. For Twitch, choose a profile of 6 Mbit/s or less, such as **Data saver**. |
+| From your PS5 lists nothing | It needs a connected session. It lists only captures the PS5 saved itself, in its capture folders. |
 | A game shows "controller not detected" | That is the game itself on the PS5. Turn on the controller that is paired with the console. |
 | Picture looks wrong, black or stutters on the GPU output | Switch off **Settings → Picture → GPU video output** and restart PlayBridge to use GDI. Please report your graphics card. |
 | A 4K profile gives 1080p | The PS5's video output is lower than the profile. Check the line at the bottom of the window, the PS5's Resolution setting, the display and the HDMI cable. |
@@ -336,6 +365,7 @@ Preferences, the game library and local diagnostic files are stored in <code>%LO
 
 ## Release history
 
+- **v1.5.0:** closing a game no longer ends the stream, a faster first connect, captures from the PS5, Go live, Send a payload, a small window, new Settings and Media pages, a graphics card check, and fixes for blank tiles and a black or enlarged GPU picture at start.
 - **v1.4.2:** optional AMD FSR 1 upscaling on the GPU video output, for screens larger than the stream.
 - **v1.4.1:** an IP address typed in Settings is always used, and connection errors name the address tried and any PS5 that answered elsewhere.
 - **v1.4.0:** Games page with Play, Resume and Close, Gaming Mode, Direct3D 11 output with GPU decoding, instant replay, a new one-window design, console status and power, a steadier refresh clock, sharper scaling, encoder recovery and firmware-aware discovery.

@@ -33,8 +33,70 @@ static int resolution_profile(uint32_t resolution){return resolution==RESOLUTION
    0x81950004 stays out of this list: it is counted as an overrun here and the stream carries on. */
 #define READ_RAISE_QP 0x8195000du
 #define REOPEN_LIMIT 3
+/* A run that has delivered this many frames gives the reopens back. A game closed from the PS5 menu costs two (its close screen, then
+   the home screen), and with 3600 two closes within a minute ended the session; a capture that keeps failing still ends it. */
+#define REOPEN_RESET_FRAMES 300
 #define NO_FRAME_REOPEN_US 3000000u
 static int read_needs_reopen(uint32_t code){return code==0x81950003u||code==0x81950008u||code==0x81950009u||code==READ_RAISE_QP;}
+/* How Remote Play opens the capture again after the console stopped it, as its code on 13.60 does it. The PS5 stops every capture
+   while its close-game screen is up, so this is how a game closed from the PS5 menu can leave the session running.
+   Before each open it reads the output mode again and asks the capture service whether a capture can open now (libSceAvcap2
+   +0x1750, IPC 0xa7000c, 32 bytes back). While byte 0x14 of that answer is set it does not open and waits 16 ms. An open that
+   answers 0x81950008 is tried again 16 ms later; any other answer is final. After 2 s it gives up. */
+#define READY_BUDGET_MS 2000
+#define READY_STEP_MS 16
+#define CAPTURE_STATUS_BYTES 0x20
+#define CAPTURE_NOT_READY_BYTE 0x14
+#define CAPTURE_BUSY 0x81950008u
+/* Results of our own when no open was made. Remote Play also gives up when the output mode no longer allows the resolution. */
+#define REOPEN_MODE_LOST 0x8195fff1u
+#define REOPEN_NOT_READY 0x8195fff2u
+struct capture_calls{int(*caps)(uint32_t*);int(*status)(void*);int(*open)(int64_t*,void*,int);void(*wait_ms)(int);};
+/* What the wait saw, for the log: answers are kept from the first and the last status check. */
+struct reopen_report{int checks,not_ready,busy,waited_ms;uint32_t first_result,last_result;unsigned char first[CAPTURE_STATUS_BYTES],last[CAPTURE_STATUS_BYTES];};
+/* Returns the open's result, or the failed call's. The output mode it read is written to *caps and to the parameters. */
+static uint32_t open_when_ready(const struct capture_calls*c,int64_t*h,unsigned char*p,uint32_t resolution,uint32_t*caps,struct reopen_report*r){
+ uint32_t result=REOPEN_NOT_READY;
+ for(int left=READY_BUDGET_MS;left>0;left-=READY_STEP_MS){
+  uint32_t mode=0;int q=c->caps(&mode);
+  if(q<0)return (uint32_t)q;
+  if(supported_resolution(resolution,mode)!=resolution)return REOPEN_MODE_LOST;
+  *caps=mode;u32(p,0x2a8,mode);
+  unsigned char answer[CAPTURE_STATUS_BYTES];
+  for(int i=0;i<CAPTURE_STATUS_BYTES;i++)answer[i]=0;
+  q=c->status(answer);r->checks++;r->last_result=(uint32_t)q;
+  if(r->checks==1){r->first_result=(uint32_t)q;memcpy(r->first,answer,CAPTURE_STATUS_BYTES);}
+  memcpy(r->last,answer,CAPTURE_STATUS_BYTES);
+  if(q<0)return (uint32_t)q;
+  if(answer[CAPTURE_NOT_READY_BYTE]){r->not_ready++;result=REOPEN_NOT_READY;}
+  else{result=(uint32_t)c->open(h,p,0);if(result!=CAPTURE_BUSY)return result;r->busy++;}
+  c->wait_ms(READY_STEP_MS);r->waited_ms+=READY_STEP_MS;
+ }
+ return result;
+}
+/* Waiting for the viewer. A connection that closes before its 16-byte request has arrived is dropped, and the payload listens on
+   for the rest of the wait. A receiver whose connect timed out on its own side, as one did while the PS5 woke from its screen
+   saver, leaves such a connection behind; ending on it left nothing listening for the receiver's next try. */
+#define VIEWER_WAIT_MS 60000
+#define OPTIONS_READ 0
+#define OPTIONS_INVALID (-1)
+#define OPTIONS_DROPPED (-2)
+#define NO_VIEWER (-1)
+#define VIEWER_INVALID (-2)
+struct viewer_calls{int(*accept)(int timeout_ms);int(*options)(int fd);void(*drop)(int fd);uint64_t(*now_ms)(void);};
+/* Returns the socket of the first viewer whose options were read, or NO_VIEWER when none came within the wait. A viewer whose options
+   are not valid ends the wait with VIEWER_INVALID, and its socket is left in *invalid for the caller to close. */
+static int first_viewer(const struct viewer_calls*c,int*dropped,int*invalid){
+ uint64_t end=c->now_ms()+VIEWER_WAIT_MS;
+ for(;;){
+  uint64_t now=c->now_ms();if(now>=end)return NO_VIEWER;
+  int fd=c->accept((int)(end-now));if(fd<0)return NO_VIEWER;
+  int r=c->options(fd);
+  if(r==OPTIONS_READ)return fd;
+  if(r==OPTIONS_DROPPED){(*dropped)++;c->drop(fd);continue;}
+  *invalid=fd;return VIEWER_INVALID;
+ }
+}
 /* Writes the resolution-dependent video parameters and returns the bitrate actually requested. */
 static uint32_t apply_resolution(unsigned char*p,uint32_t resolution,uint32_t fps,uint32_t bitrate){
  uint32_t limit=resolution==RESOLUTION_2160P?80000000:resolution==RESOLUTION_1440P?50000000:30000000;

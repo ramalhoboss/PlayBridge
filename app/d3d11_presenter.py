@@ -182,6 +182,12 @@ def to_system(frame):
   Release(context.value);Release(device.value)
  return copy
 
+user32=ctypes.WinDLL('user32');IsWindowVisible=user32.IsWindowVisible;IsWindowVisible.argtypes=[wintypes.HWND];IsWindowVisible.restype=wintypes.BOOL
+GetClientRect=user32.GetClientRect;GetClientRect.argtypes=[wintypes.HWND,POINTER(wintypes.RECT)];GetClientRect.restype=wintypes.BOOL
+def showing(hwnd):
+ """True when the window is on screen with a real size. Both calls are safe from any thread."""
+ rect=wintypes.RECT();return bool(IsWindowVisible(hwnd)) and bool(GetClientRect(hwnd,byref(rect))) and rect.right>1 and rect.bottom>1
+
 def compiled():
  compiler=ctypes.WinDLL('d3dcompiler_47');compile_source=compiler.D3DCompile;compile_source.restype=ctypes.HRESULT
  compile_source.argtypes=[c_char_p,c_size_t,c_char_p,c_void_p,c_void_p,c_char_p,c_char_p,UINT,UINT,OUT,OUT]
@@ -250,9 +256,14 @@ class D3D11Presenter:
   self.scaled_view=self.scaled=self.target=self.back=None
  def fit(self):
   """The swap chain, at the size the window has now. Until a new frame comes the system stretches the old one, so a resize never shows black."""
-  if self.swap is None:self.open_swap_chain()
+  if self.swap is None:
+   # A swap chain made on a hidden window of one pixel sometimes showed the picture black, or enlarged from the middle of the window,
+   # for the whole session. It waits until the window shows, and False tells the caller to keep the frame for later.
+   if not showing(self.hwnd):return False
+   self.open_swap_chain()
   elif self.size!=self.wanted:
    OMSetRenderTargets(self.context,0,None,None);self.release_target();Flush(self.context);ResizeBuffers(self.swap,0,*self.wanted,0,FRAME_LATENCY_WAITABLE);self.size=self.wanted;self.open_target()
+  return True
  def release_surface(self):
   for pointer in self.surface:Release(pointer)
   self.surface=None;self.surface_shape=None
@@ -318,7 +329,7 @@ class D3D11Presenter:
    if device.value==self.device:Release(device.value)
    else:self.attach(device.value)
   elif self.device!=self.own:self.attach(self.own)
-  self.fit()
+  if not self.fit():self.pending=True;return False
   if self.kernel.WaitForSingleObject(self.waitable,WAIT_MS):self.pending=True;return False
   self.pending=False
   if on_gpu:self.copy_surface(texture,index)

@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.5.0 — 2026-11-05
+- Closing a game from the PS5 menu no longer ends the stream. The console stops every capture while its close screen is up, twice per close, and answered a reopen at once with busy (0x81950008), so the payload gave up after one try. It now asks for the capture's state and tries again every 16 ms for up to two seconds, as Remote Play does on 13.60, and the count of reopens starts again after 300 frames. On the owner's PS5 the session held through every game close tried, at 4K and at 1080p, with a pause of about a second.
+- Faster first connect. The PS5 does not answer a connection to a port that is not open yet, and a half-open connection could reach the payload, close without sending options, and end the payload's wait; PlayBridge then kept trying for about 36 seconds. The payload now drops such a connection and listens for the rest of its minute, and PlayBridge tries for 10 seconds, half a second at a time. On the owner's PS5 it connected in 1.1 seconds.
+- Media → From your PS5: the console's own screenshots and clips, listed through a new control command limited to /user/av_contents, and copied to the capture folder with Copy new or Copy selected. Copies are named after the game. Media also shows JPEG, WebP and WebM files.
+- Go live (Ctrl+B, Settings → Streaming): the console's H.264 and AAC copied as they arrive to Twitch, YouTube over RTMPS, any RTMP server, or OBS on this PC as MPEG-TS on UDP 127.0.0.1:9100, without encoding again. The stream key is sealed with Windows DPAPI for the current user and never appears in messages, logs or diagnostics. Not yet run on a real Twitch or YouTube broadcast.
+- Settings → Console → Send a payload sends any ELF up to 64 MB to the loader on port 9021 after a question, and keeps the five most recent files.
+- Small window (Ctrl+M): only the picture, in a small window above every other window. Ctrl+M again, or a double-click, returns.
+- New Settings and Media pages: frosted panels over PlayBridge's own blue and violet picture, in one to four columns, with larger text. Settings, Media and the Live waiting screen share that picture.
+- Settings → Picture names the graphics card that decodes the stream and asks it which stream sizes it can decode. The card's model is included in exported diagnostics.
+- Games page: every tile in view is drawn before any large game picture. A tile takes about 5–7 ms and a picture 100 ms at 1080p to about 250 ms at 4K, and tiles further along used to wait behind three pictures and stay blank while the row moved.
+- GPU video output: the swap chain waits until the video window is shown with a real size. Made on the hidden window of one pixel, it showed the picture black, or enlarged from the middle, for the whole session in about one start in four.
+- When the window stops answering, the session timeline names where its thread was. Each session keeps copies of the payload's logs in the ps5-logs folder next to the preferences.
+- The payload changed. Manual users should load the v1.5.0 ELF.
+
 ## v1.4.2 — 2026-11-04
 - FSR 1 upscaling, a switch in Settings → Picture, off by default. When the screen is larger than the stream, the GPU video output enlarges the picture with AMD FidelityFX Super Resolution 1 (EASU), and Sharpen picture uses its sharpening (RCAS). The colour is converted at the stream's own size first, because FSR works in RGB. At the same size or smaller, the output is unchanged.
 - On the owner's RX 6600, enlarging 1080p to 4K took about 3.0 ms of GPU time per frame against 3.6 ms with the previous bicubic scaling, and 3.5 against 4.0 ms with sharpening. On PS5 captures reduced to 1080p and enlarged again, the result measured about the same as before, with slightly cleaner text edges. It has not yet been compared on a live PS5 stream.

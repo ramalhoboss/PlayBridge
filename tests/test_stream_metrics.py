@@ -9,7 +9,7 @@ class MetricsTests(unittest.TestCase):
   from types import SimpleNamespace
   m=StreamMetrics();m.frame(SimpleNamespace(width=2560,height=1440,format=SimpleNamespace(name='yuv420p')));self.assertEqual(m.summary()['decoded_height'],1440);m.reset();self.assertEqual(m.summary()['decoded_width'],0)
  def test_export_excludes_sensitive_context(self):
-  snapshot={'output':'PRIVATE_DEVICE','error':'PRIVATE_PATH','host':'PRIVATE_IP','stream':{'decoded_width':1920,'secret':'PRIVATE_STREAM'},'capture_info':{'protocol':2,'registration_key':'PRIVATE_KEY'},'timings_ms':{'video_decode_ms':{'p95':2},'PRIVATE_TIMING':{'p95':9}}}
+  snapshot={'output':'PRIVATE_DEVICE','error':'PRIVATE_PATH','host':'PRIVATE_IP','stream':{'decoded_width':1920,'secret':'PRIVATE_STREAM'},'capture_info':{'protocol':2,'registration_key':'PRIVATE_KEY'},'timings_ms':{'video_decode_ms':{'p95':2},'PRIVATE_TIMING':{'p95':9}},'events':[[1.0,'PRIVATE_EVENT']]}
   with tempfile.TemporaryDirectory() as folder:
    path=export_diagnostics(Path(folder)/'report.zip',snapshot)
    with zipfile.ZipFile(path) as z:

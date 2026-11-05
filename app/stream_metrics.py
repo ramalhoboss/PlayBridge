@@ -21,9 +21,9 @@ class StreamMetrics:
   tail=list(self.samples)[1:]
   return {'decoded_width':self.width,'decoded_height':self.height,'pixel_format':self.pixel_format,'received_mbps':round(sum(s[1] for s in tail)*8/elapsed/1e6,2) if elapsed>=1 else None,'video_packets_per_second':round(sum(s[2] for s in tail)/elapsed,1) if elapsed>=1 else None,'rate_window_seconds':round(elapsed,2)}
 
-# Explicit allowlists: no host address, device names, paths, frame/audio data,
+# Explicit allowlists: no host address, device names (the graphics card's model aside), paths, frame/audio data,
 # exception messages, environment, credentials, or arbitrary acknowledgement keys.
-SAFE_STATS=('audio_queue_ms','presented_fps','video_decoded','video_presented','video_replaced','video_packets_dropped','prepared_replaced','video_late_waits','audio_empty_callbacks','device_underflows','audio_trim_samples','reconnection_attempts','transport_delay_growth_ms','latency_scope','observed_seconds')
+SAFE_STATS=('audio_queue_ms','presented_fps','video_decoded','video_presented','video_replaced','video_packets_dropped','prepared_replaced','video_late_waits','audio_empty_callbacks','device_underflows','audio_trim_samples','reconnection_attempts','transport_delay_growth_ms','latency_scope','observed_seconds','video_decoder','graphics_card','graphics_vendor','gpu_decodes_up_to')
 SAFE_STREAM=('decoded_width','decoded_height','pixel_format','received_mbps','video_packets_per_second','rate_window_seconds')
 SAFE_CAPTURE=('protocol','confirmed','fps_target','bitrate_target','resource_profile','resolution','resolution_requested','output_mode','refused_by')
 def diagnostic_report(snapshot):
@@ -36,5 +36,5 @@ def export_diagnostics(path,snapshot):
  path=Path(path)
  with zipfile.ZipFile(path,'w',compression=zipfile.ZIP_DEFLATED) as z:
   z.writestr('diagnostics.json',json.dumps(diagnostic_report(snapshot),indent=2))
-  z.writestr('README.txt','PlayBridge diagnostics\nRates are measured received media payload, not encoder targets.\nVideo packet rate is not decoded frame rate.\nTiming measurements cover PC stages, not total console-to-display latency.\nNo screenshots, audio, IP addresses, device names or logs are included.\n')
+  z.writestr('README.txt','PlayBridge diagnostics\nRates are measured received media payload, not encoder targets.\nVideo packet rate is not decoded frame rate.\nTiming measurements cover PC stages, not total console-to-display latency.\nNo screenshots, audio, IP addresses, device names or logs are included. The graphics card model is, because decoding depends on it.\n')
  return path
