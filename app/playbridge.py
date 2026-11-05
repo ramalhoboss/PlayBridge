@@ -22,7 +22,8 @@ from live_broadcast import LiveBroadcast
 from console_control import ConsoleLink,POWER_OFF,REBOOT,REST
 from console_discovery import SUPPORTED_FIRMWARE,firmware_name,locate,supported
 from stream_metrics import StreamMetrics,export_diagnostics
-import graphics_card
+import graphics_card,network_link
+from audio_output import candidates,check_report,default_output,describe,output_name,output_settings
 from av.codec.hwaccel import HWAccel
 import numpy as np
 HDR=struct.Struct('<4sBBHIQQI')
@@ -70,13 +71,18 @@ GPU_PATIENCE=30
 EXTRA_SURFACES=4
 # Slow decoding spreads out a burst from the network, but a picture that stays on the GPU arrives with the whole burst, and the decoder can finish it before the next thread wakes up.
 GPU_DECODED_FRAMES=9
-def gpu_decoder(codec=0,on_gpu=False):
+def gpu_decoder(codec=0,on_gpu=False,adapter=None):
  # Measured on a 4K recording: 12 ms from packet to picture with the same pixels, against 33 ms on frame threads, and 3.7 ms when the picture stays on the GPU. Returns None where the GPU cannot decode.
- try:video=av.CodecContext.create('hevc' if codec else 'h264','r',hwaccel=HWAccel(device_type='d3d11va',allow_software_fallback=False,is_hw_owned=on_gpu))
- except (av.error.FFmpegError,NotImplementedError):return None
- # Frames waiting for their turn hold on to their surfaces, and running out stops the decoder.
- if on_gpu:video.options={'extra_hw_frames':str(EXTRA_SURFACES)}
- return video if video.is_hwaccel else None
+ # FFmpeg names the card by its place in Windows' list; without one it takes the default, which on a laptop with two cards is the processor's.
+ # A chosen card that will not decode leaves the default one.
+ for device in dict.fromkeys((None if adapter is None else str(adapter),None)):
+  try:video=av.CodecContext.create('hevc' if codec else 'h264','r',hwaccel=HWAccel(device_type='d3d11va',device=device,allow_software_fallback=False,is_hw_owned=on_gpu))
+  except (av.error.FFmpegError,NotImplementedError):continue
+  if not video.is_hwaccel:continue
+  # Frames waiting for their turn hold on to their surfaces, and running out stops the decoder.
+  if on_gpu:video.options={'extra_hw_frames':str(EXTRA_SURFACES)}
+  return video
+ return None
 def audio_limits(resolution):
  # Audio shares the socket with video, so it arrives late behind large frames: over 100 ms at 4K, under 20 ms on a calm 1080p stream. Returns the PCM bytes that start a trim and the bytes it keeps (192 per ms); the queue only grows to the lateness it meets.
  return (30720,23040) if resolution>=5 else (11520,7680)
@@ -99,9 +105,12 @@ class Timings:
   return result
 class Player:
  def __init__(self,args):
-  self.metrics=StreamMetrics();self.metrics_lock=threading.Lock();self.recorder=CaptureRecorder();self.broadcast=LiveBroadcast();self.last_native_frame=None;self.capture_info=None;self.notice='';self.notice_until=0;self.screenshot_thread=None;self.retry_at=0;self.intentional_disconnect=False;self.follow=config().get('host_auto',True);self.elsewhere=None;self.renderer=(('gdi' if args.headless or not config().get('direct_video',True) else 'd3d11') if sys.platform=='win32' else 'tk') if args.renderer=='auto' else args.renderer;self.timings=Timings();self.args=args;self.stop=threading.Event();self.session_done=threading.Event();self.render_size=(1280,720);self.volume=1.0;self.muted=False;self.save_at=0;self.connection_state='Connecting…';self.lock=threading.Lock();self.pcm=bytearray();self.frames=collections.deque();self.last_drawn=None;self.audio=None;self.sock=None;self.error='';self.stats=collections.Counter();self.peak=0;self.output_name='';self.first_video=None;self.first_audio=None;self.first_arrival=None;self.latest_pts={};self.events=collections.deque(maxlen=60);self.arrival_origin=None;self.transport_growth_ms=0;self.decode_failure=None;self.started=time.perf_counter();self.pacer=FramePacer(self.stats);self.decoder_name='software';self.decoder_on_gpu=False;self.codec=0;self.console=None;self.video_hidden=False;self.sound_hidden=False;self.replay=ReplayBuffer(config().get('replay_seconds',60));self.replay_thread=None;self.link=ConsoleLink(STATE/'library',self.notify)
+  self.metrics=StreamMetrics();self.metrics_lock=threading.Lock();self.recorder=CaptureRecorder();self.broadcast=LiveBroadcast();self.last_native_frame=None;self.capture_info=None;self.notice='';self.notice_until=0;self.screenshot_thread=None;self.retry_at=0;self.intentional_disconnect=False;self.follow=config().get('host_auto',True);self.elsewhere=None;self.renderer=(('gdi' if args.headless or not config().get('direct_video',True) else 'd3d11') if sys.platform=='win32' else 'tk') if args.renderer=='auto' else args.renderer;self.timings=Timings();self.args=args;self.stop=threading.Event();self.session_done=threading.Event();self.render_size=(1280,720);self.volume=1.0;self.muted=False;self.save_at=0;self.connection_state='Connecting…';self.lock=threading.Lock();self.pcm=bytearray();self.frames=collections.deque();self.last_drawn=None;self.audio=None;self.sock=None;self.error='';self.stats=collections.Counter();self.peak=0;self.output_name='';self.first_video=None;self.first_audio=None;self.first_arrival=None;self.latest_pts={};self.events=collections.deque(maxlen=60);self.arrival_origin=None;self.transport_growth_ms=0;self.decode_failure=None;self.started=time.perf_counter();self.pacer=FramePacer(self.stats);self.decoder_name='software';self.decoder_on_gpu=False;self.codec=0;self.console=None;self.video_hidden=False;self.sound_hidden=False;self.replay=ReplayBuffer(config().get('replay_seconds',60));self.replay_thread=None;self.link=ConsoleLink(STATE/'library',self.notify);self.gaps=collections.deque(maxlen=30)
   # The payload's logs from this run, for finding out why a stream ended. They stay on this PC and the next start clears them.
   self.link.log_folder=STATE/'ps5-logs'
+  # The graphics card that decodes and draws, the same one for both. Read once: changing it applies the next time the app opens.
+  try:self.adapter=graphics_card.choose(config().get('graphics_card',graphics_card.AUTOMATIC)) if sys.platform=='win32' else None
+  except Exception:self.adapter=None
   try:
    self.link.log_folder.mkdir(parents=True,exist_ok=True)
    for old in self.link.log_folder.glob('session-*'):old.unlink()
@@ -114,16 +123,40 @@ class Player:
   for i,d in enumerate(devs):
    label=d['name']+' ['+apis[d['hostapi']]['name']+']'
    if d['max_output_channels']>=2 and (str(i)==str(preferred) or preferred==label):return i
-  return next(a['default_output_device'] for a in apis if a['name']=='Windows WASAPI' and a['default_output_device']>=0)
+  return default_output()
  def open_audio(self,index=None):
-  if index is None:index=self.device()
+  """Opens the chosen output, or else a Windows default one, and says whether one opened. When every output refuses, PlayBridge still
+  opens and streams the picture, without sound, and the status line says why: in 1.5.0 one such PC could not open the app at all.
+  Any refusal is written to audio-check.txt, so a PC we cannot see can tell us why."""
+  if index is None:
+   try:index=self.device()
+   except Exception:index=None
   if self.audio:
    previous,self.audio=self.audio,None
    try:previous.stop();previous.close()
    except Exception:pass
   with self.lock:self.pcm.clear()
-  self.audio=sd.RawOutputStream(device=index,samplerate=48000,channels=2,dtype='int16',blocksize=480,latency='low',callback=self.audio_callback)
-  self.audio.start();self.output_name=sd.query_devices(index)['name'];self.stats['output_device']=index;self.stats['device_latency_ms']=round(self.audio.latency*1000,1)
+  attempts=[]
+  for candidate in candidates(index):
+   stream=None
+   try:
+    stream=sd.RawOutputStream(device=candidate,samplerate=48000,channels=2,dtype='int16',blocksize=480,latency='low',extra_settings=output_settings(candidate),callback=self.audio_callback);stream.start()
+    self.output_name=output_name(candidate)
+   except Exception as e:
+    attempts.append((candidate,e))
+    if stream is not None:
+     try:stream.close()
+     except Exception:pass
+    continue
+   self.audio=stream;self.stats['output_device']=candidate;self.stats['device_latency_ms']=round(stream.latency*1000,1)
+   if attempts:self.audio_check(attempts,candidate,stream.latency)
+   return True
+  self.output_name='';self.stats['output_device']=None;self.stats.pop('device_latency_ms',None);self.audio_check(attempts,None,None)
+  self.notify('No sound: '+describe(attempts[0][1])+'. Choose another output in the audio menu.');self.notice_until=time.perf_counter()+30
+  return False
+ def audio_check(self,attempts,opened,latency):
+  try:(STATE/'audio-check.txt').write_text(check_report(attempts,opened,latency,time.strftime('%Y-%m-%d %H:%M:%S')),encoding='utf8')
+  except OSError:pass
  def audio_callback(self,outdata,frames,timing,status):
   need=frames*4
   with self.lock:
@@ -153,7 +186,7 @@ class Player:
  def video_decoder(self,software=False):
   resolution=(self.capture_info or {}).get('resolution',4);on_gpu=self.renderer=='d3d11'
   # 1080p already decodes in time on one thread, with no delay for the GPU to remove, but a picture that stays on the GPU costs almost nothing at any size.
-  video=None if software or (resolution<5 and not self.codec and not on_gpu) else gpu_decoder(self.codec,on_gpu)
+  video=None if software or (resolution<5 and not self.codec and not on_gpu) else gpu_decoder(self.codec,on_gpu,self.adapter)
   self.decoder_name='software' if video is None else 'gpu';self.decoder_on_gpu=on_gpu and video is not None
   # Above 1080p the processor may not keep up, so say why before the picture stutters.
   if video is None and resolution>=5:self.notify(graphics_card.processor_notice(resolution,self.graphics()))
@@ -161,7 +194,7 @@ class Player:
   return video
  def graphics(self):
   """The graphics card and the stream sizes it decodes, read once. None where it cannot be read."""
-  try:return graphics_card.probe()
+  try:return graphics_card.probe(self.adapter)
   except Exception:return None
  def decode_video(self,packets,done):
   # Beside the socket reader, so a slow decoder cannot stall audio or the console's 1 s send timeout.
@@ -224,11 +257,13 @@ class Player:
    if self.sock is None:
     if self.stop.is_set() or self.intentional_disconnect:return
     raise RuntimeError('PS5 listener did not start on 9076')
+   try:self.stats['network_link']=network_link.link(self.sock.getpeername()[0])
+   except OSError:self.stats['network_link']=None
    self.sock.sendall(capture_request(self.args.profile))
    self.connection_state='Starting capture…';self.sock.settimeout(5);self.sock.setsockopt(socket.IPPROTO_TCP,socket.TCP_NODELAY,1)
    audio=av.CodecContext.create('aac','r');resampler=av.AudioResampler(format='s16',layout='stereo',rate=48000)
    record=(STATE/'av3-test.wire').open('wb') if self.args.record else None
-   self.decode_failure=None;decode_done=threading.Event();decode_queue=queue.Queue(VIDEO_QUEUE_PACKETS);waiting_idr=False
+   self.decode_failure=None;decode_done=threading.Event();decode_queue=queue.Queue(VIDEO_QUEUE_PACKETS);waiting_idr=False;behind_at=None;last_video=None
    decoder_thread=threading.Thread(target=self.decode_video,args=(decode_queue,decode_done),name='PlayBridge video decode',daemon=True);decoder_thread.start()
    # When each packet arrived and when PlayBridge was done with it, for the last seconds of the session: if the PS5 ends a stream,
    # this says whether it stopped sending or PlayBridge stopped reading (the payload gives up after 1 s without being read).
@@ -256,14 +291,22 @@ class Player:
      with self.metrics_lock:self.metrics.packet(size,kind==1)
      if kind==1:
       if self.first_video is None:self.first_video=pts;self.first_arrival=now
+      # Where the picture stopped arriving and for how long: a pattern, such as every few seconds, points at Wi-Fi.
+      if last_video is not None and now-last_video>network_link.STREAM_GAP:self.stats['stream_gaps']+=1;self.gaps.append((round(now-self.started,1),round((now-last_video)*1000)))
+      last_video=now
       growth=(now-self.first_arrival)-(pts-self.first_video)/90000
       self.transport_growth_ms=round(growth*1000,1)
       if self.decode_failure:raise self.decode_failure
       # Every frame references the previous one, so a dropped packet means waiting for the next IDR.
       if waiting_idr and not is_idr(payload,self.codec):self.stats['video_packets_dropped']+=1
       else:
-       try:decode_queue.put_nowait((payload,pts,dts,now));waiting_idr=False
-       except queue.Full:waiting_idr=True;self.stats['video_packets_dropped']+=1
+       try:
+        decode_queue.put_nowait((payload,pts,dts,now))
+        if waiting_idr:self.event(f'Decoding fell behind: {round((now-behind_at)*1000)} ms without a new picture, until the next keyframe')
+        waiting_idr=False
+       except queue.Full:
+        if not waiting_idr:behind_at=now
+        waiting_idr=True;self.stats['video_packets_dropped']+=1
      else:
       if self.first_audio is None:self.first_audio=pts
       for p in audio.parse(payload):
@@ -379,7 +422,7 @@ class Player:
   with self.lock:
    s=dict(self.stats);s['audio_queue_ms']=round(len(self.pcm)/192,1)
   with self.metrics_lock:s['stream']=self.metrics.summary()
-  s['timings_ms']=self.timings.summary();s['events']=list(self.events);s['latency_scope']='PC stages only; transport growth is relative to first video packet, not total HDMI-to-PC latency'
+  s['timings_ms']=self.timings.summary();s['events']=list(self.events);s['gap_log']=list(self.gaps);s['latency_scope']='PC stages only; transport growth is relative to first video packet, not total HDMI-to-PC latency'
   s.update(recording_state=self.recorder.state,live_state=self.broadcast.state,capture_info=self.capture_info,profile_requested=self.args.profile,renderer=self.renderer,video_decoder=self.decoder_name,**graphics_card.report(self.graphics()),output=self.output_name,error=self.error,observed_seconds=round(time.perf_counter()-self.started,2),transport_delay_growth_ms=self.transport_growth_ms)
   (STATE/'av3-stats.json').write_text(json.dumps(s,indent=2),encoding='utf8');return s
  def export_diagnostics(self,path):
@@ -406,7 +449,8 @@ class Player:
   while not self.stop.is_set():
    # Behind the game grid nobody sees the console's menu, so it costs nothing beyond decoding.
    if self.video_hidden:
-    with self.lock:self.frames.clear();self.pacer.clear()
+    # Counted, so frames decoded behind another page are not taken for frames lost on the way to the screen.
+    with self.lock:self.stats['hidden_frames']+=len(self.frames)+len(self.pacer.items);self.frames.clear();self.pacer.clear()
     self.stop.wait(.01);continue
    rate=PROFILES[self.args.profile].get('playback_fps',0)
    if rate and time.perf_counter()<next_frame_at:

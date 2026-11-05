@@ -12,6 +12,8 @@ from pad_input import CONSOLE_PAD_READY, PadBridge
 from settings_look import GlassPage
 import graphics_card,payload_sender,live_broadcast
 from hang_watch import HangWatch
+from keep_awake import BatteryHint,KeepAwake,on_battery
+from screen_rate import ScreenRate
 from desktop_features import CursorHider, saved_consoles, remember_console
 from PIL import Image,ImageTk
 import sounddevice as sd
@@ -65,10 +67,13 @@ def run_ui(app):
  def device_label(name):
   return name.replace('Altifalantes','Speakers').replace('Auscultadores','Headphones').replace('Saída digital','Digital output')
  apis=sd.query_hostapis();devs=sd.query_devices();outputs=[(i,device_label(d['name'])) for i,d in enumerate(devs) if d['max_output_channels']>=2 and apis[d['hostapi']]['name']=='Windows WASAPI']
- choice=ctk.StringVar(value=device_label(app.output_name))
+ choice=ctk.StringVar(value=device_label(app.output_name) or 'No sound output')
  def change_audio(value):
   try:
-   index=next(i for i,n in outputs if n==value);app.open_audio(index);core.save_config(output=devs[index]['name']+' ['+apis[devs[index]['hostapi']]['name']+']');sounds.reopen()
+   # An output that will not open is not saved, so the next start does not try it first.
+   index=next(i for i,n in outputs if n==value)
+   if app.open_audio(index):core.save_config(output=devs[index]['name']+' ['+apis[devs[index]['hostapi']]['name']+']')
+   choice.set(device_label(app.output_name) or 'No sound output');sounds.reopen()
   except Exception as e:app.error='Audio output: '+str(e)
  def mute_audio():
   app.muted=not app.muted;mute_button.restyle(icon=icons['speaker'] if not app.muted else icons['muted'])
@@ -218,12 +223,23 @@ def run_ui(app):
   menu(place,variable=profile,values=list(profiles))
   note(place,'Profiles apply on reconnect. 30 fps limits PC playback only.\n1440p and 4K need the PS5 video output set to that resolution.')
   note(place,graphics_card.summary(app.graphics()))
+  # Only where there is a choice, as on a laptop with the processor's graphics and an NVIDIA or AMD card.
+  found=graphics_card.cards()
+  if len(found)>1:
+   place=card(sections['picture'],'Graphics card')
+   automatic='Automatic: '+graphics_card.label(graphics_card.automatic(found),found)
+   kept=core.config().get('graphics_card',graphics_card.AUTOMATIC);names=[item['name'] for item in found]
+   gpu_card=ctk.StringVar(value=kept if kept in names else automatic)
+   menu(place,variable=gpu_card,values=[automatic]+names,command=lambda value:core.save_config(graphics_card=graphics_card.AUTOMATIC if value==automatic else value))
+   note(place,'The card that decodes and draws the video. Automatic takes the one with the most memory of its own, such as the NVIDIA or AMD card in a gaming laptop. Applies the next time PlayBridge opens.')
   place=card(sections['picture'],'On screen')
   switch(place,'Show performance stats',diagnostic,lambda:core.save_config(diagnostic=diagnostic.get()))
   place=card(sections['picture'],'Video output')
   gpu_on=ctk.BooleanVar(value=core.config().get('direct_video',True))
   switch(place,'GPU video output',gpu_on,lambda:core.save_config(direct_video=gpu_on.get()))
   note(place,'The graphics card decodes and draws the video, which uses far less of the processor and keeps playing while the window is busy. Applies the next time PlayBridge opens.')
+  switch(place,'Match the screen to the stream',match_on,lambda:core.save_config(match_refresh=match_on.get()))
+  note(place,'60 fps judders on a 144 or 165 Hz screen, because some frames stay up longer than others. While a game streams, PlayBridge switches the screen to 120 or 60 Hz, and back when the stream ends.')
   if direct:
    sharpen_on=ctk.BooleanVar(value=presenter.sharpen)
    def change_sharpen():
@@ -455,37 +471,46 @@ def run_ui(app):
  bottom=tk.Frame(win,bg=BG);bottom.grid(row=3,column=0,sticky='ew',padx=20,pady=(0,6));bottom.grid_columnconfigure(0,weight=1)
  message=ctk.CTkLabel(bottom,text='',text_color=MUTED,font=('Segoe UI',10),anchor='w',height=16);message.grid(row=0,column=0,sticky='ew')
  diagnostic=ctk.BooleanVar(value=core.config().get('diagnostic',False))
+ match_on=ctk.BooleanVar(value=core.config().get('match_refresh',True))
  presenter=None;surface=None;direct=False
  if app.renderer=='d3d11':
   # A window of its own that Tk never paints, because a swap chain and anything drawn on the same window fight over it.
   surface=tk.Frame(stage,bg='',width=1,height=1)
   try:
    from d3d11_presenter import D3D11Presenter
-   presenter=D3D11Presenter(surface,core.config().get('sharpen',False),core.config().get('fsr',False));direct=True
+   presenter=D3D11Presenter(surface,core.config().get('sharpen',False),core.config().get('fsr',False),app.adapter);direct=True
   except Exception:surface.destroy();surface=None;app.use_gdi()
  if app.renderer=='gdi':
   from gdi_presenter import GdiPresenter
   presenter=GdiPresenter(canvas)
- from frame_pacing import RefreshClock
+ from frame_pacing import HitchWatch,RefreshClock
  refresh=RefreshClock(app.stop)
- seen_presented=0
+ seen_presented=0;shown_at=[None];hitches=HitchWatch();paint_took=[0]
+ def note_shown(done):
+  # The time between two frames on screen: 16.7 ms each on a steady screen, and 13.9 then 20.8 on a 144 Hz one, which is the judder.
+  last,shown_at[0]=shown_at[0],done
+  if last is not None and done-last<.25:app.timings.add('shown_gap_ms',(done-last)*1000)
+  hitches.shown(done,refresh.period,done-app.started)
  def paint(output=presenter):
   # On the refresh clock's thread, so nothing in the Tk loop can delay a frame.
   try:
    now=time.perf_counter();seconds=refresh.elapsed(now)
-   with app.lock:item=app.pacer.advance(seconds,now) if seconds else None
+   with app.lock:missing=app.pacer.missing;item=app.pacer.advance(seconds,now) if seconds else None;missing=app.pacer.missing!=missing
+   hitches.refresh(round(seconds/refresh.period),missing,paint_took[0]>refresh.period)
    if item is None:output.refresh();return
    image,arrived,prepared=item;paint_at=time.perf_counter();app.timings.add('prepared_slot_wait_ms',(paint_at-prepared)*1000)
    if output.draw(image):
-    done=time.perf_counter();app.timings.add('presenter_upload_ms',(done-paint_at)*1000);app.timings.add('receive_to_present_ms',(done-arrived)*1000);app.stats['video_presented']+=1;app.stats['last_frame_to_ui_ms']=round((done-arrived)*1000,1)
+    done=time.perf_counter();note_shown(done);app.timings.add('presenter_upload_ms',(done-paint_at)*1000);app.timings.add('receive_to_present_ms',(done-arrived)*1000);app.stats['video_presented']+=1;app.stats['last_frame_to_ui_ms']=round((done-arrived)*1000,1)
+   else:hitches.unpresented()
   except Exception as error:output.failed=error
+  finally:paint_took[0]=time.perf_counter()-now
  def leave_direct():
   # This PC cannot keep the GPU output going, so the picture carries on through memory.
   nonlocal presenter,direct
   from gdi_presenter import GdiPresenter
   refresh.after=None;direct=False;surface.grid_remove();presenter=GdiPresenter(canvas);app.use_gdi()
  if direct:refresh.after=paint
- last_tick=time.perf_counter();watch=HangWatch(threading.get_ident(),app.stop);fullscreen=False;mini=None;photo=None;photo_size=None;rate_at=time.perf_counter();rate_frames=0;fps=0;last_info=0;recording_at=None;cursor=CursorHider(win)
+ last_tick=time.perf_counter();watch=HangWatch(threading.get_ident(),app.stop);awake=KeepAwake();rate=ScreenRate();battery=BatteryHint();fullscreen=False;mini=None;photo=None;photo_size=None;rate_at=time.perf_counter();rate_frames=0;fps=0;last_info=0;recording_at=None;cursor=CursorHider(win)
  def fit_shell():
   # The library and fullscreen video have the whole window to themselves.
   live=page=='live';bare=games_shown or live and (fullscreen or mini is not None)
@@ -545,7 +570,7 @@ def run_ui(app):
    fit_shell();place_session()
  win.bind('<Motion>',cursor.moved,add='+')
  page_actions.update(open=start_game,close=close_game,connect=connect_toggle,live=show_stream,media=lambda:show_page('media'),settings=lambda:show_page('settings'),fullscreen=lambda:set_gaming(not gaming_mode),rest=rest_console,off=power_off_console,reboot=reboot_console,soft_reset=soft_reset,recovery=recovery_console,exit=lambda:set_gaming(False))
- def close():app.stop.set();sounds.close();win.destroy()
+ def close():awake.want(False);rate.want(False,0);app.stop.set();sounds.close();win.destroy()
  def escape(_):
   if ConfirmDialog.current is not None:ConfirmDialog.close()
   elif PopMenu.current is not None:PopMenu.close()
@@ -632,7 +657,8 @@ def run_ui(app):
    with app.lock:queue_ms=len(app.pcm)/192
   else:
    seconds=refresh.elapsed(now)
-   with app.lock:item=app.pacer.advance(seconds,now) if seconds else None;queue_ms=len(app.pcm)/192
+   with app.lock:missing=app.pacer.missing;item=app.pacer.advance(seconds,now) if seconds else None;queue_ms=len(app.pcm)/192;missing=app.pacer.missing!=missing
+   hitches.refresh(0,missing,False)
    if item and (item[0].width>vw or item[0].height>vh):item=None
   # While PlayBridge connects again on its own, as when a game closes, the last picture stays on screen until the new one arrives.
   if not app.worker.is_alive() and has_video:
@@ -651,7 +677,7 @@ def run_ui(app):
    elif photo is None or photo_size!=image.size:
     photo=ImageTk.PhotoImage(image);photo_size=image.size;canvas.itemconfigure(item_id,image=photo);canvas.image=photo
    else:photo.paste(image)
-   app.timings.add('presenter_upload_ms',(time.perf_counter()-paint_at)*1000);app.timings.add('receive_to_present_ms',(time.perf_counter()-arrived)*1000);app.stats['video_presented']+=1;app.stats['last_frame_to_ui_ms']=round((time.perf_counter()-arrived)*1000,1);rate_frames+=1
+   note_shown(time.perf_counter());app.timings.add('presenter_upload_ms',(time.perf_counter()-paint_at)*1000);app.timings.add('receive_to_present_ms',(time.perf_counter()-arrived)*1000);app.stats['video_presented']+=1;app.stats['last_frame_to_ui_ms']=round((time.perf_counter()-arrived)*1000,1);rate_frames+=1
   elif presenter:presenter.refresh()
   if not pad.events.empty():pad_event(pad.events.get_nowait())
   if app.link.status is not seen_status:seen_status=app.link.status;follow_console(now)
@@ -662,10 +688,26 @@ def run_ui(app):
    ambient.show(True,app.error or waiting,now)
   if now-rate_at>=1:
    decoded=app.stats.get('video_decoded',0);decoded_rate=(decoded-decoded_mark)/(now-rate_at);decoded_mark=decoded
-   fps=rate_frames/(now-rate_at);app.stats['presented_fps']=round(fps,1);rate_frames=0;rate_at=now;app.snapshot()
+   fps=rate_frames/(now-rate_at);app.stats['presented_fps']=round(fps,1);rate_frames=0;rate_at=now
+   # What the screen side looked like, to tell a PC that stutters from one that does not.
+   app.stats['refresh_hz']=round(1/refresh.period,1);app.stats['hitches']=dict(hitches.counts);app.stats['hitch_log']=list(hitches.log)
+   if direct:app.stats['present_timeouts']=presenter.timeouts;app.stats['cross_card']=presenter.cross;app.stats['frames_in_flight']=presenter.flight
+   app.stats['screen_rate']=rate.label();app.stats['screen_rate_check']=rate.note
+   # What the app cannot fix itself, it says, once a session and only when frames are really being lost.
+   wanted_fps=core.PROFILES[app.args.profile].get('playback_fps') or (app.capture_info or {}).get('fps_target') or 60
+   streaming=app.connection_state=='Connected' and app.worker.is_alive()
+   hint=battery.second(streaming,app.stats['presented_fps'],wanted_fps);app.stats['on_battery']=battery.on
+   if hint:app.notify(hint);app.notice_until=now+15
+   app.snapshot()
   if now-last_info>.25:
    last_info=now;app.poll_capture_events();record_button.restyle(icon=icons['disconnect'] if app.recorder.active else icons['record'],tone='danger' if app.recorder.active else 'plain');on_air=app.broadcast.active;live_button.restyle(icon=icons['on_air'] if on_air else icons['live']);show_live(on_air);active=app.worker.is_alive();linked=app.connection_state=='Connected' and active
    connect_button.restyle(text='Disconnect' if active else 'Connect',icon=on_white['disconnect'] if active else on_white['connect'])
+   # While a session runs the display and the PC stay on, unless the window is minimized.
+   awake.want(linked and win.state()!='iconic')
+   # A screen whose rate does not fit 60 fps gets one that does, but only while the game fills it.
+   # From the first time the picture shows until the stream ends, so moving between pages does not make the screen flash each time.
+   switched=rate.want(match_on.get() and linked and win.state()!='iconic' and (page=='live' or rate.changed is not None),win.winfo_id())
+   if switched:app.notify(f'Screen set from {switched[0]} to {switched[1]} Hz while the game streams, so every frame shows for the same time.')
    with app.metrics_lock:health=app.metrics.summary()
    if app.recorder.active and app.recorder.state=='recording':
     if recording_at is None:recording_at=now

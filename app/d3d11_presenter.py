@@ -1,5 +1,5 @@
 """Direct3D 11 video output. A frame decoded on the GPU reaches the screen without visiting the CPU, and the GPU also converts its colour and scales it."""
-import ctypes,struct,uuid
+import collections,ctypes,struct,time,uuid
 from ctypes import POINTER,WINFUNCTYPE,Structure,byref,c_char_p,c_float,c_size_t,c_uint,c_ulong,c_void_p,sizeof
 from ctypes import wintypes
 import av
@@ -14,13 +14,13 @@ def com(index,restype,*arguments):
  return call
 def iid(text):return uuid.UUID(text).bytes_le
 OUT=POINTER(c_void_p);ANY=c_void_p;UINT=c_uint
-IID_DXGI_DEVICE=iid('54ec77fa-1377-44e6-8c32-88fd5f44c84c');IID_FACTORY2=iid('50c83a1c-e072-4c48-87b0-3630fa36a6d0');IID_SWAP2=iid('a8be2ac4-199f-4946-b331-79599fb98de7');IID_TEXTURE=iid('6f15aaf2-d208-4e89-9ab4-489535d34f9c')
+IID_DXGI_DEVICE=iid('54ec77fa-1377-44e6-8c32-88fd5f44c84c');IID_FACTORY1=iid('770aae78-f26f-4dba-a829-253c83d1b387');IID_FACTORY2=iid('50c83a1c-e072-4c48-87b0-3630fa36a6d0');IID_SWAP2=iid('a8be2ac4-199f-4946-b331-79599fb98de7');IID_TEXTURE=iid('6f15aaf2-d208-4e89-9ab4-489535d34f9c')
 QueryInterface=com(0,HRESULT,c_char_p,OUT);Release=com(2,c_ulong)
 GetDeviceOfChild=com(3,None,OUT);GetTextureDesc=com(10,None,ANY)
 CreateBuffer=com(3,HRESULT,ANY,ANY,OUT);CreateTexture2D=com(5,HRESULT,ANY,ANY,OUT);CreateShaderResourceView=com(7,HRESULT,ANY,ANY,OUT);CreateRenderTargetView=com(9,HRESULT,ANY,ANY,OUT);CreateVertexShader=com(12,HRESULT,ANY,c_size_t,ANY,OUT);CreatePixelShader=com(15,HRESULT,ANY,c_size_t,ANY,OUT);CreateSamplerState=com(23,HRESULT,ANY,OUT);GetImmediateContext=com(40,None,OUT)
 PSSetShaderResources=com(8,None,UINT,UINT,ANY);PSSetShader=com(9,None,ANY,ANY,UINT);PSSetSamplers=com(10,None,UINT,UINT,ANY);VSSetShader=com(11,None,ANY,ANY,UINT);Draw=com(13,None,UINT,UINT);Map=com(14,HRESULT,ANY,UINT,UINT,UINT,ANY);Unmap=com(15,None,ANY,UINT);PSSetConstantBuffers=com(16,None,UINT,UINT,ANY);IASetPrimitiveTopology=com(24,None,UINT);OMSetRenderTargets=com(33,None,UINT,ANY,ANY);RSSetViewports=com(44,None,UINT,ANY);CopySubresourceRegion=com(46,None,ANY,UINT,UINT,UINT,UINT,ANY,UINT,ANY);ClearRenderTargetView=com(50,None,ANY,ANY);ClearState=com(110,None);Flush=com(111,None)
-GetParent=com(6,HRESULT,c_char_p,OUT);GetAdapter=com(7,HRESULT,OUT);MakeWindowAssociation=com(8,HRESULT,wintypes.HWND,UINT);CreateSwapChainForHwnd=com(15,HRESULT,ANY,wintypes.HWND,ANY,ANY,ANY,OUT)
-Present=com(8,HRESULT,UINT,UINT);GetBuffer=com(9,HRESULT,UINT,c_char_p,OUT);ResizeBuffers=com(13,HRESULT,UINT,UINT,UINT,UINT,UINT);SetMaximumFrameLatency=com(31,HRESULT,UINT);GetFrameLatencyWaitableObject=com(33,wintypes.HANDLE)
+GetParent=com(6,HRESULT,c_char_p,OUT);GetAdapter=com(7,HRESULT,OUT);EnumAdapters=com(7,HRESULT,UINT,OUT);EnumOutputs=com(7,HRESULT,UINT,OUT);GetOutputDesc=com(7,HRESULT,ANY);MakeWindowAssociation=com(8,HRESULT,wintypes.HWND,UINT);CreateSwapChainForHwnd=com(15,HRESULT,ANY,wintypes.HWND,ANY,ANY,ANY,OUT)
+Present=com(8,HRESULT,UINT,UINT);GetBuffer=com(9,HRESULT,UINT,c_char_p,OUT);ResizeBuffers=com(13,HRESULT,UINT,UINT,UINT,UINT,UINT);SetMaximumFrameLatency=com(31,HRESULT,UINT);GetMaximumFrameLatency=com(32,HRESULT,POINTER(UINT));GetFrameLatencyWaitableObject=com(33,wintypes.HANDLE)
 GetBlobPointer=com(3,c_void_p);GetBlobSize=com(4,c_size_t)
 
 class Texture2DDesc(Structure):_fields_=[('Width',UINT),('Height',UINT),('MipLevels',UINT),('ArraySize',UINT),('Format',UINT),('SampleCount',UINT),('SampleQuality',UINT),('Usage',UINT),('BindFlags',UINT),('CPUAccessFlags',UINT),('MiscFlags',UINT)]
@@ -28,6 +28,7 @@ class SwapChainDesc1(Structure):_fields_=[('Width',UINT),('Height',UINT),('Forma
 class ViewDesc(Structure):_fields_=[('Format',UINT),('ViewDimension',UINT),('MostDetailedMip',UINT),('MipLevels',UINT),('Unused',UINT*2)]
 class BufferDesc(Structure):_fields_=[('ByteWidth',UINT),('Usage',UINT),('BindFlags',UINT),('CPUAccessFlags',UINT),('MiscFlags',UINT),('StructureByteStride',UINT)]
 class SamplerDesc(Structure):_fields_=[('Filter',UINT),('AddressU',UINT),('AddressV',UINT),('AddressW',UINT),('MipLODBias',c_float),('MaxAnisotropy',UINT),('ComparisonFunc',UINT),('BorderColor',c_float*4),('MinLOD',c_float),('MaxLOD',c_float)]
+class OutputDesc(Structure):_fields_=[('DeviceName',ctypes.c_wchar*32),('DesktopCoordinates',wintypes.RECT),('AttachedToDesktop',wintypes.BOOL),('Rotation',UINT),('Monitor',c_void_p)]
 class Mapped(Structure):_fields_=[('Data',c_void_p),('RowPitch',UINT),('DepthPitch',UINT)]
 class Viewport(Structure):_fields_=[('X',c_float),('Y',c_float),('Width',c_float),('Height',c_float),('MinDepth',c_float),('MaxDepth',c_float)]
 
@@ -35,10 +36,14 @@ BGRA8=87;R8=61;R8G8=49;NV12=103;P010=104;R16=56;R16G16=35;RGB10=24
 USAGE_DEFAULT=0;USAGE_DYNAMIC=2;USAGE_STAGING=3
 BIND_CONSTANT=4;BIND_SHADER=8;BIND_TARGET=0x20
 CPU_WRITE=0x10000;CPU_READ=0x20000;MAP_READ=1;MAP_DISCARD=4
-TEXTURE2D_VIEW=4;TRIANGLES=4;FILTER_LINEAR=0x15;ADDRESS_CLAMP=3;LEVEL_SDK=7;DRIVER_HARDWARE=1;DEVICE_VIDEO=0x800
+TEXTURE2D_VIEW=4;TRIANGLES=4;FILTER_LINEAR=0x15;ADDRESS_CLAMP=3;LEVEL_SDK=7;DRIVER_UNKNOWN=0;DRIVER_HARDWARE=1;DEVICE_VIDEO=0x800
 FLIP_DISCARD=4;SCALING_STRETCH=0;ALPHA_IGNORE=3;TARGET_OUTPUT=0x20;FRAME_LATENCY_WAITABLE=64;NO_WINDOW_CHANGES=1
 # The most a frame may wait for the screen. Longer would hold up the clock this runs on.
 WAIT_MS=15
+# Swap chains not ready in time, within this many seconds, that show this PC needs a second frame in flight.
+MISS_LIMIT=5;MISS_WINDOW=5
+# Frames in flight are never more than this: each one can add a refresh of delay.
+MOST_IN_FLIGHT=3
 VIEWS={NV12:(R8,R8G8),P010:(R16,R16G16)}
 # Each plane's texture format and how much smaller than the picture it is.
 PLANES={'yuv420p':((R8,1),(R8,2),(R8,2)),'yuvj420p':((R8,1),(R8,2),(R8,2)),'nv12':((R8,1),(R8G8,2))}
@@ -198,19 +203,64 @@ def compiled():
   except OSError as error:raise RuntimeError(ctypes.string_at(GetBlobPointer(errors.value),GetBlobSize(errors.value)).decode(errors='replace') if errors.value else str(error)) from error
   blobs[name]=ctypes.string_at(GetBlobPointer(code.value),GetBlobSize(code.value));Release(code.value)
  return blobs
-def new_device():
+def window_monitor(hwnd):
+ user32=ctypes.windll.user32;user32.MonitorFromWindow.argtypes=[wintypes.HWND,wintypes.DWORD];user32.MonitorFromWindow.restype=c_void_p
+ return user32.MonitorFromWindow(hwnd,2)  # MONITOR_DEFAULTTONEAREST
+def drives(adapter,monitor):
+ """True when this adapter sends the picture to that monitor itself."""
+ index=0
+ while True:
+  output=c_void_p()
+  try:EnumOutputs(adapter,index,byref(output))
+  except OSError:return False
+  try:
+   desc=OutputDesc();GetOutputDesc(output.value,byref(desc))
+   if desc.Monitor==monitor:return True
+  finally:Release(output.value)
+  index+=1
+def adapters():
+ """Every graphics adapter in Windows' order, which is the order FFmpeg numbers them in too. The caller releases each one."""
+ library=ctypes.WinDLL('dxgi');create=library.CreateDXGIFactory1;create.restype=ctypes.HRESULT;create.argtypes=[c_char_p,OUT]
+ factory=c_void_p();create(IID_FACTORY1,byref(factory));found=[]
+ try:
+  while True:
+   adapter=c_void_p()
+   # Windows answers DXGI_ERROR_NOT_FOUND after the last one.
+   try:EnumAdapters(factory.value,len(found),byref(adapter))
+   except OSError:return found
+   found.append(adapter.value)
+ finally:Release(factory.value)
+def new_device(adapter=None):
+ """A device on the adapter at this place in Windows' list, or on Windows' default one. On a laptop with two graphics cards the default
+ is the processor's, which drives the screen, so the app names the card it wants."""
  library=ctypes.WinDLL('d3d11');create=library.D3D11CreateDevice;create.restype=ctypes.HRESULT;create.argtypes=[c_void_p,UINT,c_void_p,UINT,c_void_p,UINT,UINT,OUT,c_void_p,c_void_p]
- device=c_void_p();create(None,DRIVER_HARDWARE,None,DEVICE_VIDEO,None,0,LEVEL_SDK,byref(device),None,None);return device.value
+ listed=adapters() if adapter is not None else []
+ chosen=listed[adapter] if adapter is not None and 0<=adapter<len(listed) else None
+ try:
+  if chosen:
+   # An adapter named here needs the unknown driver type: Direct3D refuses the hardware type with one.
+   try:device=c_void_p();create(chosen,DRIVER_UNKNOWN,None,DEVICE_VIDEO,None,0,LEVEL_SDK,byref(device),None,None);return device.value
+   except OSError:pass  # A card that will not start leaves Windows' default one, as before there was a choice.
+  device=c_void_p();create(None,DRIVER_HARDWARE,None,DEVICE_VIDEO,None,0,LEVEL_SDK,byref(device),None,None);return device.value
+ finally:
+  for pointer in listed:Release(pointer)
+
+def in_flight(cross,extra=0):
+ """Frames queued for the screen: one keeps the delay lowest, a second covers the copy between two cards, and each extra one was earned
+ by a run of misses on this PC."""
+ return min(MOST_IN_FLIGHT,(2 if cross else 1)+extra)
 
 class D3D11Presenter:
  """Draws on the thread of the refresh clock. Only resizing and hiding involve the window's own thread, which never waits for this one."""
- def __init__(self,window,sharpen=False,fsr=False):
+ def __init__(self,window,sharpen=False,fsr=False,adapter=None):
   self.hwnd=window.winfo_id();self.frame=None;self.failed=None;self.failures=0;self.sharpen=sharpen;self.fsr=fsr;self.wanted=(max(1,window.winfo_width()),max(1,window.winfo_height()));self.pending=False
   self.kernel=ctypes.WinDLL('kernel32');self.kernel.WaitForSingleObject.argtypes=[wintypes.HANDLE,wintypes.DWORD];self.kernel.WaitForSingleObject.restype=wintypes.DWORD
   # Both fail here, in the window's thread, where the app can still choose the other output.
-  self.blobs=compiled();self.own=new_device();self.forget()
+  # Waits for the swap chain that ran out, and whether the last one drew on a card other than the screen's, for the stats.
+  self.timeouts=0;self.cross=False;self.extra=0;self.misses=collections.deque()
+  self.blobs=compiled();self.own=new_device(adapter);self.forget()
  def forget(self):
-  self.device=None;self.context=None;self.swap=None;self.target=None;self.back=None;self.scaled=None;self.scaled_view=None;self.size=None;self.waitable=None;self.owned=[];self.surface=None;self.surface_shape=None;self.planes=None;self.plane_shape=None;self.views=None;self.arranged=None;self.viewport=None;self.converted=None;self.converted_shape=None;self.enlarging=False
+  self.device=None;self.context=None;self.swap=None;self.flight=None;self.target=None;self.back=None;self.scaled=None;self.scaled_view=None;self.size=None;self.waitable=None;self.owned=[];self.surface=None;self.surface_shape=None;self.planes=None;self.plane_shape=None;self.views=None;self.arranged=None;self.viewport=None;self.converted=None;self.converted_shape=None;self.enlarging=False
  def keep(self,pointer):
   self.owned.append(pointer.value);return pointer.value
  def attach(self,device):
@@ -237,14 +287,18 @@ class D3D11Presenter:
   if self.device and self.device!=self.own:Release(self.device)
   self.forget()
  def open_swap_chain(self):
-  width,height=self.wanted;desc=SwapChainDesc1(Width=width,Height=height,Format=BGRA8,SampleCount=1,BufferUsage=TARGET_OUTPUT,BufferCount=2,Scaling=SCALING_STRETCH,SwapEffect=FLIP_DISCARD,AlphaMode=ALPHA_IGNORE,Flags=FRAME_LATENCY_WAITABLE)
   dxgi=c_void_p();adapter=c_void_p();factory=c_void_p();first=c_void_p();swap=c_void_p()
   QueryInterface(self.device,IID_DXGI_DEVICE,byref(dxgi));GetAdapter(dxgi.value,byref(adapter));GetParent(adapter.value,IID_FACTORY2,byref(factory))
+  # On a laptop the NVIDIA card draws and the processor's graphics shows the screen, so every frame is copied across before it can show.
+  # With one frame in flight, about 7 frames a second never reached the 3060 laptop's screen, and handing one over took up to 14 ms against under 3 here.
+  try:self.cross=not drives(adapter.value,window_monitor(self.hwnd))
+  except OSError:self.cross=False
+  width,height=self.wanted;desc=SwapChainDesc1(Width=width,Height=height,Format=BGRA8,SampleCount=1,BufferUsage=TARGET_OUTPUT,BufferCount=in_flight(self.cross,self.extra)+1,Scaling=SCALING_STRETCH,SwapEffect=FLIP_DISCARD,AlphaMode=ALPHA_IGNORE,Flags=FRAME_LATENCY_WAITABLE)
   try:
    CreateSwapChainForHwnd(factory.value,self.device,self.hwnd,byref(desc),None,None,byref(first))
    MakeWindowAssociation(factory.value,self.hwnd,NO_WINDOW_CHANGES);QueryInterface(first.value,IID_SWAP2,byref(swap));Release(first.value)
   finally:Release(factory.value);Release(adapter.value);Release(dxgi.value)
-  self.swap=swap.value;SetMaximumFrameLatency(self.swap,1);self.waitable=GetFrameLatencyWaitableObject(self.swap);self.size=self.wanted;self.open_target()
+  self.flight=in_flight(self.cross,self.extra);self.swap=swap.value;SetMaximumFrameLatency(self.swap,self.flight);self.waitable=GetFrameLatencyWaitableObject(self.swap);self.size=self.wanted;self.open_target()
  def open_target(self):
   back=c_void_p();view=c_void_p();GetBuffer(self.swap,0,IID_TEXTURE,byref(back));CreateRenderTargetView(self.device,back.value,None,byref(view));self.back=back.value;self.target=view.value;self.arranged=None
   width,height=self.size;texture=c_void_p();shown=c_void_p();drawn=c_void_p()
@@ -261,8 +315,10 @@ class D3D11Presenter:
    # for the whole session. It waits until the window shows, and False tells the caller to keep the frame for later.
    if not showing(self.hwnd):return False
    self.open_swap_chain()
-  elif self.size!=self.wanted:
-   OMSetRenderTargets(self.context,0,None,None);self.release_target();Flush(self.context);ResizeBuffers(self.swap,0,*self.wanted,0,FRAME_LATENCY_WAITABLE);self.size=self.wanted;self.open_target()
+  elif self.size!=self.wanted or self.flight!=in_flight(self.cross,self.extra):
+   flight=in_flight(self.cross,self.extra)
+   OMSetRenderTargets(self.context,0,None,None);self.release_target();Flush(self.context);ResizeBuffers(self.swap,flight+1,*self.wanted,0,FRAME_LATENCY_WAITABLE)
+   SetMaximumFrameLatency(self.swap,flight);self.flight=flight;self.size=self.wanted;self.open_target()
   return True
  def release_surface(self):
   for pointer in self.surface:Release(pointer)
@@ -330,7 +386,7 @@ class D3D11Presenter:
    else:self.attach(device.value)
   elif self.device!=self.own:self.attach(self.own)
   if not self.fit():self.pending=True;return False
-  if self.kernel.WaitForSingleObject(self.waitable,WAIT_MS):self.pending=True;return False
+  if self.kernel.WaitForSingleObject(self.waitable,WAIT_MS):self.pending=True;self.missed();return False
   self.pending=False
   if on_gpu:self.copy_surface(texture,index)
   else:self.upload(frame)
@@ -348,6 +404,13 @@ class D3D11Presenter:
    OMSetRenderTargets(context,1,byref(last),None);RSSetViewports(context,1,byref(self.whole));PSSetShader(context,self.shaders[b'rcas' if self.enlarging else b'sharpen'],None,0);PSSetShaderResources(context,0,1,byref(view));Draw(context,3,0);PSSetShaderResources(context,0,1,byref(empty))
   self.present();return True
  def present(self):Present(self.swap,1,0)
+ def missed(self,now=None):
+  """A swap chain that was not ready in time. Several close together mean this PC needs another frame in flight, whatever the cause:
+  a copy between two cards, a slow driver, something drawn over the window. Each costs at most a refresh of delay, and stays for the session.
+  Fresh misses are needed before the next step."""
+  now=time.perf_counter() if now is None else now;self.timeouts+=1;self.misses.append(now)
+  while self.misses and now-self.misses[0]>MISS_WINDOW:self.misses.popleft()
+  if len(self.misses)>=MISS_LIMIT and in_flight(self.cross,self.extra)<MOST_IN_FLIGHT:self.extra+=1;self.misses.clear()
  def attempt(self,frame):
   try:
    shown=self.show(frame);self.failures=0;return shown

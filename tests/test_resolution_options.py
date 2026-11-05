@@ -43,7 +43,7 @@ def noisy_packets(count=60):
 
 def release_busy_decoder():
  """Runs in a child process: a decoder that deadlocks on release would also hang the test runner."""
- core.gpu_decoder=lambda codec=0,on_gpu=False:None
+ core.gpu_decoder=lambda codec=0,on_gpu=False,adapter=None:None
  p=core.Player(argparse.Namespace(renderer='gdi',profile='uhd_balanced',auto_reconnect=False,device=None,connect_only=True,host='127.0.0.1',record=False,preview=False,headless=True,seconds=0))
  p.capture_info={'resolution':6};done=threading.Event();items=[(data,n*1500,n*1500,0) for n,data in enumerate(noisy_packets())]
  class StopAfterLast:

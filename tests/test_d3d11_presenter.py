@@ -42,6 +42,9 @@ class SumsTests(unittest.TestCase):
   self.assertEqual(d.luma_filter(2),d.BOX);self.assertEqual(d.luma_filter(3.5),d.BOX);self.assertEqual(d.luma_filter(1.5),d.CUBIC);self.assertEqual(d.luma_filter(1),d.CUBIC)
  def test_fsr_only_enlarges(self):
   self.assertTrue(d.enlarged(.5));self.assertTrue(d.enlarged(.75));self.assertFalse(d.enlarged(1));self.assertFalse(d.enlarged(2))
+ def test_a_second_frame_is_queued_only_across_two_cards(self):
+  self.assertEqual((d.in_flight(False),d.in_flight(True)),(1,2))
+  self.assertEqual((d.in_flight(False,1),d.in_flight(True,1),d.in_flight(True,5)),(2,3,d.MOST_IN_FLIGHT))
  def test_the_easu_constants_follow_amds(self):
   # 1080p on a 4K screen: a screen pixel is half a texel, and the gathers sit one, two and four texels from the first.
   c=d.easu_constants(1920,1080,3840,2160);self.assertEqual(c[:4],(.5,.5,-.25,-.25))
@@ -95,7 +98,7 @@ class ChoiceTests(unittest.TestCase):
   self.assertEqual(player('gdi').renderer,'gdi');self.assertEqual(player('d3d11',direct_video=False).renderer,'d3d11')
  def test_only_the_gpu_output_keeps_pictures_on_the_gpu(self):
   asked=[]
-  def decoder(codec,on_gpu):asked.append(on_gpu);return 'gpu'
+  def decoder(codec,on_gpu,adapter=None):asked.append(on_gpu);return 'gpu'
   with patch.object(core,'gpu_decoder',decoder):
    gpu=player('d3d11');gpu.capture_info={'resolution':4};self.assertEqual(gpu.video_decoder(),'gpu');self.assertTrue(gpu.decoder_on_gpu)
    memory=player('gdi');memory.capture_info={'resolution':6};self.assertEqual(memory.video_decoder(),'gpu');self.assertFalse(memory.decoder_on_gpu)
@@ -227,6 +230,59 @@ class DrawingTests(unittest.TestCase):
     time.sleep(.02)
    self.assertIsNotNone(output.swap);self.assertIsNone(output.failed)
   finally:output.detach();hidden.destroy();self.root.update()
+ def flat_frame(self):
+  frame=av.VideoFrame(640,360,'yuv420p')
+  for plane,value in zip(frame.planes,(Y,U,V)):plane.update(bytes([value])*plane.buffer_size)
+  return frame
+ def in_flight_and_buffers(self,output):
+  latency=ctypes.c_uint();d.GetMaximumFrameLatency(output.swap,byref(latency))
+  desc=d.SwapChainDesc1();d.com(18,ctypes.HRESULT,d.ANY)(output.swap,byref(desc))  # IDXGISwapChain1::GetDesc1
+  return latency.value,desc.BufferCount
+ def test_the_card_that_shows_this_screen_keeps_one_frame_in_flight(self):
+  self.drawn(self.flat_frame());self.assertFalse(self.output.cross);self.assertEqual(self.in_flight_and_buffers(self.output),(1,2))
+ def test_drawing_on_a_card_other_than_the_screen_s_queues_a_second_frame(self):
+  # As on a laptop where the NVIDIA card draws and the processor's graphics shows the screen.
+  other=tk.Frame(self.root,bg='',width=320,height=200);other.place(x=0,y=0,width=320,height=200);self.root.update();output=d.D3D11Presenter(other)
+  try:
+   output.wanted=(320,200)
+   with patch.object(d,'drives',return_value=False):
+    for _ in range(5):
+     if output.draw(self.flat_frame()):break
+     time.sleep(.02)
+   self.assertTrue(output.cross);self.assertEqual(self.in_flight_and_buffers(output),(2,3));self.assertIsNone(output.failed)
+  finally:output.detach();other.destroy();self.root.update()
+ def test_this_screen_is_driven_by_the_card_that_draws_here(self):
+  dxgi=c_void_p();adapter=c_void_p();self.drawn(self.flat_frame())
+  d.QueryInterface(self.output.device,d.IID_DXGI_DEVICE,byref(dxgi));d.GetAdapter(dxgi.value,byref(adapter))
+  try:
+   self.assertTrue(d.drives(adapter.value,d.window_monitor(self.output.hwnd)));self.assertFalse(d.drives(adapter.value,0x7ead))
+  finally:d.Release(adapter.value);d.Release(dxgi.value)
+ def test_a_swap_chain_that_is_not_ready_in_time_is_counted(self):
+  self.drawn(self.flat_frame());before=self.output.timeouts;kernel=self.output.kernel
+  self.output.kernel=SimpleNamespace(WaitForSingleObject=lambda handle,ms:258)  # WAIT_TIMEOUT
+  try:self.assertFalse(self.output.draw(self.flat_frame()));self.assertTrue(self.output.pending)
+  finally:self.output.kernel=kernel
+  self.assertEqual(self.output.timeouts,before+1)
+ def test_misses_close_together_give_a_second_frame_in_flight_and_a_third_buffer(self):
+  other=tk.Frame(self.root,bg='',width=320,height=200);other.place(x=0,y=0,width=320,height=200);self.root.update();output=d.D3D11Presenter(other)
+  try:
+   output.wanted=(320,200);self.assertTrue(any(output.draw(self.flat_frame()) or time.sleep(.02) for _ in range(5)));self.assertEqual(self.in_flight_and_buffers(output),(1,2))
+   for at in range(d.MISS_LIMIT):output.missed(100+at*.5)
+   self.assertEqual(output.extra,1);self.assertTrue(any(output.draw(self.flat_frame()) or time.sleep(.02) for _ in range(5)))
+   self.assertEqual(self.in_flight_and_buffers(output),(2,3));self.assertIsNone(output.failed)
+  finally:output.detach();other.destroy();self.root.update()
+ def test_misses_spread_out_change_nothing(self):
+  output=d.D3D11Presenter.__new__(d.D3D11Presenter);output.timeouts=0;output.cross=False;output.extra=0;output.misses=collections.deque()
+  for at in range(20):output.missed(at*2.0)
+  self.assertEqual((output.extra,output.timeouts),(0,20))
+  for at in range(d.MISS_LIMIT-1):output.missed(100+at*.1)
+  self.assertEqual(output.extra,0)
+ def test_each_step_needs_fresh_misses_and_the_steps_stop_at_three(self):
+  output=d.D3D11Presenter.__new__(d.D3D11Presenter);output.timeouts=0;output.cross=True;output.extra=0;output.misses=collections.deque()
+  for at in range(d.MISS_LIMIT):output.missed(10+at*.1)
+  self.assertEqual(d.in_flight(output.cross,output.extra),3);output.missed(11)
+  for at in range(30):output.missed(12+at*.1)
+  self.assertEqual(d.in_flight(output.cross,output.extra),d.MOST_IN_FLIGHT)
  def test_a_screenshot_reads_the_same_picture_back(self):
   frame=self.gpu_frames()[-1];picture=d.to_system(frame);self.assertEqual((picture.format.name,picture.width,picture.height),('nv12',640,360))
   rows=np.frombuffer(picture.planes[0],np.uint8).reshape(-1,picture.planes[0].line_size);self.assertAlmostEqual(int(rows[180,320]),Y,delta=2)

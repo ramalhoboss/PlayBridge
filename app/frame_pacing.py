@@ -2,12 +2,16 @@
 import collections,ctypes,math,threading,time
 
 CAPTURE_FRAME=1001/60000
+# Gaps in a row that disagree with the refresh length before it is learnt again: one screen rate gave way to another.
+RELEARN=20
 
 class FramePacer:
  """Prepared frames wait here for their turn on a playback clock. The clock moves by whole refreshes rather than wall time, so a frame's turn cannot flip between two refreshes."""
  def __init__(self,stats,lead=1.5,max_lead=3,capacity=6,window=3,spare=.25):
   # In frames, except the window in seconds. A half-frame lead keeps each frame's turn away from a refresh boundary, and steps of a whole frame keep it there.
-  self.stats=stats;self.lead=lead*CAPTURE_FRAME;self.max_lead=max_lead*CAPTURE_FRAME;self.capacity=capacity;self.window=window;self.spare=spare*CAPTURE_FRAME;self.items=collections.deque();self.clear()
+  self.stats=stats;self.lead=lead*CAPTURE_FRAME;self.max_lead=max_lead*CAPTURE_FRAME;self.capacity=capacity;self.window=window;self.spare=spare*CAPTURE_FRAME;self.items=collections.deque()
+  # Refreshes where the next frame was due and not there, for the stats.
+  self.missing=0;self.clear()
  def clear(self):
   self.items.clear();self.clock=None;self.newest=None;self.shown=None;self.spacing=CAPTURE_FRAME;self.fastest=self.recent=math.inf;self.lowest=math.inf;self.elapsed=0
  def add(self,pts,item,now):
@@ -26,7 +30,10 @@ class FramePacer:
    if item is not None:self.stats['prepared_replaced']+=1
    self.shown,item=self.items.popleft()
   self.lowest=min(self.lowest,self.newest-self.clock);self.elapsed+=seconds
-  if item is None and self.shown is not None and self.clock>=self.shown+self.spacing and now-self.clock-self.fastest<self.max_lead:
+  late=item is None and self.shown is not None and self.clock>=self.shown+self.spacing
+  # The next frame is due and not there: the network or the decoder held it up.
+  if late:self.missing+=1
+  if late and now-self.clock-self.fastest<self.max_lead:
    # The next frame is late. Waiting for it leaves a larger margin for the ones after it.
    self.clock-=seconds;self.stats['video_late_waits']+=1
   if self.elapsed>=self.window:
@@ -35,10 +42,31 @@ class FramePacer:
    self.fastest=self.recent;self.recent=math.inf;self.lowest=math.inf;self.elapsed=0
   return item
 
+class HitchWatch:
+ """Names why a frame stayed up longer than the stream asked for, so a stutter on a PC nobody here can see still has a cause in the stats.
+ On a 144 Hz screen a frame that stays up 20.8 ms instead of 16.7 is that screen's judder: a hitch is a whole refresh more than that."""
+ CAUSES=('present','stream','busy')
+ def __init__(self,keep=30):
+  self.counts={cause:0 for cause in (*self.CAUSES,'other')};self.log=collections.deque(maxlen=keep);self.seen=set();self.last=None
+ def refresh(self,steps,missing,slow_paint):
+  """Once a refresh: how many refreshes passed since the last call, whether the next frame was due and not there, and whether
+  the last paint took longer than a refresh, as when the swap chain kept it waiting."""
+  if steps>=2:self.seen.add('present' if slow_paint else 'busy')
+  if missing:self.seen.add('stream')
+ def unpresented(self):self.seen.add('present')
+ def shown(self,done,period,at):
+  """A frame reached the screen. Returns the cause when the one before it stayed up a refresh too long."""
+  last,self.last=self.last,done;seen,self.seen=self.seen,set()
+  if last is None or done-last>=.25:return None
+  gap=done-last
+  if gap<CAPTURE_FRAME+.9*period:return None
+  cause=next((name for name in self.CAUSES if name in seen),'other')
+  self.counts[cause]+=1;self.log.append((round(at,1),round(gap*1000,1),cause));return cause
+
 class RefreshClock:
  """Counts monitor refreshes on its own thread, because waiting for one would block the Tk loop."""
  def __init__(self,stop,flush=None):
-  self.stop=stop;self.count=0;self.seen=0;self.samples=0;self.period=1/60;self.synced=False;self.read_at=time.perf_counter();self.flush=flush;self.after=None
+  self.stop=stop;self.count=0;self.seen=0;self.samples=0;self.odd=0;self.period=1/60;self.synced=False;self.read_at=time.perf_counter();self.flush=flush;self.after=None
   if flush is None:
    try:self.flush=ctypes.windll.dwmapi.DwmFlush
    except (AttributeError,OSError):pass
@@ -49,11 +77,18 @@ class RefreshClock:
    failed=self.flush();now=time.perf_counter();gap=now-last;last=now
    # Without composition, as on a locked session, the call returns at once.
    if failed or gap<.002:self.synced=False;partial=True;self.stop.wait(.005);last=time.perf_counter()
-   else:
-    # The first gap after a start or a pause is part of a refresh. Later only a gap of about one refresh measures its length: a missed refresh would stretch it for seconds, and the clock would run fast and skip frames.
-    if not partial and (self.samples<10 or abs(gap-self.period)<self.period/4):self.samples=min(self.samples+1,50);self.period+=(gap-self.period)/self.samples
-    partial=False;self.count+=max(1,round(gap/self.period));self.synced=True
+   else:self.measure(gap,partial);partial=False
    if self.after:self.after()
+ def measure(self,gap,partial=False):
+  """Counts the refreshes in one gap. The first gap after a start or a pause is part of a refresh. Later only a gap of about one refresh
+  measures its length: a missed refresh would stretch it for seconds, and the clock would run fast and skip frames. A long run of gaps
+  that all disagree means the screen now runs at another rate, as when PlayBridge or Windows switches it, so the length is learnt again."""
+  if not partial:
+   if self.samples<10 or abs(gap-self.period)<self.period/4:self.samples=min(self.samples+1,50);self.period+=(gap-self.period)/self.samples;self.odd=0
+   else:
+    self.odd+=1
+    if self.odd>=RELEARN:self.samples=0;self.odd=0
+  self.count+=max(1,round(gap/self.period));self.synced=True
  def elapsed(self,now):
   """The time to move the playback clock: whole refreshes when they can be counted, otherwise wall time."""
   if self.synced:

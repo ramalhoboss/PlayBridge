@@ -2,6 +2,7 @@
 import ctypes,threading
 import numpy as np
 import sounddevice as sd
+from audio_output import output_settings
 from luxury_theme import skin_path
 
 RATE=48000;BLOCK=1024;FADE_IN=1.4;FADE_OUT=.7;VOICES=4;GAME_LEVEL=.075;GAME_PEAK=.8;KEPT_TRACKS=4
@@ -141,7 +142,7 @@ class SoundBoard:
   if track is not self.track:self.swap=track
  def open(self):
   try:
-   self.stream=sd.OutputStream(device=self.device(),samplerate=RATE,channels=2,dtype='float32',blocksize=BLOCK,latency='low',callback=self.callback);self.stream.start()
+   device=self.device();self.stream=sd.OutputStream(device=device,samplerate=RATE,channels=2,dtype='float32',blocksize=BLOCK,latency='low',extra_settings=output_settings(device),callback=self.callback);self.stream.start()
   except Exception:self.stream=None;self.broken=True
  def shut(self):
   stream,self.stream=self.stream,None

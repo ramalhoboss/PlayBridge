@@ -23,13 +23,13 @@ class StreamMetrics:
 
 # Explicit allowlists: no host address, device names (the graphics card's model aside), paths, frame/audio data,
 # exception messages, environment, credentials, or arbitrary acknowledgement keys.
-SAFE_STATS=('audio_queue_ms','presented_fps','video_decoded','video_presented','video_replaced','video_packets_dropped','prepared_replaced','video_late_waits','audio_empty_callbacks','device_underflows','audio_trim_samples','reconnection_attempts','transport_delay_growth_ms','latency_scope','observed_seconds','video_decoder','graphics_card','graphics_vendor','gpu_decodes_up_to')
+SAFE_STATS=('audio_queue_ms','presented_fps','video_decoded','video_presented','video_replaced','video_packets_dropped','prepared_replaced','video_late_waits','audio_empty_callbacks','device_underflows','audio_trim_samples','reconnection_attempts','transport_delay_growth_ms','latency_scope','observed_seconds','video_decoder','graphics_card','graphics_vendor','gpu_decodes_up_to','refresh_hz','present_timeouts','cross_card','frames_in_flight','screen_rate','on_battery','screen_rate_check','hidden_frames','hitches','stream_gaps','network_link')
 SAFE_STREAM=('decoded_width','decoded_height','pixel_format','received_mbps','video_packets_per_second','rate_window_seconds')
 SAFE_CAPTURE=('protocol','confirmed','fps_target','bitrate_target','resource_profile','resolution','resolution_requested','output_mode','refused_by')
 def diagnostic_report(snapshot):
  report={'schema':1,'created_utc':datetime.now(timezone.utc).isoformat(),'stats':{k:snapshot[k] for k in SAFE_STATS if k in snapshot},'stream':{k:snapshot.get('stream',{}).get(k) for k in SAFE_STREAM},'capture':{k:snapshot.get('capture_info',{}).get(k) for k in SAFE_CAPTURE} if isinstance(snapshot.get('capture_info'),dict) else {},'timings_ms':{}}
  for name,values in snapshot.get('timings_ms',{}).items():
-  if name in ('packet_body_read_ms','video_decode_ms','decoded_slot_wait_ms','video_convert_ms','prepared_slot_wait_ms','presenter_upload_ms','receive_to_present_ms'):
+  if name in ('packet_body_read_ms','video_decode_ms','decoded_slot_wait_ms','video_convert_ms','prepared_slot_wait_ms','presenter_upload_ms','receive_to_present_ms','shown_gap_ms'):
    report['timings_ms'][name]={k:values[k] for k in ('samples','mean','p50','p95','max') if k in values}
  return report
 def export_diagnostics(path,snapshot):
