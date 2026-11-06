@@ -1,6 +1,6 @@
 <p align="center"><img src="docs/images/banner.png" alt="PlayBridge: your PS5 games, video and audio on your Windows PC" width="100%"></p>
 <p align="center">
-  <a href="https://github.com/ramalhoboss/PlayBridge/releases/latest"><img alt="Download v1.5.1" src="docs/images/badge-download.png" height="36"></a>
+  <a href="https://github.com/ramalhoboss/PlayBridge/releases/latest"><img alt="Download v1.5.2" src="docs/images/badge-download.png" height="36"></a>
   <img alt="Windows x64" src="docs/images/badge-windows.png" height="36">
   <img alt="PS5 firmware 13.60" src="docs/images/badge-ps5.png" height="36">
   <img alt="Up to 4K60" src="docs/images/badge-4k.png" height="36">
@@ -21,6 +21,13 @@ No HDMI capture card. No official Remote Play client or PSN Remote Play pairing.
 
 > Screenshots show the real application. The Games page above shows a real PS5 library: covers and music come from your own console when you connect, and none are included in the download. The game pictures further down are PS5 captures saved with PlayBridge; the one on the Live page was played back to the app on the PC to take the screenshot. PlayBridge is in English; the console's own language remains whatever you selected on the PS5.
 
+## New in v1.5.2
+
+- **Variable refresh rate:** on a screen with G-Sync, FreeSync or Adaptive-Sync, as on many gaming laptops, each frame is shown the moment it is due, so 60 fps plays evenly at 144 Hz without switching the screen to 60 Hz. Turn on **Settings → Picture → Variable refresh rate**, shown where the graphics driver supports it, restart PlayBridge and play in full screen (**F11**). It is off by default, because a screen without variable refresh can show tearing.
+- **Your voice in captures:** **Settings → Captures → Microphone** mixes your microphone with the game's sound in recordings, instant replays and Go live, with its own volume. **F7** turns it on and off, and the status line shows MIC. You do not hear yourself in PlayBridge.
+
+The payload is unchanged from v1.5.0.
+
 ## New in v1.5.1
 
 - **Sound on every PC:** PlayBridge opens even when the PC's sound output mixes at a rate other than the PS5's 48 kHz, which stopped v1.5.0 from opening on some PCs. When no output opens, the picture still streams and the status line says why.
@@ -29,21 +36,7 @@ No HDMI capture card. No official Remote Play client or PSN Remote Play pairing.
 - **The screen stays on** while a session runs, so Windows no longer turns it off while you play with the controller.
 - **Clearer stutter reports:** the stats and exported diagnostics say why a frame was late and whether the PS5 is reached over Wi-Fi or a cable.
 
-The payload is unchanged from v1.5.0.
-
-## New in v1.5.0
-
-- **Closing a game no longer ends the stream:** when you close a game from the PS5 menu, the console stops every capture while its close screen is up. The payload now waits for the console and opens the capture again, as the PS5's own Remote Play does, so the session carries on after a pause of about a second. It held through every game close tried on the owner's PS5, at 4K and at 1080p.
-- **Faster first connect:** a connection that reached the PS5 before the payload was ready could leave PlayBridge waiting for about half a minute. The payload now keeps listening, and PlayBridge keeps trying for 10 seconds. On the owner's PS5 it connected in about a second.
-- **Captures from your PS5:** **Media → From your PS5** lists the screenshots and clips the console saved, and copies the new ones, or the ones you select, to your PC.
-- **Go live:** **Settings → Streaming** sends the console's own video and sound to Twitch, YouTube, any RTMP server or OBS on this PC, without encoding them again (**Ctrl+B**). The stream key is kept encrypted for your Windows user and never appears in messages, logs or diagnostics.
-- **Send a payload:** **Settings → Console** sends any ELF you choose to the loader your exploit opened on port 9021, after asking, and keeps your five most recent.
-- **Small window:** **Ctrl+M**, or the button below the picture, keeps the game in a small window above your other windows.
-- **New Settings and Media:** frosted panels over PlayBridge's own blue and violet picture, in columns that use the width of the window, with larger text. Settings, Media and the Live waiting screen share that one picture.
-- **Graphics card check:** **Settings → Picture** names the card that decodes the stream and the largest profile it can decode.
-- **Fixes:** on the Games page, every tile in view is drawn before the large game pictures, so tiles no longer stay blank while the row moves. The GPU video output no longer starts black or enlarged, which happened in about one start in four.
-
-The payload changed: automatic mode sends the new one, and manual users should load the v1.5.0 ELF. Earlier versions are described in the [changelog](CHANGELOG.md).
+The payload is unchanged from v1.5.0. Earlier versions are described in the [changelog](CHANGELOG.md).
 
 ## Download
 
@@ -51,14 +44,14 @@ The payload changed: automatic mode sends the new one, and manual users should l
 
 | File | What it contains |
 |---|---|
-| [PlayBridge.exe](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.1/PlayBridge.exe) | Portable Windows application, including Python dependencies and the embedded ELF. |
-| [PlayBridge.elf](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.1/PlayBridge.elf) | Standalone PS5 payload for manual loading. |
-| [PlayBridge-Windows-v1.5.1.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.1/PlayBridge-Windows-v1.5.1.zip) | Windows EXE and quick-start instructions. |
-| [PlayBridge-Payload-v1.5.1.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.1/PlayBridge-Payload-v1.5.1.zip) | ELF and manual-mode instructions. |
-| [PlayBridge-Complete-v1.5.1.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.1/PlayBridge-Complete-v1.5.1.zip) | Both files, quick-start instructions and component notices. |
-| [Third-party-licenses.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.1/Third-party-licenses.zip) | Component notices for standalone downloads. |
-| [PlayBridge-Source-v1.5.1.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.1/PlayBridge-Source-v1.5.1.zip) | Application and payload source, assets, tests and build instructions. |
-| [SHA256SUMS.txt](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.1/SHA256SUMS.txt) | Checksums for the release downloads. |
+| [PlayBridge.exe](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.2/PlayBridge.exe) | Portable Windows application, including Python dependencies and the embedded ELF. |
+| [PlayBridge.elf](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.2/PlayBridge.elf) | Standalone PS5 payload for manual loading. |
+| [PlayBridge-Windows-v1.5.2.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.2/PlayBridge-Windows-v1.5.2.zip) | Windows EXE and quick-start instructions. |
+| [PlayBridge-Payload-v1.5.2.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.2/PlayBridge-Payload-v1.5.2.zip) | ELF and manual-mode instructions. |
+| [PlayBridge-Complete-v1.5.2.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.2/PlayBridge-Complete-v1.5.2.zip) | Both files, quick-start instructions and component notices. |
+| [Third-party-licenses.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.2/Third-party-licenses.zip) | Component notices for standalone downloads. |
+| [PlayBridge-Source-v1.5.2.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.2/PlayBridge-Source-v1.5.2.zip) | Application and payload source, assets, tests and build instructions. |
+| [SHA256SUMS.txt](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.2/SHA256SUMS.txt) | Checksums for the release downloads. |
 
 Download the release assets above to run the application. To inspect or build it, browse [app/](app/), [payload/](payload/) and [tools/](tools/), or download the source archive. GitHub's source archives contain source files, not the Windows EXE.
 
@@ -146,6 +139,7 @@ A 1080p PC monitor shows a 4K stream scaled down to its own pixels. Screenshots 
 | Camera icon / **F8** | Save a PNG at the stream's full size. Window bars and controls are not included. |
 | Record icon / **F9** | Start or stop an MP4 with console audio, without re-encoding. |
 | Replay icon / **F10** | Save the instant replay as an MP4. |
+| **F7** | Turn your microphone on or off in recordings, instant replays and Go live (**Settings → Captures → Microphone**). |
 | Folder icon / **Media** / **Ctrl+L** | Open your captures. |
 | Small window icon / **Ctrl+M** | Keep the game in a small window above your other windows. Press again to return. |
 | Go live icon / **Ctrl+B** | Start or end a broadcast with the settings in **Settings → Streaming**. |
@@ -213,7 +207,7 @@ The standalone ELF waits for one viewer per execution. After ending a manual ses
 | Console status | The game in front, CPU and SoC temperature, and whether a console found on the network is resting. |
 | Power | Rest mode, soft reset (close and relaunch the game), and reboot and turn off (not yet tested on a console). Each asks first. |
 | Graphics card | Settings names the card that decodes the stream and asks it which stream sizes it can decode. |
-| Presentation | **Direct3D 11** by default: the GPU decodes the video, converts its colour, scales it and presents it, with optional sharpening and optional AMD FSR 1 upscaling when the screen is larger than the stream. Windows **GDI** remains as the automatic fallback and as a switch in Settings. Both show one frame per monitor refresh from a short queue, and skip frames rather than letting the delay grow. |
+| Presentation | **Direct3D 11** by default: the GPU decodes the video, converts its colour, scales it and presents it, with optional sharpening and optional AMD FSR 1 upscaling when the screen is larger than the stream. Windows **GDI** remains as the automatic fallback and as a switch in Settings. Both show one frame per monitor refresh from a short queue, and skip frames rather than letting the delay grow. With **Variable refresh rate** on, Direct3D 11 sends each frame at its own time to a G-Sync, FreeSync or Adaptive-Sync screen instead. |
 | Decoding | Separate from the network thread, so a slow decoder drops video until the next keyframe instead of stalling audio or the connection. Software decoding uses frame threads above 1080p. |
 | Audio buffering | Bounded PCM queue; if it exceeds approximately **60 ms**, it is trimmed toward **40 ms**. Above 1080p these limits are **160 ms** and **120 ms**. |
 | Window modes | Resizable window, fullscreen, centered image and preserved aspect ratio. Black bars can appear when the available area is not 16:9. |
@@ -223,6 +217,7 @@ The standalone ELF waits for one viewer per execution. After ending a manual ses
 | Screenshots | Native-source-size PNG with F8; UI controls and window bars are excluded. |
 | Recording | Packet-copy H.264/AAC MP4 with F9, bounded background writing and graceful stop/finalization. |
 | Instant replay | The last 30 s, 60 s or 2 minutes of the stream kept in PC memory (up to 1 GB) and saved as an MP4 with F10, without re-encoding. |
+| Microphone | Optional, off by default: your voice mixed with the console's sound in recordings, instant replays and Go live, with its own volume and F7 to turn it on and off. While it is on, the sound is encoded to AAC again; while it is off, the console's sound is copied untouched. |
 | Media | Photos and MP4 recordings with thumbnails, filters and paging, read in the background. **From your PS5** lists the console's own screenshots and clips and copies them to the PC. |
 | Go live | The console's H.264 and AAC copied, without encoding again, to Twitch, YouTube (RTMPS), any RTMP server, or OBS over UDP on this PC. The stream key is kept encrypted with Windows DPAPI. |
 | Game close | When the console stops the capture, for example while a game closes from its menu, the payload waits for it and opens the capture again, so the session continues after a short pause. |
@@ -330,7 +325,8 @@ These are **PC pipeline measurements**, not total HDMI-to-PC latency, controller
 - **One game at a time.** This is how the PS5 works: launching another game closes the one that is open.
 - **Closing a game pauses the picture** for about a second while the console's close screen is up.
 - **Go live has not yet been run on a real Twitch or YouTube broadcast.** A local listener on the PC saw it begin the RTMP and RTMPS connections.
-- **GPU output tested on one PC.** It needs Direct3D 11 video decoding; other GPUs and monitors above 60 Hz have not been tried. If it fails, PlayBridge falls back to GDI, and **Settings → Picture → GPU video output** turns it off.
+- **GPU output tested on two PCs:** a desktop with an AMD card and a 60 Hz monitor, and a laptop with an NVIDIA card and a 144 Hz screen. It needs Direct3D 11 video decoding. If it fails, PlayBridge falls back to GDI, and **Settings → Picture → GPU video output** turns it off.
+- **Variable refresh rate and the microphone are new.** Variable refresh was tried on one gaming laptop with a 144 Hz screen, and the microphone on that laptop's built-in microphone. A quiet microphone stays quiet in the mix: raise its level, or its boost, in Windows' sound settings.
 - **One viewer per payload execution.** Only one PlayBridge/legacy receiver session should run on the PC at once.
 - **Trusted local network.** No encrypted Internet relay, remote account service or authenticated stream transport is provided.
 - Automatic reconnect retries connection loss with 2/4/8-second backoff. It does not wake the PS5; recovery still requires the console and ELF loader to be available. Every rest-mode/HDMI scenario has not been validated.
@@ -370,6 +366,7 @@ Preferences, the game library and local diagnostic files are stored in <code>%LO
 
 ## Release history
 
+- **v1.5.2:** variable refresh rate for G-Sync, FreeSync and Adaptive-Sync screens, and your microphone in recordings, instant replays and Go live.
 - **v1.5.1:** sound on PCs whose output mixes at another rate, the NVIDIA or AMD card on laptops with two graphics cards, 144 and 165 Hz screens switched to a steady rate while a game streams, the screen kept on during a session, and clearer stutter reports.
 - **v1.5.0:** closing a game no longer ends the stream, a faster first connect, captures from the PS5, Go live, Send a payload, a small window, new Settings and Media pages, a graphics card check, and fixes for blank tiles and a black or enlarged GPU picture at start.
 - **v1.4.2:** optional AMD FSR 1 upscaling on the GPU video output, for screens larger than the stream.
