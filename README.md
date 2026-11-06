@@ -1,6 +1,6 @@
 <p align="center"><img src="docs/images/banner.png" alt="PlayBridge: your PS5 games, video and audio on your Windows PC" width="100%"></p>
 <p align="center">
-  <a href="https://github.com/ramalhoboss/PlayBridge/releases/latest"><img alt="Download v1.5.0" src="docs/images/badge-download.png" height="36"></a>
+  <a href="https://github.com/ramalhoboss/PlayBridge/releases/latest"><img alt="Download v1.5.1" src="docs/images/badge-download.png" height="36"></a>
   <img alt="Windows x64" src="docs/images/badge-windows.png" height="36">
   <img alt="PS5 firmware 13.60" src="docs/images/badge-ps5.png" height="36">
   <img alt="Up to 4K60" src="docs/images/badge-4k.png" height="36">
@@ -21,6 +21,16 @@ No HDMI capture card. No official Remote Play client or PSN Remote Play pairing.
 
 > Screenshots show the real application. The Games page above shows a real PS5 library: covers and music come from your own console when you connect, and none are included in the download. The game pictures further down are PS5 captures saved with PlayBridge; the one on the Live page was played back to the app on the PC to take the screenshot. PlayBridge is in English; the console's own language remains whatever you selected on the PS5.
 
+## New in v1.5.1
+
+- **Sound on every PC:** PlayBridge opens even when the PC's sound output mixes at a rate other than the PS5's 48 kHz, which stopped v1.5.0 from opening on some PCs. When no output opens, the picture still streams and the status line says why.
+- **Laptops with two graphics cards:** the NVIDIA or AMD card decodes and draws the video instead of the processor's graphics. **Settings → Picture → Graphics card** chooses another one.
+- **144 and 165 Hz screens:** while a game fills the window, the screen switches to 120 or 60 Hz, where every frame shows for the same time, and back afterwards. **Settings → Picture → Match the screen to the stream** turns it off.
+- **The screen stays on** while a session runs, so Windows no longer turns it off while you play with the controller.
+- **Clearer stutter reports:** the stats and exported diagnostics say why a frame was late and whether the PS5 is reached over Wi-Fi or a cable.
+
+The payload is unchanged from v1.5.0.
+
 ## New in v1.5.0
 
 - **Closing a game no longer ends the stream:** when you close a game from the PS5 menu, the console stops every capture while its close screen is up. The payload now waits for the console and opens the capture again, as the PS5's own Remote Play does, so the session carries on after a pause of about a second. It held through every game close tried on the owner's PS5, at 4K and at 1080p.
@@ -35,25 +45,20 @@ No HDMI capture card. No official Remote Play client or PSN Remote Play pairing.
 
 The payload changed: automatic mode sends the new one, and manual users should load the v1.5.0 ELF. Earlier versions are described in the [changelog](CHANGELOG.md).
 
-## New in v1.4.2
-
-- **FSR 1 upscaling:** a new switch in **Settings → Picture**, off by default. When your screen is larger than the stream, such as a 1080p stream on a 1440p or 4K monitor, AMD FidelityFX Super Resolution 1 enlarges the picture along its edges, and **Sharpen picture** uses FSR's own sharpening. It works with the GPU video output on any graphics card.
-- Includes the v1.4.1 fix: the IP address you type in Settings is the one PlayBridge uses.
-
 ## Download
 
 **[Get the latest release](https://github.com/ramalhoboss/PlayBridge/releases/latest)**
 
 | File | What it contains |
 |---|---|
-| [PlayBridge.exe](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.0/PlayBridge.exe) | Portable Windows application, including Python dependencies and the embedded ELF. |
-| [PlayBridge.elf](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.0/PlayBridge.elf) | Standalone PS5 payload for manual loading. |
-| [PlayBridge-Windows-v1.5.0.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.0/PlayBridge-Windows-v1.5.0.zip) | Windows EXE and quick-start instructions. |
-| [PlayBridge-Payload-v1.5.0.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.0/PlayBridge-Payload-v1.5.0.zip) | ELF and manual-mode instructions. |
-| [PlayBridge-Complete-v1.5.0.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.0/PlayBridge-Complete-v1.5.0.zip) | Both files, quick-start instructions and component notices. |
-| [Third-party-licenses.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.0/Third-party-licenses.zip) | Component notices for standalone downloads. |
-| [PlayBridge-Source-v1.5.0.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.0/PlayBridge-Source-v1.5.0.zip) | Application and payload source, assets, tests and build instructions. |
-| [SHA256SUMS.txt](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.0/SHA256SUMS.txt) | Checksums for the release downloads. |
+| [PlayBridge.exe](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.1/PlayBridge.exe) | Portable Windows application, including Python dependencies and the embedded ELF. |
+| [PlayBridge.elf](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.1/PlayBridge.elf) | Standalone PS5 payload for manual loading. |
+| [PlayBridge-Windows-v1.5.1.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.1/PlayBridge-Windows-v1.5.1.zip) | Windows EXE and quick-start instructions. |
+| [PlayBridge-Payload-v1.5.1.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.1/PlayBridge-Payload-v1.5.1.zip) | ELF and manual-mode instructions. |
+| [PlayBridge-Complete-v1.5.1.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.1/PlayBridge-Complete-v1.5.1.zip) | Both files, quick-start instructions and component notices. |
+| [Third-party-licenses.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.1/Third-party-licenses.zip) | Component notices for standalone downloads. |
+| [PlayBridge-Source-v1.5.1.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.1/PlayBridge-Source-v1.5.1.zip) | Application and payload source, assets, tests and build instructions. |
+| [SHA256SUMS.txt](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.1/SHA256SUMS.txt) | Checksums for the release downloads. |
 
 Download the release assets above to run the application. To inspect or build it, browse [app/](app/), [payload/](payload/) and [tools/](tools/), or download the source archive. GitHub's source archives contain source files, not the Windows EXE.
 
@@ -365,6 +370,7 @@ Preferences, the game library and local diagnostic files are stored in <code>%LO
 
 ## Release history
 
+- **v1.5.1:** sound on PCs whose output mixes at another rate, the NVIDIA or AMD card on laptops with two graphics cards, 144 and 165 Hz screens switched to a steady rate while a game streams, the screen kept on during a session, and clearer stutter reports.
 - **v1.5.0:** closing a game no longer ends the stream, a faster first connect, captures from the PS5, Go live, Send a payload, a small window, new Settings and Media pages, a graphics card check, and fixes for blank tiles and a black or enlarged GPU picture at start.
 - **v1.4.2:** optional AMD FSR 1 upscaling on the GPU video output, for screens larger than the stream.
 - **v1.4.1:** an IP address typed in Settings is always used, and connection errors name the address tried and any PS5 that answered elsewhere.

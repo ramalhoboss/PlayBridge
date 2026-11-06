@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.5.1 — not yet released
+## v1.5.1 — 2026-11-06
 - Sound on every PC. v1.5.0 did not open on a PC whose sound output mixes at another rate than the PS5's 48 kHz, with "Invalid sample rate". WASAPI now converts the rate itself. When the chosen output still refuses, PlayBridge tries the Windows default output through WASAPI, DirectSound and MME, and when none opens it streams the picture without sound and says why in the status line. Each refusal is written to audio-check.txt next to the preferences. An output that will not open is no longer saved as the choice.
 - Laptops with two graphics cards. Windows' default card on such a laptop is the processor's graphics, so the NVIDIA or AMD card stayed idle. PlayBridge now decodes and draws on the card with the most memory of its own, and Settings → Picture → Graphics card, shown only where there is a choice, names another one. The change applies the next time PlayBridge opens.
 - When the card that draws is not the one that drives the screen, as on most gaming laptops, every frame is copied across first. The GPU video output then keeps two frames in flight instead of one. On any PC, five frames in five seconds that the screen was not ready for add one more, up to three, for the rest of the session.
