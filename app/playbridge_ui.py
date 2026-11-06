@@ -10,7 +10,7 @@ from sound_board import SoundBoard
 from console_control import CLOSE, GameFlow, POWER_OFF, REBOOT, REST, console_line, menu_in_front, running_title
 from pad_input import CONSOLE_PAD_READY, PadBridge
 from settings_look import GlassPage
-import graphics_card,payload_sender,live_broadcast
+import graphics_card,payload_sender,live_broadcast,mic_mix
 from hang_watch import HangWatch
 from keep_awake import BatteryHint,KeepAwake,on_battery
 from screen_rate import ScreenRate
@@ -250,6 +250,11 @@ def run_ui(app):
     presenter.fsr=fsr_on.get();core.save_config(fsr=fsr_on.get())
    switch(place,'FSR 1 upscaling',fsr_on,change_fsr)
    note(place,'When the screen is larger than the picture, such as 1080p on a 1440p or 4K monitor, AMD FidelityFX Super Resolution 1 enlarges it, and Sharpen picture uses its sharpening. Works on any graphics card.')
+   from d3d11_presenter import tearing_supported
+   if tearing_supported():
+    vrr_wanted=ctk.BooleanVar(value=core.config().get('vrr',False))
+    switch(place,'Variable refresh rate',vrr_wanted,lambda:core.save_config(vrr=vrr_wanted.get()))
+    note(place,'For screens with G-Sync, FreeSync or Adaptive-Sync: each frame shows the moment it is due, so 60 fps plays evenly on a 144 Hz screen without switching it to 60 Hz. Works best in full screen (F11), and other screens may show tearing. While it is on, PlayBridge leaves the screen rate alone. Applies the next time PlayBridge opens.')
   # Captures.
   place=card(sections['captures'],'Instant replay')
   replay_lengths={'Off':0,'Last 30 seconds':30,'Last 60 seconds':60,'Last 2 minutes':120}
@@ -258,6 +263,19 @@ def run_ui(app):
   current=next((label for label,seconds in replay_lengths.items() if seconds==app.replay.seconds),'Last 60 seconds')
   menu(place,variable=ctk.StringVar(value=current),values=list(replay_lengths),command=change_replay)
   note(place,'F10 saves it to your recordings. It stays in this PC\'s memory, up to 1 GB, and nothing changes on the PS5.')
+  place=card(sections['captures'],'Microphone')
+  switch(place,'Add my voice',mic_on,lambda:set_microphone(mic_on.get()))
+  mics=mic_mix.inputs(sd);default_mic='Windows default microphone'
+  kept_mic=core.config().get('mic_device','')
+  def change_mic(label):
+   core.save_config(mic_device='' if label==default_mic else label)
+   if mic_on.get():set_microphone(True)
+  menu(place,variable=ctk.StringVar(value=kept_mic if kept_mic in [name for _,name in mics] else default_mic),values=[default_mic]+[name for _,name in mics],command=change_mic)
+  caption(place,'Microphone volume').pack(anchor='w',pady=(6,0))
+  def change_mic_level(value):app.mic_mix.level=float(value)
+  mic_level=ctk.CTkSlider(place,from_=0,to=mic_mix.LEVEL_MAX,command=change_mic_level,height=20);mic_level.set(app.mic_mix.level);mic_level.pack(fill='x',pady=(6,8))
+  mic_level.bind('<ButtonRelease-1>',lambda _:core.save_config(mic_level=round(app.mic_mix.level,2)),add='+')
+  note(place,'Your voice goes into recordings, instant replays and Go live, mixed with the game\'s sound. You do not hear it in PlayBridge. F7 turns it on and off. The middle of the slider is your microphone as Windows gives it.')
   place=card(sections['captures'],'Files')
   def choose_capture_folder():
    from tkinter import filedialog
@@ -472,19 +490,35 @@ def run_ui(app):
  message=ctk.CTkLabel(bottom,text='',text_color=MUTED,font=('Segoe UI',10),anchor='w',height=16);message.grid(row=0,column=0,sticky='ew')
  diagnostic=ctk.BooleanVar(value=core.config().get('diagnostic',False))
  match_on=ctk.BooleanVar(value=core.config().get('match_refresh',True))
+ mic_on=ctk.BooleanVar(value=False)
+ def set_microphone(on):
+  """Your voice in recordings, instant replays and Go live. The choice is kept, and a microphone that will not open says why."""
+  if on and not app.microphone.open(core.config().get('mic_device','')):
+   mic_on.set(False);core.save_config(mic_on=False);app.notify('Microphone could not open: '+app.microphone.error);app.notice_until=time.perf_counter()+15;return
+  if not on:app.microphone.close()
+  mic_on.set(on);core.save_config(mic_on=on)
+  app.notify(f'Microphone on: {app.microphone.name}. Your voice goes into recordings, replays and Go live.' if on else 'Microphone off.')
  presenter=None;surface=None;direct=False
  if app.renderer=='d3d11':
   # A window of its own that Tk never paints, because a swap chain and anything drawn on the same window fight over it.
   surface=tk.Frame(stage,bg='',width=1,height=1)
   try:
    from d3d11_presenter import D3D11Presenter
-   presenter=D3D11Presenter(surface,core.config().get('sharpen',False),core.config().get('fsr',False),app.adapter);direct=True
+   presenter=D3D11Presenter(surface,core.config().get('sharpen',False),core.config().get('fsr',False),app.adapter,core.config().get('vrr',False));direct=True
   except Exception:surface.destroy();surface=None;app.use_gdi()
  if app.renderer=='gdi':
   from gdi_presenter import GdiPresenter
   presenter=GdiPresenter(canvas)
- from frame_pacing import HitchWatch,RefreshClock
+ from frame_pacing import CAPTURE_FRAME,FrameTimer,HitchWatch,RefreshClock
  refresh=RefreshClock(app.stop)
+ # Variable refresh, when it is on and the driver offers it: each frame goes to the screen at its own time, from a timer that follows
+ # the stream, and the screen starts its refresh then. Otherwise the paint follows the screen's refreshes as before.
+ vrr_on=direct and presenter.tearing
+ vrr_state='on' if vrr_on else 'unsupported' if core.config().get('vrr',False) else 'off'
+ def next_due():
+  with app.lock:return app.pacer.due()
+ # Never two frames closer than one refresh, and never so far apart that 60 fps could not keep up.
+ clock=FrameTimer(app.stop,next_due,spacing=lambda:min(refresh.period,.75*CAPTURE_FRAME)) if vrr_on else refresh
  seen_presented=0;shown_at=[None];hitches=HitchWatch();paint_took=[0]
  def note_shown(done):
   # The time between two frames on screen: 16.7 ms each on a steady screen, and 13.9 then 20.8 on a 144 Hz one, which is the judder.
@@ -494,22 +528,25 @@ def run_ui(app):
  def paint(output=presenter):
   # On the refresh clock's thread, so nothing in the Tk loop can delay a frame.
   try:
-   now=time.perf_counter();seconds=refresh.elapsed(now)
+   now=time.perf_counter();seconds=clock.elapsed(now)
    with app.lock:missing=app.pacer.missing;item=app.pacer.advance(seconds,now) if seconds else None;missing=app.pacer.missing!=missing
-   hitches.refresh(round(seconds/refresh.period),missing,paint_took[0]>refresh.period)
+   hitches.refresh(round(seconds/clock.period),missing,paint_took[0]>clock.period)
    if item is None:output.refresh();return
    image,arrived,prepared=item;paint_at=time.perf_counter();app.timings.add('prepared_slot_wait_ms',(paint_at-prepared)*1000)
    if output.draw(image):
     done=time.perf_counter();note_shown(done);app.timings.add('presenter_upload_ms',(done-paint_at)*1000);app.timings.add('receive_to_present_ms',(done-arrived)*1000);app.stats['video_presented']+=1;app.stats['last_frame_to_ui_ms']=round((done-arrived)*1000,1)
+    if vrr_on:clock.last=done
    else:hitches.unpresented()
   except Exception as error:output.failed=error
   finally:paint_took[0]=time.perf_counter()-now
  def leave_direct():
   # This PC cannot keep the GPU output going, so the picture carries on through memory.
-  nonlocal presenter,direct
+  nonlocal presenter,direct,vrr_on,vrr_state
   from gdi_presenter import GdiPresenter
-  refresh.after=None;direct=False;surface.grid_remove();presenter=GdiPresenter(canvas);app.use_gdi()
- if direct:refresh.after=paint
+  clock.after=None;direct=False;surface.grid_remove();presenter=GdiPresenter(canvas);app.use_gdi()
+  # The refresh clock was not read while the frame timer ran, so its count starts again here.
+  if vrr_on:vrr_on=False;vrr_state='off';refresh.elapsed(time.perf_counter())
+ if direct:clock.after=paint
  last_tick=time.perf_counter();watch=HangWatch(threading.get_ident(),app.stop);awake=KeepAwake();rate=ScreenRate();battery=BatteryHint();fullscreen=False;mini=None;photo=None;photo_size=None;rate_at=time.perf_counter();rate_frames=0;fps=0;last_info=0;recording_at=None;cursor=CursorHider(win)
  def fit_shell():
   # The library and fullscreen video have the whole window to themselves.
@@ -570,7 +607,7 @@ def run_ui(app):
    fit_shell();place_session()
  win.bind('<Motion>',cursor.moved,add='+')
  page_actions.update(open=start_game,close=close_game,connect=connect_toggle,live=show_stream,media=lambda:show_page('media'),settings=lambda:show_page('settings'),fullscreen=lambda:set_gaming(not gaming_mode),rest=rest_console,off=power_off_console,reboot=reboot_console,soft_reset=soft_reset,recovery=recovery_console,exit=lambda:set_gaming(False))
- def close():awake.want(False);rate.want(False,0);app.stop.set();sounds.close();win.destroy()
+ def close():awake.want(False);rate.want(False,0);app.microphone.close();app.stop.set();sounds.close();win.destroy()
  def escape(_):
   if ConfirmDialog.current is not None:ConfirmDialog.close()
   elif PopMenu.current is not None:PopMenu.close()
@@ -603,7 +640,7 @@ def run_ui(app):
   elif event=='previous':show_page(next_tab(-1))
  def save_replay_key(_):
   app.save_replay();return 'break'
- win.protocol('WM_DELETE_WINDOW',close);win.bind('<Escape>',escape);win.bind('<F11>',lambda _:full());win.bind('<Control-i>',lambda _:toggle_session());win.bind('<Control-l>',lambda _:show_page('media'));win.bind('<Control-comma>',lambda _:show_page('settings'));win.bind('<F8>',lambda _:app.take_screenshot());win.bind('<F9>',lambda _:app.toggle_recording());win.bind('<F10>',save_replay_key);win.bind('<F6>',lambda _:reveal_game() if games_shown else show_games(True));win.bind('<Control-g>',lambda _:set_gaming(not gaming_mode));win.bind('<Control-m>',lambda _:small_window());win.bind('<Control-b>',lambda _:toggle_live());win.bind('<Left>',lambda _:grid_key('left'));win.bind('<Right>',lambda _:grid_key('right'));win.bind('<Up>',lambda _:grid_key('up'));win.bind('<Down>',lambda _:grid_key('down'));win.bind('<Return>',lambda _:grid_key('accept'));win.bind('<Prior>',lambda _:grid_key('previous'));win.bind('<Next>',lambda _:grid_key('next'));canvas.bind('<Double-Button-1>',lambda _:small_window() if mini is not None else full())
+ win.protocol('WM_DELETE_WINDOW',close);win.bind('<Escape>',escape);win.bind('<F11>',lambda _:full());win.bind('<Control-i>',lambda _:toggle_session());win.bind('<Control-l>',lambda _:show_page('media'));win.bind('<Control-comma>',lambda _:show_page('settings'));win.bind('<F8>',lambda _:app.take_screenshot());win.bind('<F9>',lambda _:app.toggle_recording());win.bind('<F10>',save_replay_key);win.bind('<F7>',lambda _:set_microphone(not app.microphone.on));win.bind('<F6>',lambda _:reveal_game() if games_shown else show_games(True));win.bind('<Control-g>',lambda _:set_gaming(not gaming_mode));win.bind('<Control-m>',lambda _:small_window());win.bind('<Control-b>',lambda _:toggle_live());win.bind('<Left>',lambda _:grid_key('left'));win.bind('<Right>',lambda _:grid_key('right'));win.bind('<Up>',lambda _:grid_key('up'));win.bind('<Down>',lambda _:grid_key('down'));win.bind('<Return>',lambda _:grid_key('accept'));win.bind('<Prior>',lambda _:grid_key('previous'));win.bind('<Next>',lambda _:grid_key('next'));canvas.bind('<Double-Button-1>',lambda _:small_window() if mini is not None else full())
  def follow_console(now):
   # Runs once for each status, so the console's menu leaves the screen as soon as the status shows it.
   nonlocal menu_was_in_front,opened_title,opened_at,first_status
@@ -690,7 +727,7 @@ def run_ui(app):
    decoded=app.stats.get('video_decoded',0);decoded_rate=(decoded-decoded_mark)/(now-rate_at);decoded_mark=decoded
    fps=rate_frames/(now-rate_at);app.stats['presented_fps']=round(fps,1);rate_frames=0;rate_at=now
    # What the screen side looked like, to tell a PC that stutters from one that does not.
-   app.stats['refresh_hz']=round(1/refresh.period,1);app.stats['hitches']=dict(hitches.counts);app.stats['hitch_log']=list(hitches.log)
+   app.stats['refresh_hz']=round(1/refresh.period,1);app.stats['vrr']=vrr_state;app.stats['hitches']=dict(hitches.counts);app.stats['hitch_log']=list(hitches.log)
    if direct:app.stats['present_timeouts']=presenter.timeouts;app.stats['cross_card']=presenter.cross;app.stats['frames_in_flight']=presenter.flight
    app.stats['screen_rate']=rate.label();app.stats['screen_rate_check']=rate.note
    # What the app cannot fix itself, it says, once a session and only when frames are really being lost.
@@ -706,7 +743,7 @@ def run_ui(app):
    awake.want(linked and win.state()!='iconic')
    # A screen whose rate does not fit 60 fps gets one that does, but only while the game fills it.
    # From the first time the picture shows until the stream ends, so moving between pages does not make the screen flash each time.
-   switched=rate.want(match_on.get() and linked and win.state()!='iconic' and (page=='live' or rate.changed is not None),win.winfo_id())
+   switched=rate.want(match_on.get() and not vrr_on and linked and win.state()!='iconic' and (page=='live' or rate.changed is not None),win.winfo_id())
    if switched:app.notify(f'Screen set from {switched[0]} to {switched[1]} Hz while the game streams, so every frame shows for the same time.')
    with app.metrics_lock:health=app.metrics.summary()
    if app.recorder.active and app.recorder.state=='recording':
@@ -742,6 +779,7 @@ def run_ui(app):
    if linked and app.decoder_name=='gpu':info+='  ·  GPU decoding'
    elif linked and health['decoded_width'] and (app.capture_info or {}).get('resolution',4)>=5:info+='  ·  Processor decoding'
    if core.PROFILES[app.args.profile].get('playback_fps'):info+='  ·  30 fps PC playback'
+   if app.microphone.on:info+='  ·  MIC'
    if app.recorder.active:info+='  ·  '+(('REC '+str(int(now-recording_at))+' s') if recording_at is not None else 'Recording: '+app.recorder.state)
    if app.broadcast.state=='live':info+='  ·  LIVE '+live_broadcast.clock(app.broadcast.elapsed())+' on '+app.broadcast.name
    elif app.broadcast.active:info+='  ·  Going live…'
@@ -752,4 +790,6 @@ def run_ui(app):
   win.after(8 if direct and page=='live' else 2,tick)
  pad.start()
  win.after(1,lambda:set_gaming(True) if core.config().get('gaming_mode',False) else show_games(True))
+ # A microphone left on stays on, and says so when it opens.
+ if core.config().get('mic_on',False):win.after(800,lambda:set_microphone(True))
  win.after(5,tick);win.mainloop()

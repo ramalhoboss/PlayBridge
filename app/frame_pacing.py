@@ -41,6 +41,58 @@ class FramePacer:
    if self.lowest>=self.spare:self.clock+=CAPTURE_FRAME
    self.fastest=self.recent;self.recent=math.inf;self.lowest=math.inf;self.elapsed=0
   return item
+ def due(self):
+  """Seconds until the next frame's turn on the playback clock, or None when no frame is waiting. For a screen with variable refresh,
+  where each frame is shown at its own time rather than on the next refresh."""
+  if self.clock is None or not self.items:return None
+  return self.items[0][0]-self.clock
+
+def precise_sleep():
+ """A sleep that ends within about half a millisecond, from a high-resolution waitable timer. time.sleep can overshoot by a whole
+ millisecond or more, which a screen that follows each frame would show."""
+ try:
+  kernel=ctypes.WinDLL('kernel32');kernel.CreateWaitableTimerExW.restype=ctypes.c_void_p;kernel.CreateWaitableTimerExW.argtypes=[ctypes.c_void_p,ctypes.c_wchar_p,ctypes.c_uint32,ctypes.c_uint32]
+  kernel.SetWaitableTimer.argtypes=[ctypes.c_void_p,ctypes.POINTER(ctypes.c_longlong),ctypes.c_long,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_int];kernel.WaitForSingleObject.argtypes=[ctypes.c_void_p,ctypes.c_uint32]
+  # CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, with TIMER_ALL_ACCESS.
+  timer=kernel.CreateWaitableTimerExW(None,None,2,0x1F0003)
+  if not timer:return time.sleep
+ except (AttributeError,OSError):return time.sleep
+ def sleep(seconds):
+  due=ctypes.c_longlong(-max(1,int(seconds*1e7)))
+  if kernel.SetWaitableTimer(timer,ctypes.byref(due),0,None,None,0):kernel.WaitForSingleObject(timer,1000)
+  else:time.sleep(seconds)
+ return sleep
+
+class FrameTimer:
+ """For a screen with variable refresh: wakes when the next frame's turn comes instead of on each refresh, so a 59.94 fps stream is shown
+ every 16.7 ms on a 144 Hz screen too, rather than alternating 13.9 and 20.8 ms. Same use as RefreshClock: after() runs on its thread."""
+ # While no frame waits, it looks again this often, so a late frame shows as soon as it is ready.
+ IDLE=.002
+ # It wakes this much after a frame's turn, so the clock is past the frame's timestamp when it looks: waking on it exactly, rounding
+ # could leave the clock a hair short, and the pacer would take the frame for late and hold its clock back.
+ SLACK=.0002
+ def __init__(self,stop,due,period=CAPTURE_FRAME,sleep=None,start=True,spacing=None):
+  # spacing: the shortest time between two frames, as the screen's own refresh. After the network held frames up they come close
+  # together, and one sent while the screen still draws the last would tear. last: when the last frame was shown.
+  self.stop=stop;self.due=due;self.period=period;self.spacing=spacing or (lambda:0.0);self.last=None;self.synced=False;self.read_at=time.perf_counter();self.after=None
+  self.sleep=sleep or precise_sleep()
+  if start:threading.Thread(target=self.run,name='PlayBridge frame timer',daemon=True).start()
+ def wait(self):
+  """How long to sleep before the next look: until the next frame's turn, never longer than a frame."""
+  try:left=self.due()
+  except Exception:left=None
+  if left is None:return self.IDLE
+  if self.last is not None:left=max(left,self.last+self.spacing()-time.perf_counter())
+  if left<=0:return 0.0
+  return min(left+self.SLACK,self.period)
+ def run(self):
+  while not self.stop.is_set():
+   left=self.wait()
+   if left>0:self.sleep(left)
+   if self.after:self.after()
+ def elapsed(self,now):
+  """Wall time since the last call: there are no refreshes to count."""
+  seconds=now-self.read_at;self.read_at=now;return seconds
 
 class HitchWatch:
  """Names why a frame stayed up longer than the stream asked for, so a stutter on a PC nobody here can see still has a cause in the stats.

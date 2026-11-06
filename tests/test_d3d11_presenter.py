@@ -257,6 +257,35 @@ class DrawingTests(unittest.TestCase):
   try:
    self.assertTrue(d.drives(adapter.value,d.window_monitor(self.output.hwnd)));self.assertFalse(d.drives(adapter.value,0x7ead))
   finally:d.Release(adapter.value);d.Release(dxgi.value)
+ def variable_refresh_output(self):
+  if not d.tearing_supported():self.skipTest('this driver cannot present at once')
+  other=tk.Frame(self.root,bg='',width=320,height=200);other.place(x=0,y=0,width=320,height=200);self.root.update()
+  return other,Reading(other,vrr=True)
+ def test_variable_refresh_draws_the_same_picture(self):
+  other,output=self.variable_refresh_output()
+  try:
+   self.assertTrue(output.tearing);self.assertEqual(output.swap_flags(),d.FRAME_LATENCY_WAITABLE|d.ALLOW_TEARING)
+   output.wanted=(640,360)
+   self.assertTrue(any(output.draw(self.flat_frame()) or time.sleep(.02) for _ in range(5)));self.assert_the_colour(output.picture)
+   # A new window size keeps the swap chain's flags, or ResizeBuffers would fail.
+   output.wanted=(320,200);self.assertTrue(any(output.draw(self.flat_frame()) or time.sleep(.02) for _ in range(5)))
+   self.assertEqual(output.picture.shape,(200,320,3));self.assertIsNone(output.failed)
+  finally:output.detach();other.destroy();self.root.update()
+ def test_without_variable_refresh_the_swap_chain_is_as_before(self):
+  self.assertFalse(self.output.tearing);self.assertEqual(self.output.swap_flags(),d.FRAME_LATENCY_WAITABLE)
+  calls=[]
+  swap,self.output.swap=self.output.swap,1
+  try:
+   with patch.object(d,'Present',side_effect=lambda *a:calls.append(a[1:])):d.D3D11Presenter.present(self.output)
+  finally:self.output.swap=swap
+  self.assertEqual(calls,[(1,0)])
+ def test_variable_refresh_presents_at_once(self):
+  other,output=self.variable_refresh_output()
+  try:
+   calls=[];output.swap=1
+   with patch.object(d,'Present',side_effect=lambda *a:calls.append(a[1:])):d.D3D11Presenter.present(output)
+   self.assertEqual(calls,[(0,d.PRESENT_ALLOW_TEARING)])
+  finally:output.swap=None;output.detach();other.destroy();self.root.update()
  def test_a_swap_chain_that_is_not_ready_in_time_is_counted(self):
   self.drawn(self.flat_frame());before=self.output.timeouts;kernel=self.output.kernel
   self.output.kernel=SimpleNamespace(WaitForSingleObject=lambda handle,ms:258)  # WAIT_TIMEOUT

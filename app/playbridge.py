@@ -24,6 +24,7 @@ from console_discovery import SUPPORTED_FIRMWARE,firmware_name,locate,supported
 from stream_metrics import StreamMetrics,export_diagnostics
 import graphics_card,network_link
 from audio_output import candidates,check_report,default_output,describe,output_name,output_settings
+from mic_mix import LEVEL_MAX,MicMix,Microphone
 from av.codec.hwaccel import HWAccel
 import numpy as np
 HDR=struct.Struct('<4sBBHIQQI')
@@ -108,6 +109,10 @@ class Player:
   self.metrics=StreamMetrics();self.metrics_lock=threading.Lock();self.recorder=CaptureRecorder();self.broadcast=LiveBroadcast();self.last_native_frame=None;self.capture_info=None;self.notice='';self.notice_until=0;self.screenshot_thread=None;self.retry_at=0;self.intentional_disconnect=False;self.follow=config().get('host_auto',True);self.elsewhere=None;self.renderer=(('gdi' if args.headless or not config().get('direct_video',True) else 'd3d11') if sys.platform=='win32' else 'tk') if args.renderer=='auto' else args.renderer;self.timings=Timings();self.args=args;self.stop=threading.Event();self.session_done=threading.Event();self.render_size=(1280,720);self.volume=1.0;self.muted=False;self.save_at=0;self.connection_state='Connecting…';self.lock=threading.Lock();self.pcm=bytearray();self.frames=collections.deque();self.last_drawn=None;self.audio=None;self.sock=None;self.error='';self.stats=collections.Counter();self.peak=0;self.output_name='';self.first_video=None;self.first_audio=None;self.first_arrival=None;self.latest_pts={};self.events=collections.deque(maxlen=60);self.arrival_origin=None;self.transport_growth_ms=0;self.decode_failure=None;self.started=time.perf_counter();self.pacer=FramePacer(self.stats);self.decoder_name='software';self.decoder_on_gpu=False;self.codec=0;self.console=None;self.video_hidden=False;self.sound_hidden=False;self.replay=ReplayBuffer(config().get('replay_seconds',60));self.replay_thread=None;self.link=ConsoleLink(STATE/'library',self.notify);self.gaps=collections.deque(maxlen=30)
   # The payload's logs from this run, for finding out why a stream ended. They stay on this PC and the next start clears them.
   self.link.log_folder=STATE/'ps5-logs'
+  # Your voice in what is saved or sent, only while the microphone is on.
+  self.mic_mix=MicMix(av);self.microphone=Microphone(self.mic_mix,sd)
+  try:self.mic_mix.level=min(LEVEL_MAX,max(0.0,float(config().get('mic_level',1.0))))
+  except (TypeError,ValueError):pass
   # The graphics card that decodes and draws, the same one for both. Read once: changing it applies the next time the app opens.
   try:self.adapter=graphics_card.choose(config().get('graphics_card',graphics_card.AUTOMATIC)) if sys.platform=='win32' else None
   except Exception:self.adapter=None
@@ -286,7 +291,8 @@ class Player:
      if self.connection_state!='Connected':self.stats['sessions_connected']+=1;self.event('Picture and sound arriving')
      self.connection_state='Connected';self.error=''
      if self.capture_info is None:self.capture_info={'protocol':1,'confirmed':False}
-     self.recorder.feed(kind,payload,pts,dts);self.replay.feed(kind,payload,pts,dts);self.broadcast.feed(kind,payload,pts,dts)
+     if kind==2 and self.microphone.on:self.feed_mixed(payload,pts)
+     else:self.recorder.feed(kind,payload,pts,dts);self.replay.feed(kind,payload,pts,dts);self.broadcast.feed(kind,payload,pts,dts)
      self.latest_pts[kind]=pts;self.stats['received_bytes']+=size
      with self.metrics_lock:self.metrics.packet(size,kind==1)
      if kind==1:
@@ -335,7 +341,7 @@ class Player:
   try:
    while not self.stop.is_set() and not self.intentional_disconnect:
     self.sock=None;self.first_video=None;self.first_audio=None;self.first_arrival=None;self.capture_info=None;self.transport_growth_ms=0;self.latest_pts={}
-    self.recorder.reset_session();self.replay.reset();self.broadcast.reset_session();self.codec=0
+    self.recorder.reset_session();self.replay.reset();self.broadcast.reset_session();self.mic_mix.reset();self.codec=0
     with self.metrics_lock:self.metrics.reset()
     with self.lock:self.pcm.clear();self.frames.clear();self.pacer.clear();self.last_native_frame=None
     streamed=self.stats['sessions_connected'];self.network_session();self.recorder.stop(wait=True)
@@ -350,6 +356,13 @@ class Player:
     if self.stop.is_set() or self.intentional_disconnect:break
   finally:self.session_done.set()
  def notify(self,message):self.notice=message;self.notice_until=time.perf_counter()+6
+ def feed_mixed(self,payload,pts):
+  """The console's sound with your voice added, for everything that saves or sends the stream. The sound you hear is never changed."""
+  try:mixed=self.mic_mix.mix(payload,pts)
+  except Exception as problem:
+   # The console's own sound carries on and the microphone goes off with a reason, rather than a recording without sound.
+   self.microphone.close();self.notify('Microphone off: '+str(problem));self.notice_until=time.perf_counter()+15;mixed=[(payload,pts)]
+  for data,stamp in mixed:self.recorder.feed(2,data,stamp,stamp);self.replay.feed(2,data,stamp,stamp);self.broadcast.feed(2,data,stamp,stamp)
  def capture_folder(self):
   path=Path(config().get('capture_folder',str(Path.home()/'Videos'/'PlayBridge')));path.mkdir(parents=True,exist_ok=True);return path
  def capture_path(self,folder,suffix):
@@ -422,6 +435,7 @@ class Player:
   with self.lock:
    s=dict(self.stats);s['audio_queue_ms']=round(len(self.pcm)/192,1)
   with self.metrics_lock:s['stream']=self.metrics.summary()
+  voice=self.mic_mix.voice;s.update(microphone=self.microphone.on,mic_mixed=self.mic_mix.mixed,mic_short_ms=round(voice.short/48),mic_dropped_ms=round(voice.dropped/48))
   s['timings_ms']=self.timings.summary();s['events']=list(self.events);s['gap_log']=list(self.gaps);s['latency_scope']='PC stages only; transport growth is relative to first video packet, not total HDMI-to-PC latency'
   s.update(recording_state=self.recorder.state,live_state=self.broadcast.state,capture_info=self.capture_info,profile_requested=self.args.profile,renderer=self.renderer,video_decoder=self.decoder_name,**graphics_card.report(self.graphics()),output=self.output_name,error=self.error,observed_seconds=round(time.perf_counter()-self.started,2),transport_delay_growth_ms=self.transport_growth_ms)
   (STATE/'av3-stats.json').write_text(json.dumps(s,indent=2),encoding='utf8');return s

@@ -1,7 +1,7 @@
-import collections,random,sys,threading,time,unittest
+import collections,random,sys,threading,time,unittest,unittest.mock
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'app'))
-from frame_pacing import CAPTURE_FRAME as F,RELEARN,FramePacer,HitchWatch,RefreshClock
+from frame_pacing import CAPTURE_FRAME as F,RELEARN,FramePacer,FrameTimer,HitchWatch,RefreshClock,precise_sleep
 
 def play(arrivals,refresh=F,every=1,**options):
  """Feeds frames as they arrive and asks for a picture on each refresh. Returns one entry per refresh: the frame shown, or None."""
@@ -162,5 +162,74 @@ class RelearnTests(unittest.TestCase):
   start=clock.count*clock.period
   for _ in range(240):clock.measure(1/120)
   self.assertAlmostEqual(clock.count*clock.period-start,2,delta=.25)
+
+def play_on_time(arrivals,**options):
+ """As with variable refresh: each wake is when the next frame is due, or a short look later while none waits. Returns the times frames
+ were shown, as (frame, time)."""
+ stats=collections.Counter();p=FramePacer(stats,**options);timer=FrameTimer(threading.Event(),p.due,start=False,sleep=lambda s:None)
+ shown=[];next_frame=0;t=arrivals[0];end=arrivals[-1]+.3;timer.read_at=t
+ while t<end:
+  while next_frame<len(arrivals) and arrivals[next_frame]<=t:p.add(next_frame*F,next_frame,arrivals[next_frame]);next_frame+=1
+  item=p.advance(timer.elapsed(t),t)
+  if item is not None:shown.append((item,t))
+  # The timer sleeps until the next frame's turn, but not past the next arrival, as when it looks again while none waits.
+  left=timer.wait();t+=max(left,1e-4)
+  if next_frame<len(arrivals):t=min(t,max(arrivals[next_frame],t-left+1e-4))
+ return shown,stats
+
+class FrameTimerTests(unittest.TestCase):
+ def test_due_counts_down_to_the_next_frame(self):
+  p=FramePacer(collections.Counter());self.assertIsNone(p.due())
+  p.add(1.0,'a',1.0);self.assertAlmostEqual(p.due(),1.5*F)
+  p.advance(F,1.0);self.assertAlmostEqual(p.due(),.5*F)
+  p.advance(F,1.0);self.assertIsNone(p.due())
+ def test_it_sleeps_until_the_turn_and_never_longer_than_a_frame(self):
+  left=[None];timer=FrameTimer(threading.Event(),lambda:left[0],start=False,sleep=lambda s:None)
+  self.assertEqual(timer.wait(),FrameTimer.IDLE)
+  left[0]=.004;self.assertAlmostEqual(timer.wait(),.004+FrameTimer.SLACK);left[0]=-.01;self.assertEqual(timer.wait(),0);left[0]=5;self.assertAlmostEqual(timer.wait(),F)
+ def test_a_steady_stream_shows_every_16_7_ms(self):
+  shown,stats=play_on_time(steady(600))
+  frames=[f for f,_ in shown];gaps=[(b-a)*1000 for (_,a),(_,b) in zip(shown,shown[1:])]
+  self.assertEqual(frames,sorted(frames));self.assertGreaterEqual(len(frames),598)
+  # Not the 13.9 and 20.8 ms of a 144 Hz screen counting refreshes: every gap is one stream frame, except the two in which the
+  # unused part of the starting delay is given back, once.
+  steady_gaps=gaps[5:-5];self.assertLessEqual(sum(1 for g in steady_gaps if abs(g-F*1000)>.5),2);self.assertAlmostEqual(sum(steady_gaps)/len(steady_gaps),F*1000,delta=.1)
+ def test_uneven_arrival_still_shows_evenly(self):
+  random.seed(7);arrivals=in_order([10+i*F+random.uniform(0,.006) for i in range(600)])
+  shown,stats=play_on_time(arrivals);gaps=[(b-a)*1000 for (_,a),(_,b) in zip(shown,shown[1:])][5:-5]
+  self.assertGreater(sum(1 for g in gaps if abs(g-F*1000)<.5)/len(gaps),.97)
+ def test_a_late_frame_shows_as_soon_as_it_comes(self):
+  arrivals=steady(120);arrivals[60:]=[a+.03 for a in arrivals[60:]]
+  shown,stats=play_on_time(arrivals);at=dict(shown)
+  self.assertLess(at[60]-arrivals[60],F);self.assertGreater(stats['video_late_waits'],0)
+ def test_frames_never_come_closer_than_the_spacing(self):
+  left=[0.0];timer=FrameTimer(threading.Event(),lambda:left[0],start=False,sleep=lambda s:None,spacing=lambda:.007)
+  self.assertEqual(timer.wait(),0)
+  timer.last=time.perf_counter();self.assertAlmostEqual(timer.wait(),.007+FrameTimer.SLACK,delta=.001)
+  # A frame due later than the spacing keeps its own time.
+  left[0]=.012;self.assertAlmostEqual(timer.wait(),.012+FrameTimer.SLACK,delta=.0005)
+ def test_after_a_stall_frames_are_spaced_but_none_is_lost(self):
+  arrivals=steady(240);arrivals[100:110]=[arrivals[110]]*10
+  stats=collections.Counter();p=FramePacer(stats);now=[arrivals[0]]
+  timer=FrameTimer(threading.Event(),p.due,start=False,sleep=lambda s:None,spacing=lambda:1/144)
+  shown=[];nf=0;timer.read_at=now[0]
+  with unittest.mock.patch('frame_pacing.time.perf_counter',lambda:now[0]):
+   while now[0]<arrivals[-1]+.05:
+    while nf<len(arrivals) and arrivals[nf]<=now[0]:p.add(nf*F,nf,arrivals[nf]);nf+=1
+    item=p.advance(timer.elapsed(now[0]),now[0])
+    if item is not None:shown.append(now[0]);timer.last=now[0]
+    left=timer.wait();step=max(left,1e-4)
+    if nf<len(arrivals):step=min(step,max(arrivals[nf]-now[0],1e-4))
+    now[0]+=step
+  gaps=[b-a for a,b in zip(shown,shown[1:])];self.assertGreaterEqual(min(gaps),1/144-1e-6)
+ def test_the_run_loop_paints_after_each_wake(self):
+  stop=threading.Event();woke=[];timer=FrameTimer(stop,lambda:.001,start=False,sleep=lambda s:woke.append(round(s,6)))
+  def paint():
+   if len(woke)>=3:stop.set()
+  timer.after=paint;timer.run();self.assertEqual(woke,[.0012]*3)
+ def test_the_precise_sleep_ends_near_its_time(self):
+  sleep=precise_sleep();took=[]
+  for _ in range(20):start=time.perf_counter();sleep(.005);took.append(time.perf_counter()-start)
+  took.sort();self.assertGreaterEqual(took[0],.0045);self.assertLess(took[len(took)//2],.0065)
 
 if __name__=='__main__':unittest.main()

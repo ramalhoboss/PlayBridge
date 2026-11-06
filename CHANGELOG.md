@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.5.2 — 2026-11-06
+- Variable refresh rate. A new switch in Settings → Picture, shown only where the graphics driver lets a window present at once. With it on, the GPU video output presents each frame at its own time on the stream's clock instead of on the next refresh, so a screen with G-Sync, FreeSync or Adaptive-Sync shows 60 fps evenly at 144 Hz. Two frames never go to the screen closer together than one refresh, so frames that the network held up and that arrive together do not tear. While it is on, PlayBridge leaves the screen's rate alone. It applies the next time PlayBridge opens and works best in full screen. It is off by default, because a screen without variable refresh can show tearing.
+- Microphone. Settings → Captures → Microphone adds your voice to recordings, instant replays and Go live. While it is on, the console's AAC sound is decoded, your voice is added at its own volume, up to twice as loud, and the mix is encoded to AAC again. A menu chooses the microphone, F7 turns it on and off, and the status line shows MIC. A microphone whose clock runs a little fast or slow against the console's is kept between 40 and 120 ms behind. You do not hear yourself in PlayBridge. With the microphone off, the console's sound is copied untouched, as before.
+- The stats and exported diagnostics say whether variable refresh is on, and how much voice was mixed, missing or dropped.
+- The payload is unchanged from v1.5.0.
+
 ## v1.5.1 — 2026-11-06
 - Sound on every PC. v1.5.0 did not open on a PC whose sound output mixes at another rate than the PS5's 48 kHz, with "Invalid sample rate". WASAPI now converts the rate itself. When the chosen output still refuses, PlayBridge tries the Windows default output through WASAPI, DirectSound and MME, and when none opens it streams the picture without sound and says why in the status line. Each refusal is written to audio-check.txt next to the preferences. An output that will not open is no longer saved as the choice.
 - Laptops with two graphics cards. Windows' default card on such a laptop is the processor's graphics, so the NVIDIA or AMD card stayed idle. PlayBridge now decodes and draws on the card with the most memory of its own, and Settings → Picture → Graphics card, shown only where there is a choice, names another one. The change applies the next time PlayBridge opens.

@@ -14,7 +14,7 @@ def com(index,restype,*arguments):
  return call
 def iid(text):return uuid.UUID(text).bytes_le
 OUT=POINTER(c_void_p);ANY=c_void_p;UINT=c_uint
-IID_DXGI_DEVICE=iid('54ec77fa-1377-44e6-8c32-88fd5f44c84c');IID_FACTORY1=iid('770aae78-f26f-4dba-a829-253c83d1b387');IID_FACTORY2=iid('50c83a1c-e072-4c48-87b0-3630fa36a6d0');IID_SWAP2=iid('a8be2ac4-199f-4946-b331-79599fb98de7');IID_TEXTURE=iid('6f15aaf2-d208-4e89-9ab4-489535d34f9c')
+IID_FACTORY5=iid('7632e1f5-ee65-4dca-87fd-84cd75f8838d');IID_DXGI_DEVICE=iid('54ec77fa-1377-44e6-8c32-88fd5f44c84c');IID_FACTORY1=iid('770aae78-f26f-4dba-a829-253c83d1b387');IID_FACTORY2=iid('50c83a1c-e072-4c48-87b0-3630fa36a6d0');IID_SWAP2=iid('a8be2ac4-199f-4946-b331-79599fb98de7');IID_TEXTURE=iid('6f15aaf2-d208-4e89-9ab4-489535d34f9c')
 QueryInterface=com(0,HRESULT,c_char_p,OUT);Release=com(2,c_ulong)
 GetDeviceOfChild=com(3,None,OUT);GetTextureDesc=com(10,None,ANY)
 CreateBuffer=com(3,HRESULT,ANY,ANY,OUT);CreateTexture2D=com(5,HRESULT,ANY,ANY,OUT);CreateShaderResourceView=com(7,HRESULT,ANY,ANY,OUT);CreateRenderTargetView=com(9,HRESULT,ANY,ANY,OUT);CreateVertexShader=com(12,HRESULT,ANY,c_size_t,ANY,OUT);CreatePixelShader=com(15,HRESULT,ANY,c_size_t,ANY,OUT);CreateSamplerState=com(23,HRESULT,ANY,OUT);GetImmediateContext=com(40,None,OUT)
@@ -22,6 +22,7 @@ PSSetShaderResources=com(8,None,UINT,UINT,ANY);PSSetShader=com(9,None,ANY,ANY,UI
 GetParent=com(6,HRESULT,c_char_p,OUT);GetAdapter=com(7,HRESULT,OUT);EnumAdapters=com(7,HRESULT,UINT,OUT);EnumOutputs=com(7,HRESULT,UINT,OUT);GetOutputDesc=com(7,HRESULT,ANY);MakeWindowAssociation=com(8,HRESULT,wintypes.HWND,UINT);CreateSwapChainForHwnd=com(15,HRESULT,ANY,wintypes.HWND,ANY,ANY,ANY,OUT)
 Present=com(8,HRESULT,UINT,UINT);GetBuffer=com(9,HRESULT,UINT,c_char_p,OUT);ResizeBuffers=com(13,HRESULT,UINT,UINT,UINT,UINT,UINT);SetMaximumFrameLatency=com(31,HRESULT,UINT);GetMaximumFrameLatency=com(32,HRESULT,POINTER(UINT));GetFrameLatencyWaitableObject=com(33,wintypes.HANDLE)
 GetBlobPointer=com(3,c_void_p);GetBlobSize=com(4,c_size_t)
+CheckFeatureSupport=com(28,HRESULT,UINT,ANY,UINT)
 
 class Texture2DDesc(Structure):_fields_=[('Width',UINT),('Height',UINT),('MipLevels',UINT),('ArraySize',UINT),('Format',UINT),('SampleCount',UINT),('SampleQuality',UINT),('Usage',UINT),('BindFlags',UINT),('CPUAccessFlags',UINT),('MiscFlags',UINT)]
 class SwapChainDesc1(Structure):_fields_=[('Width',UINT),('Height',UINT),('Format',UINT),('Stereo',wintypes.BOOL),('SampleCount',UINT),('SampleQuality',UINT),('BufferUsage',UINT),('BufferCount',UINT),('Scaling',UINT),('SwapEffect',UINT),('AlphaMode',UINT),('Flags',UINT)]
@@ -38,6 +39,9 @@ BIND_CONSTANT=4;BIND_SHADER=8;BIND_TARGET=0x20
 CPU_WRITE=0x10000;CPU_READ=0x20000;MAP_READ=1;MAP_DISCARD=4
 TEXTURE2D_VIEW=4;TRIANGLES=4;FILTER_LINEAR=0x15;ADDRESS_CLAMP=3;LEVEL_SDK=7;DRIVER_UNKNOWN=0;DRIVER_HARDWARE=1;DEVICE_VIDEO=0x800
 FLIP_DISCARD=4;SCALING_STRETCH=0;ALPHA_IGNORE=3;TARGET_OUTPUT=0x20;FRAME_LATENCY_WAITABLE=64;NO_WINDOW_CHANGES=1
+# Variable refresh: a swap chain made with ALLOW_TEARING may present at once, and a screen with G-Sync, FreeSync or Adaptive-Sync then
+# starts its refresh when the frame arrives instead of on its own fixed beat.
+ALLOW_TEARING=0x800;PRESENT_ALLOW_TEARING=0x200;FEATURE_PRESENT_ALLOW_TEARING=0
 # The most a frame may wait for the screen. Longer would hold up the clock this runs on.
 WAIT_MS=15
 # Swap chains not ready in time, within this many seconds, that show this PC needs a second frame in flight.
@@ -245,6 +249,18 @@ def new_device(adapter=None):
  finally:
   for pointer in listed:Release(pointer)
 
+def tearing_supported():
+ """Whether Windows and the graphics driver let a window present at once, which variable refresh needs. False where it cannot be asked."""
+ try:
+  library=ctypes.WinDLL('dxgi');create=library.CreateDXGIFactory1;create.restype=ctypes.HRESULT;create.argtypes=[c_char_p,OUT]
+  factory=c_void_p();create(IID_FACTORY1,byref(factory));newer=c_void_p()
+  try:
+   QueryInterface(factory.value,IID_FACTORY5,byref(newer))
+   try:allowed=wintypes.BOOL(0);CheckFeatureSupport(newer.value,FEATURE_PRESENT_ALLOW_TEARING,byref(allowed),sizeof(allowed));return bool(allowed.value)
+   finally:Release(newer.value)
+  finally:Release(factory.value)
+ except (AttributeError,OSError):return False
+
 def in_flight(cross,extra=0):
  """Frames queued for the screen: one keeps the delay lowest, a second covers the copy between two cards, and each extra one was earned
  by a run of misses on this PC."""
@@ -252,12 +268,14 @@ def in_flight(cross,extra=0):
 
 class D3D11Presenter:
  """Draws on the thread of the refresh clock. Only resizing and hiding involve the window's own thread, which never waits for this one."""
- def __init__(self,window,sharpen=False,fsr=False,adapter=None):
+ def __init__(self,window,sharpen=False,fsr=False,adapter=None,vrr=False):
   self.hwnd=window.winfo_id();self.frame=None;self.failed=None;self.failures=0;self.sharpen=sharpen;self.fsr=fsr;self.wanted=(max(1,window.winfo_width()),max(1,window.winfo_height()));self.pending=False
   self.kernel=ctypes.WinDLL('kernel32');self.kernel.WaitForSingleObject.argtypes=[wintypes.HANDLE,wintypes.DWORD];self.kernel.WaitForSingleObject.restype=wintypes.DWORD
   # Both fail here, in the window's thread, where the app can still choose the other output.
   # Waits for the swap chain that ran out, and whether the last one drew on a card other than the screen's, for the stats.
   self.timeouts=0;self.cross=False;self.extra=0;self.misses=collections.deque()
+  # Variable refresh only where it was asked for and the driver offers it. Otherwise the swap chain and every present are as before.
+  self.tearing=bool(vrr) and tearing_supported()
   self.blobs=compiled();self.own=new_device(adapter);self.forget()
  def forget(self):
   self.device=None;self.context=None;self.swap=None;self.flight=None;self.target=None;self.back=None;self.scaled=None;self.scaled_view=None;self.size=None;self.waitable=None;self.owned=[];self.surface=None;self.surface_shape=None;self.planes=None;self.plane_shape=None;self.views=None;self.arranged=None;self.viewport=None;self.converted=None;self.converted_shape=None;self.enlarging=False
@@ -293,7 +311,7 @@ class D3D11Presenter:
   # With one frame in flight, about 7 frames a second never reached the 3060 laptop's screen, and handing one over took up to 14 ms against under 3 here.
   try:self.cross=not drives(adapter.value,window_monitor(self.hwnd))
   except OSError:self.cross=False
-  width,height=self.wanted;desc=SwapChainDesc1(Width=width,Height=height,Format=BGRA8,SampleCount=1,BufferUsage=TARGET_OUTPUT,BufferCount=in_flight(self.cross,self.extra)+1,Scaling=SCALING_STRETCH,SwapEffect=FLIP_DISCARD,AlphaMode=ALPHA_IGNORE,Flags=FRAME_LATENCY_WAITABLE)
+  width,height=self.wanted;desc=SwapChainDesc1(Width=width,Height=height,Format=BGRA8,SampleCount=1,BufferUsage=TARGET_OUTPUT,BufferCount=in_flight(self.cross,self.extra)+1,Scaling=SCALING_STRETCH,SwapEffect=FLIP_DISCARD,AlphaMode=ALPHA_IGNORE,Flags=self.swap_flags())
   try:
    CreateSwapChainForHwnd(factory.value,self.device,self.hwnd,byref(desc),None,None,byref(first))
    MakeWindowAssociation(factory.value,self.hwnd,NO_WINDOW_CHANGES);QueryInterface(first.value,IID_SWAP2,byref(swap));Release(first.value)
@@ -317,7 +335,7 @@ class D3D11Presenter:
    self.open_swap_chain()
   elif self.size!=self.wanted or self.flight!=in_flight(self.cross,self.extra):
    flight=in_flight(self.cross,self.extra)
-   OMSetRenderTargets(self.context,0,None,None);self.release_target();Flush(self.context);ResizeBuffers(self.swap,flight+1,*self.wanted,0,FRAME_LATENCY_WAITABLE)
+   OMSetRenderTargets(self.context,0,None,None);self.release_target();Flush(self.context);ResizeBuffers(self.swap,flight+1,*self.wanted,0,self.swap_flags())
    SetMaximumFrameLatency(self.swap,flight);self.flight=flight;self.size=self.wanted;self.open_target()
   return True
  def release_surface(self):
@@ -403,7 +421,11 @@ class D3D11Presenter:
    last=c_void_p(self.target);view=c_void_p(self.scaled_view)
    OMSetRenderTargets(context,1,byref(last),None);RSSetViewports(context,1,byref(self.whole));PSSetShader(context,self.shaders[b'rcas' if self.enlarging else b'sharpen'],None,0);PSSetShaderResources(context,0,1,byref(view));Draw(context,3,0);PSSetShaderResources(context,0,1,byref(empty))
   self.present();return True
- def present(self):Present(self.swap,1,0)
+ def swap_flags(self):return FRAME_LATENCY_WAITABLE|(ALLOW_TEARING if self.tearing else 0)
+ def present(self):
+  # With variable refresh the frame goes now, at its own time; otherwise it waits for the screen's next refresh.
+  if self.tearing:Present(self.swap,0,PRESENT_ALLOW_TEARING)
+  else:Present(self.swap,1,0)
  def missed(self,now=None):
   """A swap chain that was not ready in time. Several close together mean this PC needs another frame in flight, whatever the cause:
   a copy between two cards, a slow driver, something drawn over the window. Each costs at most a refresh of delay, and stays for the session.
