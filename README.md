@@ -1,6 +1,6 @@
 <p align="center"><img src="docs/images/banner.png" alt="PlayBridge: your PS5 games, video and audio on your Windows PC" width="100%"></p>
 <p align="center">
-  <a href="https://github.com/ramalhoboss/PlayBridge/releases/latest"><img alt="Download v1.5.2" src="docs/images/badge-download.png" height="36"></a>
+  <a href="https://github.com/ramalhoboss/PlayBridge/releases/latest"><img alt="Download v1.6.0" src="docs/images/badge-download.png" height="36"></a>
   <img alt="Windows x64" src="docs/images/badge-windows.png" height="36">
   <img alt="PS5 firmware 13.60" src="docs/images/badge-ps5.png" height="36">
   <img alt="Up to 4K60" src="docs/images/badge-4k.png" height="36">
@@ -21,20 +21,22 @@ No HDMI capture card. No official Remote Play client or PSN Remote Play pairing.
 
 > Screenshots show the real application. The Games page above shows a real PS5 library: covers and music come from your own console when you connect, and none are included in the download. The game pictures further down are PS5 captures saved with PlayBridge; the one on the Live page was played back to the app on the PC to take the screenshot. PlayBridge is in English; the console's own language remains whatever you selected on the PS5.
 
+## New in v1.6.0
+
+- **A new look:** glass panels drawn on the graphics card, your game's art filling the window and the game tiles in a row at the top. The selected tile has a soft gold glow behind it and turns in 3D as you move the mouse or the right stick. **Settings → Appearance → Glass look** brings back the classic window. Nothing in the window moves while a game is on screen.
+- **Automatic updates:** PlayBridge finds a new version on GitHub, downloads it slowly in the background so a stream keeps its speed, checks it against the release's checksums and puts it in when you close the app. **Settings → Updates** has **Check now**, **Restart and update** and **Update automatically**.
+- **Tiles that stay current:** the library is read again every time PlayBridge connects, so a game's new icon, picture or music shows up.
+- **Smaller recordings and streams:** optional HEVC or AV1 on the graphics card for saved recordings (**Settings → Captures**) and for Go live to YouTube or another RTMP server.
+- **Easier settings:** everything applies as soon as it changes, except the console's address, which has its own **Save** button. With a keyboard or a controller, a gold ring shows where you are.
+- **Notices on the PS5:** an optional notice on the console when the stream starts and ends.
+- **Variable refresh rate checks the screen:** PlayBridge reads the screen's EDID, and only a screen that shows FreeSync, HDMI VRR or Adaptive-Sync gets each frame the moment it is due. On a fixed-rate screen the switch is hidden and every frame waits for the next refresh, so the picture no longer tears.
+
+The payload changed: manual users should load the v1.6.0 ELF.
+
 ## New in v1.5.2
 
 - **Variable refresh rate:** on a screen with G-Sync, FreeSync or Adaptive-Sync, as on many gaming laptops, each frame is shown the moment it is due, so 60 fps plays evenly at 144 Hz without switching the screen to 60 Hz. Turn on **Settings → Picture → Variable refresh rate**, shown where the graphics driver supports it, restart PlayBridge and play in full screen (**F11**). It is off by default, because a screen without variable refresh can show tearing.
 - **Your voice in captures:** **Settings → Captures → Microphone** mixes your microphone with the game's sound in recordings, instant replays and Go live, with its own volume. **F7** turns it on and off, and the status line shows MIC. You do not hear yourself in PlayBridge.
-
-The payload is unchanged from v1.5.0.
-
-## New in v1.5.1
-
-- **Sound on every PC:** PlayBridge opens even when the PC's sound output mixes at a rate other than the PS5's 48 kHz, which stopped v1.5.0 from opening on some PCs. When no output opens, the picture still streams and the status line says why.
-- **Laptops with two graphics cards:** the NVIDIA or AMD card decodes and draws the video instead of the processor's graphics. **Settings → Picture → Graphics card** chooses another one.
-- **144 and 165 Hz screens:** while a game fills the window, the screen switches to 120 or 60 Hz, where every frame shows for the same time, and back afterwards. **Settings → Picture → Match the screen to the stream** turns it off.
-- **The screen stays on** while a session runs, so Windows no longer turns it off while you play with the controller.
-- **Clearer stutter reports:** the stats and exported diagnostics say why a frame was late and whether the PS5 is reached over Wi-Fi or a cable.
 
 The payload is unchanged from v1.5.0. Earlier versions are described in the [changelog](CHANGELOG.md).
 
@@ -44,14 +46,14 @@ The payload is unchanged from v1.5.0. Earlier versions are described in the [cha
 
 | File | What it contains |
 |---|---|
-| [PlayBridge.exe](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.2/PlayBridge.exe) | Portable Windows application, including Python dependencies and the embedded ELF. |
-| [PlayBridge.elf](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.2/PlayBridge.elf) | Standalone PS5 payload for manual loading. |
-| [PlayBridge-Windows-v1.5.2.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.2/PlayBridge-Windows-v1.5.2.zip) | Windows EXE and quick-start instructions. |
-| [PlayBridge-Payload-v1.5.2.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.2/PlayBridge-Payload-v1.5.2.zip) | ELF and manual-mode instructions. |
-| [PlayBridge-Complete-v1.5.2.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.2/PlayBridge-Complete-v1.5.2.zip) | Both files, quick-start instructions and component notices. |
-| [Third-party-licenses.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.2/Third-party-licenses.zip) | Component notices for standalone downloads. |
-| [PlayBridge-Source-v1.5.2.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.2/PlayBridge-Source-v1.5.2.zip) | Application and payload source, assets, tests and build instructions. |
-| [SHA256SUMS.txt](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.5.2/SHA256SUMS.txt) | Checksums for the release downloads. |
+| [PlayBridge.exe](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.6.0/PlayBridge.exe) | Portable Windows application, including Python dependencies and the embedded ELF. |
+| [PlayBridge.elf](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.6.0/PlayBridge.elf) | Standalone PS5 payload for manual loading. |
+| [PlayBridge-Windows-v1.6.0.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.6.0/PlayBridge-Windows-v1.6.0.zip) | Windows EXE and quick-start instructions. |
+| [PlayBridge-Payload-v1.6.0.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.6.0/PlayBridge-Payload-v1.6.0.zip) | ELF and manual-mode instructions. |
+| [PlayBridge-Complete-v1.6.0.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.6.0/PlayBridge-Complete-v1.6.0.zip) | Both files, quick-start instructions and component notices. |
+| [Third-party-licenses.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.6.0/Third-party-licenses.zip) | Component notices for standalone downloads. |
+| [PlayBridge-Source-v1.6.0.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.6.0/PlayBridge-Source-v1.6.0.zip) | Application and payload source, assets, tests and build instructions. |
+| [SHA256SUMS.txt](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.6.0/SHA256SUMS.txt) | Checksums for the release downloads. |
 
 Download the release assets above to run the application. To inspect or build it, browse [app/](app/), [payload/](payload/) and [tools/](tools/), or download the source archive. GitHub's source archives contain source files, not the Windows EXE.
 
@@ -73,9 +75,11 @@ The payload explicitly checks firmware value **0x13600007**. Other firmware vers
 1. Start your PS5 and open **Payload Manager**. Make sure its ELF loader is available on port **9021**.
 2. Open **PlayBridge.exe** on the PC. No separate Python installation is needed.
 3. Select the **gear** at the top right, or press **Ctrl+,**, to open **Settings**.
-4. Under **Console**, select **Find console**, or type your console's local IP address, such as **192.168.1.100**. With one PS5 on your network you can also leave the address as it is: PlayBridge finds the console by itself. An address you type is always used as typed.
-5. Under **Picture**, choose a **Quality profile**. **Balanced** is a good place to start.
-6. Leave **ELF already loaded in Payload Manager** switched **off**, then select **Save changes**.
+4. Under **Picture**, choose a **Quality profile**. **Balanced** is a good place to start.
+5. Under **Console**, leave **ELF already loaded in Payload Manager** switched **off**.
+6. Still under **Console**, select **Find console**, or type your console's local IP address, such as **192.168.1.100**, then select **Save** beside it (or press **Enter**) to connect. With one PS5 on your network you can also leave the address as it is and select **Connect** at the top: PlayBridge finds the console by itself. An address you type is always used as typed.
+
+The address is the only setting that waits for **Save**. Every other setting is kept the moment you change it. The line at the bottom of Console and Picture says what a change did, or what is wrong with the address.
 
 PlayBridge uploads its embedded ELF and connects on port **9076**. The mark next to **PS5** at the top turns gold and says **Online** while the session runs.
 
@@ -122,7 +126,7 @@ The capture follows the console's video output, so the PS5 has to be running at 
 
 1. Connect the PS5 to a display that accepts 1440p or 4K, using an HDMI cable rated for it. On the test setup, a cable that worked at 1080p gave no picture at 2160p, and a different cable fixed it.
 2. On the PS5, open **Settings → Screen and Video → Video Output** and set **Resolution** to that mode or to Automatic.
-3. In PlayBridge, choose a 1440p or 4K profile and select **Save changes**.
+3. In PlayBridge, choose a 1440p or 4K profile. While connected, PlayBridge reconnects with it at once.
 4. Check the line at the bottom of the window. It shows the resolution you are really receiving, for example **3840 × 2160**, and says so if the stream stepped down.
 
 A 1080p PC monitor shows a 4K stream scaled down to its own pixels. Screenshots and recordings keep the full size. The 60 fps is the rate of the capture: a game drawing 30 pictures per second still looks like 30 fps. In the games tested so far, each picture was captured twice.
@@ -173,7 +177,7 @@ The power icon, and **Settings → Console → Power**, need a connected PS5. Ea
 
 ### Save your consoles
 
-In **Settings → Console**, type a name under **Favourite** and select **Save to favourites**. Each favourite keeps its IP address and quality profile. Choosing one from the console menu fills in the settings; select **Save changes** to use it.
+In **Settings → Console**, type a name under **Favourite** and select **Save to favourites**. Each favourite keeps its IP address and quality profile. Choosing one from the console menu fills in the settings; select **Save** to connect to it.
 
 ### Go live
 
@@ -189,7 +193,7 @@ PlayBridge sends on the H.264 video and AAC sound the PS5 already made, without 
 
 ### Manual mode
 
-1. In **Settings → Console**, switch **ELF already loaded in Payload Manager** **on**, then save.
+1. In **Settings → Console**, switch **ELF already loaded in Payload Manager** **on**. It is used from the next connection.
 2. Load **PlayBridge.elf** through your preferred PS5 payload loader.
 3. Connect from the PC within **60 seconds**.
 
@@ -207,7 +211,7 @@ The standalone ELF waits for one viewer per execution. After ending a manual ses
 | Console status | The game in front, CPU and SoC temperature, and whether a console found on the network is resting. |
 | Power | Rest mode, soft reset (close and relaunch the game), and reboot and turn off (not yet tested on a console). Each asks first. |
 | Graphics card | Settings names the card that decodes the stream and asks it which stream sizes it can decode. |
-| Presentation | **Direct3D 11** by default: the GPU decodes the video, converts its colour, scales it and presents it, with optional sharpening and optional AMD FSR 1 upscaling when the screen is larger than the stream. Windows **GDI** remains as the automatic fallback and as a switch in Settings. Both show one frame per monitor refresh from a short queue, and skip frames rather than letting the delay grow. With **Variable refresh rate** on, Direct3D 11 sends each frame at its own time to a G-Sync, FreeSync or Adaptive-Sync screen instead. |
+| Presentation | **Direct3D 11** by default: the GPU decodes the video, converts its colour, scales it and presents it, with optional sharpening and optional AMD FSR 1 upscaling when the screen is larger than the stream. Windows **GDI** remains as the automatic fallback and as a switch in Settings. Both show one frame per monitor refresh from a short queue, and skip frames rather than letting the delay grow. With **Variable refresh rate** on, Direct3D 11 sends each frame at its own time instead, on a screen whose EDID shows FreeSync, HDMI VRR or Adaptive-Sync; a fixed-rate screen keeps one frame per refresh, so it does not tear. |
 | Decoding | Separate from the network thread, so a slow decoder drops video until the next keyframe instead of stalling audio or the connection. Software decoding uses frame threads above 1080p. |
 | Audio buffering | Bounded PCM queue; if it exceeds approximately **60 ms**, it is trimmed toward **40 ms**. Above 1080p these limits are **160 ms** and **120 ms**. |
 | Window modes | Resizable window, fullscreen, centered image and preserved aspect ratio. Black bars can appear when the available area is not 16:9. |
@@ -215,7 +219,7 @@ The standalone ELF waits for one viewer per execution. After ending a manual ses
 | Session controls | Connect/disconnect, automatic/manual loading modes and optional automatic reconnect. |
 | Console discovery | **Find console** listens for PS5 replies and scans the local network for Payload Manager. When the saved address does not answer and one PS5 does, PlayBridge follows that console, unless you typed the address yourself. Before sending the ELF, PlayBridge asks the console for its state, and stops with a message if it is resting or runs a firmware other than 13.60. Manual IP entry stays available. |
 | Screenshots | Native-source-size PNG with F8; UI controls and window bars are excluded. |
-| Recording | Packet-copy H.264/AAC MP4 with F9, bounded background writing and graceful stop/finalization. |
+| Recording | Packet-copy H.264/AAC MP4 with F9, bounded background writing and graceful stop/finalization. Optionally made smaller afterwards as HEVC or AV1 on the graphics card, while no stream plays. |
 | Instant replay | The last 30 s, 60 s or 2 minutes of the stream kept in PC memory (up to 1 GB) and saved as an MP4 with F10, without re-encoding. |
 | Microphone | Optional, off by default: your voice mixed with the console's sound in recordings, instant replays and Go live, with its own volume and F7 to turn it on and off. While it is on, the sound is encoded to AAC again; while it is off, the console's sound is copied untouched. |
 | Media | Photos and MP4 recordings with thumbnails, filters and paging, read in the background. **From your PS5** lists the console's own screenshots and clips and copies them to the PC. |
@@ -224,7 +228,8 @@ The standalone ELF waits for one viewer per execution. After ending a manual ses
 | Send a payload | Any ELF up to 64 MB sent to the loader on port 9021, after a question. |
 | Small window | The game in a small window that stays above other windows (Ctrl+M). |
 | Diagnostics | Session panel and status line, plus an exported ZIP without IP addresses, device names, file paths or logs. |
-| Interface | English. Frosted panels with a hairline rim over PlayBridge's own blue and violet picture, white type and gold as a small accent. Settings flows into columns that use the window's width. Animations are optional, and nothing is redrawn for video frames. |
+| Interface | English, drawn with Qt Quick on the graphics card: frosted glass panels, the focused game's art behind the page, game tiles in a row at the top and gold as a small accent. The selected tile turns in 3D with the mouse or the right stick. Settings flows into columns that use the window's width. Animations are optional, and nothing moves while a game is on screen. **Glass look** off, or a PC where Qt cannot start, gives the classic window. |
+| Updates | Looks for a new release on GitHub when it opens and every six hours, downloads PlayBridge.exe in the background at about 1.5 MB/s, keeps it only when it matches the release's SHA256SUMS.txt, and puts it in when the app closes. Can be turned off. |
 | PC controller | A controller connected to the PC (XInput or a standard Windows game controller) can move around the games page. It is not sent to the console. |
 | Distribution | A portable single-file Windows EXE; no separate Python installation. |
 | Preferences | Saved console, favourites, quality profile, audio output, capture folder, replay length, video output, sounds and Gaming Mode. |
@@ -366,6 +371,7 @@ Preferences, the game library and local diagnostic files are stored in <code>%LO
 
 ## Release history
 
+- **v1.6.0:** a new look with 3D game tiles, automatic updates, tiles read again on every connection, smaller recordings and Go live streams in HEVC or AV1, settings that apply at once, a focus ring for keys and controllers, notices on the PS5, and variable refresh only on screens that support it.
 - **v1.5.2:** variable refresh rate for G-Sync, FreeSync and Adaptive-Sync screens, and your microphone in recordings, instant replays and Go live.
 - **v1.5.1:** sound on PCs whose output mixes at another rate, the NVIDIA or AMD card on laptops with two graphics cards, 144 and 165 Hz screens switched to a steady rate while a game streams, the screen kept on during a session, and clearer stutter reports.
 - **v1.5.0:** closing a game no longer ends the stream, a faster first connect, captures from the PS5, Go live, Send a payload, a small window, new Settings and Media pages, a graphics card check, and fixes for blank tiles and a black or enlarged GPU picture at start.
