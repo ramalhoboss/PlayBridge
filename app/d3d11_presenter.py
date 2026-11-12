@@ -261,6 +261,73 @@ def tearing_supported():
   finally:Release(factory.value)
  except (AttributeError,OSError):return False
 
+# What a screen's EDID shows when it can vary its refresh: AMD's FreeSync block, the HDMI Forum block with a VRR range, a DisplayID
+# Adaptive-Sync or dynamic range block, or range limits given as bare limits over more than 10 Hz, as DisplayPort Adaptive-Sync
+# screens give them. A screen with none of these keeps a fixed beat, and presenting at once there tears the picture as it moves.
+OUI_AMD=0x00001A;OUI_HDMI_FORUM=0xC45DD8
+DISPLAYID_VARIABLE=(0x25,0x2B)
+def edid_varies(edid):
+ """True when the EDID shows variable refresh, False when it is a readable EDID without any sign of it, None when it is no EDID."""
+ if not edid or len(edid)<128 or edid[:8]!=b'\x00\xff\xff\xff\xff\xff\xff\x00':return None
+ for at in (54,72,90,108):
+  d=edid[at:at+18]
+  if d[0]==0 and d[1]==0 and d[3]==0xFD:
+   # Rate offsets (EDID 1.4): bit 1 adds 255 to the highest vertical rate, bits 0 and 1 together to the lowest too.
+   lowest=d[5]+(255 if d[4]&3==3 else 0);highest=d[6]+(255 if d[4]&2 else 0)
+   if d[10]==1 and highest-lowest>10:return True
+ for start in range(128,len(edid)-127,128):
+  block=edid[start:start+128]
+  if block[0]==0x02:
+   # CTA-861: data blocks from byte 4 up to where the detailed timings start.
+   at,end=4,min(block[2],127)
+   while at<end:
+    tag,length=block[at]>>5,block[at]&31;body=block[at+1:at+1+length]
+    if tag==3 and length>=3:
+     oui=body[0]|body[1]<<8|body[2]<<16
+     if oui==OUI_AMD:return True
+     # HDMI 2.1: the block's bytes 9 and 10 hold VRRmin (6 bits) and VRRmax (10 bits); both 0 means no VRR.
+     if oui==OUI_HDMI_FORUM and length>=10 and (body[8]&0x3f or (body[8]>>6)<<8|body[9]):return True
+    at+=1+length
+  elif block[0]==0x70:
+   # DisplayID: blocks of tag, revision and length from byte 5, within the section's own length.
+   at,end=5,min(5+block[2],127)
+   while at+3<=end:
+    if block[at] in DISPLAYID_VARIABLE:return True
+    at+=3+block[at+2]
+ return False
+
+class MONITORINFOEXW(Structure):
+ _fields_=[('cbSize',wintypes.DWORD),('rcMonitor',wintypes.RECT),('rcWork',wintypes.RECT),('dwFlags',wintypes.DWORD),('szDevice',wintypes.WCHAR*32)]
+class DISPLAY_DEVICEW(Structure):
+ _fields_=[('cb',wintypes.DWORD),('DeviceName',wintypes.WCHAR*32),('DeviceString',wintypes.WCHAR*128),('StateFlags',wintypes.DWORD),('DeviceID',wintypes.WCHAR*128),('DeviceKey',wintypes.WCHAR*128)]
+def screen_edid(hwnd):
+ """The EDID Windows keeps for the screen the window is on, or None. Read only, from the screen's own registry entry."""
+ import winreg
+ try:
+  user32=ctypes.windll.user32;user32.GetMonitorInfoW.argtypes=[c_void_p,POINTER(MONITORINFOEXW)];user32.GetMonitorInfoW.restype=wintypes.BOOL
+  user32.EnumDisplayDevicesW.argtypes=[wintypes.LPCWSTR,wintypes.DWORD,POINTER(DISPLAY_DEVICEW),wintypes.DWORD];user32.EnumDisplayDevicesW.restype=wintypes.BOOL
+  info=MONITORINFOEXW();info.cbSize=sizeof(info)
+  if not user32.GetMonitorInfoW(window_monitor(hwnd),byref(info)):return None
+  found=[]
+  for index in range(8):
+   device=DISPLAY_DEVICEW();device.cb=sizeof(device)
+   # EDD_GET_DEVICE_INTERFACE_NAME: DeviceID becomes \\?\DISPLAY#<model>#<instance>#{class}, the screen's place in the registry.
+   if not user32.EnumDisplayDevicesW(info.szDevice,index,byref(device),1):break
+   found.append(device)
+  # DISPLAY_DEVICE_ACTIVE: the screen the picture goes to now, before any the adapter showed once.
+  for device in sorted(found,key=lambda device:not device.StateFlags&1):
+   parts=device.DeviceID.removeprefix('\\\\?\\').split('#')
+   if len(parts)<3:continue
+   try:
+    with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,rf'SYSTEM\CurrentControlSet\Enum\{parts[0]}\{parts[1]}\{parts[2]}\Device Parameters') as key:
+     return bytes(winreg.QueryValueEx(key,'EDID')[0])
+   except OSError:continue
+ except (AttributeError,OSError,ValueError):pass
+ return None
+def screen_varies(hwnd):
+ """Whether the window's screen can vary its refresh: True, False, or None when Windows has no EDID to read for it."""
+ return edid_varies(screen_edid(hwnd))
+
 def in_flight(cross,extra=0):
  """Frames queued for the screen: one keeps the delay lowest, a second covers the copy between two cards, and each extra one was earned
  by a run of misses on this PC."""
@@ -274,8 +341,10 @@ class D3D11Presenter:
   # Both fail here, in the window's thread, where the app can still choose the other output.
   # Waits for the swap chain that ran out, and whether the last one drew on a card other than the screen's, for the stats.
   self.timeouts=0;self.cross=False;self.extra=0;self.misses=collections.deque()
-  # Variable refresh only where it was asked for and the driver offers it. Otherwise the swap chain and every present are as before.
-  self.tearing=bool(vrr) and tearing_supported()
+  # Variable refresh only where it was asked for, the driver offers it and the screen can follow it. Otherwise the swap chain and
+  # every present are as before. A screen whose EDID shows a fixed rate would tear, so the switch does nothing there.
+  self.fixed_screen=bool(vrr) and screen_varies(self.hwnd) is False
+  self.tearing=bool(vrr) and not self.fixed_screen and tearing_supported()
   self.blobs=compiled();self.own=new_device(adapter);self.forget()
  def forget(self):
   self.device=None;self.context=None;self.swap=None;self.flight=None;self.target=None;self.back=None;self.scaled=None;self.scaled_view=None;self.size=None;self.waitable=None;self.owned=[];self.surface=None;self.surface_shape=None;self.planes=None;self.plane_shape=None;self.views=None;self.arranged=None;self.viewport=None;self.converted=None;self.converted_shape=None;self.enlarging=False

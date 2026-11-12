@@ -10,8 +10,11 @@
       scene.py              Pictures for the Games page
       console_control.py    Game library, status, launch and power over the control port
       sound_board.py        The library's music and navigation sounds
-      pad_input.py          A controller on the PC for the Games page
+      pad_input.py          A controller on the PC for the Games page, and its link to the console
       gaming_hub.py         Session panel and Media page
+      qt_shell.py           The Qt Quick look (optional): the window, the video inside it and every action
+      qt_models.py          What the Qt pages show, worked out without Qt so that it can be tested
+      qml/                  The Qt Quick pages: Games, Live, Media, Settings, menus and dialogs
       luxury_theme.py       Colours, cards and buttons
       frame_pacing.py       One frame per monitor refresh
       d3d11_presenter.py    Direct3D 11 output for frames decoded on the GPU
@@ -24,7 +27,9 @@
     payload/
       stream-av3.c          Firmware-13.60 native capture sender
       console-control.h     Control port: status, game library, launch, close and power
-      control-rules.h       What the control and controller ports accept
+      control-rules.h       What the control port accepts
+      pad-companion.c       The controller companion, a payload and process of its own (not used yet)
+      pad-rules.h           What the controller companion accepts and answers, and when it gives up
       av-wire.h             Packet framing
       capture-options.h     Resolution and bitrate parameters
     tools/
@@ -60,6 +65,15 @@ For a UI preview that does not contact the PS5:
 
 The preview opens an audio device but does not receive video/audio. Do not interpret its empty audio callbacks as a live-stream failure.
 
+### The Qt Quick look
+
+PlayBridge opens in a look built with Qt Quick: frosted glass panels, page transitions and game tiles that tilt towards the pointer or the right stick. It needs PySide6, which requirements-build.txt installs. To run from source without it:
+
+    .venv\Scripts\python.exe -m pip install PySide6-Essentials==6.12.0
+    .venv\Scripts\python.exe app\playbridge.py
+
+The choice is kept as "ui" in the settings file. Glass look in Settings > Appearance, or --ui tk, opens the classic Tk window. When Qt is missing or its pages fail to load, the Tk window opens instead and the reason goes to the diagnostics.
+
 ## Compile the ELF
 
 Required external tools:
@@ -75,10 +89,19 @@ Alternatively, set PS5_PAYLOAD_SDK and put the LLVM tools on PATH. Output defaul
 
     .venv\Scripts\python.exe tools\build_payload.py --sdk C:\SDK\ps5-payload-sdk --llvm "C:\Program Files\LLVM\bin" --output build\PlayBridge.elf
 
-The payload is explicitly restricted to firmware 13.60 / 0x13600007. Changing that guard alone does not port the native interfaces or module offsets to other firmware.
+The controller companion is built the same way with --controller. Its output defaults to PlayBridge-Controller.elf in the repository root:
+
+    .venv\Scripts\python.exe tools\build_payload.py --sdk C:\SDK\ps5-payload-sdk --llvm "C:\Program Files\LLVM\bin" --controller --output build\PlayBridge-Controller.elf
+
+The payloads are explicitly restricted to firmware 13.60 / 0x13600007. Changing that guard alone does not port the native interfaces or module offsets to other firmware.
 
 ## Build the Windows EXE
 
+    .venv\Scripts\python.exe -m PyInstaller --noconfirm PlayBridge.spec
+
+The EXE opens the Qt Quick look, so PySide6 must be installed as above. Only the parts of Qt the pages use go in (the Basic style, Effects, Shapes and Dialogs). Glass look in Settings, Appearance, or --ui tk, opens the classic Tk window instead. To build a smaller EXE with only the Tk window, set PLAYBRIDGE_QT=0 before the same command:
+
+    set PLAYBRIDGE_QT=0
     .venv\Scripts\python.exe -m PyInstaller --noconfirm PlayBridge.spec
 
 The result is dist\PlayBridge.exe. The recipe includes the root ELF, application artwork and required Python/native dependency data. It uses installed packages, not paths to the original development PC.

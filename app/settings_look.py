@@ -89,7 +89,7 @@ class GlassPage(tk.Frame):
  def open(self,key):
   self.current=key;self.top=0;self.view.yview_moveto(0);self.draw_menu();self.layout()
  def show_footer(self,on):
-  """The Save button, for the sections that hold anything that waits for it."""
+  """The line that says what a change did, for the sections whose changes reach the connection or the next start."""
   self.footer_on=on;self.later(0)
  def refresh(self):
   """Called when the page is shown."""

@@ -18,6 +18,16 @@ NEUTRAL=PadState()
 def wire(sequence,state):
  """The packet the payload's controller port reads."""
  return struct.pack('<4sIIBBBBBBH',b'PBP1',sequence&0xffffffff,state.buttons&CONSOLE_BUTTONS,state.lx,state.ly,state.rx,state.ry,state.l2,state.r2,0)
+# The console side answers the controller packets with where it stands, so the app can say when it is not there. It is never waited for:
+# 'PBS1', the state, an error code, and the newest sequence it took.
+STATUS_MAGIC=b'PBS1';STATUS_SIZE=16
+STARTING,READY,FAILED=0,1,2
+LINK_STATES=('starting','ready','failed')
+def status_wire(state,error,sequence):return struct.pack('<4sIiI',STATUS_MAGIC,state,error,sequence&0xffffffff)
+def read_status(data):
+ """(state, error, newest sequence) from the console side's answer, or None for anything else."""
+ if len(data)!=STATUS_SIZE or data[:4]!=STATUS_MAGIC:return None
+ return struct.unpack_from('<IiI',data,4)
 XINPUT_BUTTONS=((0x1,UP),(0x2,DOWN),(0x4,LEFT),(0x8,RIGHT),(0x10,OPTIONS),(0x20,CREATE),(0x40,L3),(0x80,R3),(0x100,L1),(0x200,R1),(0x400,PS),(0x1000,CROSS),(0x2000,CIRCLE),(0x4000,SQUARE),(0x8000,TRIANGLE))
 def from_xinput(buttons,left_trigger,right_trigger,lx,ly,rx,ry):
  """Xbox layout: sticks count upward from -32768, the console's count downward from 0."""
@@ -108,15 +118,24 @@ class WindowsPads:
 class PadBridge:
  """Reads the controller on its own thread. On the grid it navigates; over the video it plays."""
  INTERVAL=.008;KEEP_ALIVE=.05;LOOK_AGAIN=3
+ # Without an answer for this long while the controller plays, the console side is taken as not there. When playing stops, this many
+ # neutral packets go, so no button stays held on the console even if one is lost.
+ SILENT=2.0;RELEASE=3
  def __init__(self,host,stop,pads=None):
   self.host=host;self.stop=stop;self.pads=pads;self.events=queue.SimpleQueue();self.name='';self.sending=False;self.navigating=False;self.ps_leaves=False
   self.navigator=Navigator();self.combo=HomeCombo();self.sequence=0;self.sent=None;self.sent_at=0;self.pressed=0;self.thread=None
+  self.live=False;self.since=0.0;self.answer=None;self.heard_at=None
+  # The last reading, so a page can follow the right stick without taking any of its events.
+  self.state=NEUTRAL
  def start(self):
   self.thread=threading.Thread(target=self.run,name='PlayBridge controller',daemon=True);self.thread.start()
  def run(self):
   if self.pads is None:self.pads=WindowsPads()
   with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as udp:
+   # Never blocks: the answers are read when they are there, and sending does not wait for them.
+   udp.setblocking(False)
    while not self.stop.is_set():
+    self.listen(udp,time.monotonic())
     state=self.pads.read()
     if state is None:
      self.name=self.pads.find()
@@ -125,6 +144,10 @@ class PadBridge:
     self.step(state,time.monotonic(),udp)
     self.stop.wait(self.INTERVAL)
  def step(self,state,now,udp):
+  self.state=state;live=self.sending and not self.navigating
+  if self.live and not live:self.release(now,udp)
+  if live and not self.live:self.since=now
+  self.live=live
   ps_pressed=state.buttons&PS and not self.pressed&PS;self.pressed=state.buttons
   if self.combo.update(state,now):self.events.put('leave')
   if self.navigating:
@@ -139,3 +162,23 @@ class PadBridge:
   try:udp.sendto(wire(self.sequence,state),(self.host(),PAD_PORT))
   except OSError:return
   self.sequence+=1;self.sent=state;self.sent_at=now
+ def release(self,now,udp):
+  for _ in range(self.RELEASE):self.send(NEUTRAL,now,udp)
+ def listen(self,udp,now):
+  """Takes the console side's answers that are waiting, without waiting for any."""
+  for _ in range(32):
+   try:data,_=udp.recvfrom(64)
+   except (BlockingIOError,InterruptedError):return
+   # Windows reports a closed port on the console as an error on the next read; the reads after it go on.
+   except OSError:continue
+   answer=read_status(data)
+   if answer is not None:self.answer=answer;self.heard_at=now
+ def link(self,now):
+  """Where the console side stands while the controller plays: off, waiting, starting, ready, refused, failed or unavailable. Refused is
+  ready with an error: the console turned down the last state it was given."""
+  if not self.live:return 'off'
+  if self.heard_at is not None and now-self.heard_at<=self.SILENT:
+   state,error,_=self.answer
+   if state==READY and error:return 'refused'
+   return LINK_STATES[state] if state<len(LINK_STATES) else 'unavailable'
+  return 'waiting' if now-self.since<self.SILENT else 'unavailable'

@@ -14,7 +14,11 @@ PlayBridge bundles components that retain their own copyright and license terms.
 | CFFI | 2.1.1 | https://github.com/python-cffi/cffi |
 | darkdetect | 0.8.0 | https://github.com/albertosottile/darkdetect |
 | PyInstaller bootloader | 6.22.3 | https://github.com/pyinstaller/pyinstaller |
+| PySide6 (Qt for Python) and shiboken6 | 6.12.0 | https://code.qt.io/cgit/pyside/pyside-setup.git/ |
+| Qt 6 libraries bundled with PySide6 (Core, Gui, Qml, Quick and the Quick modules the window uses) | 6.12.0 | https://code.qt.io/ and https://download.qt.io/official_releases/qt/ |
 | AMD FidelityFX Super Resolution 1 (EASU and RCAS, ported to the app's shaders) | 1.20210629 | https://github.com/GPUOpen-Effects/FidelityFX-FSR |
+
+PySide6, shiboken6 and the Qt 6 libraries they bring are used under the GNU Lesser General Public License version 3 (they are also offered under GPL 2, GPL 3 or a commercial license). The license texts are in [third-party-licenses/pyside6](third-party-licenses/pyside6/). PlayBridge uses them unmodified, as separate DLLs and Python modules. Their source is available from the Qt project at the addresses above. PlayBridge's own source and its build steps ([docs/BUILDING.md](docs/BUILDING.md)) are in this repository, so the EXE can be rebuilt with a modified or different build of Qt or PySide6.
 
 The FSR 1 shaders in `app/d3d11_presenter.py` are a port of AMD's code, under the MIT license in [third-party-licenses/amd-fsr1/license.txt](third-party-licenses/amd-fsr1/license.txt).
 

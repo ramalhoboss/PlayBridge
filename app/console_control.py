@@ -98,6 +98,9 @@ def console_file(value):
  """A file's path from the database, without the date it adds at the end. Empty if it is anything else."""
  path=value.split('?')[0] if isinstance(value,str) else ''
  return path if path.startswith('/') and path.isascii() else ''
+def stamp(value):
+ """The database's whole note on a file, date included: it changes when the console replaces the file. Empty if it is anything else."""
+ return value if isinstance(value,str) and len(value)<=512 and value.isascii() and value.isprintable() else ''
 def rows(db,table,names):
  """Rows as dictionaries, with only the columns this firmware has."""
  have={row[1] for row in db.execute(f'PRAGMA table_info("{table}")')}
@@ -112,13 +115,13 @@ def read_games(path,user=None):
   tables={row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
   if 'tbl_contentinfo' not in tables:return []
   games={}
-  for row in rows(db,'tbl_contentinfo',('titleId','titleName','lastAccessTime','installTime','appType','pic0Info','snd0Info','size')):
+  for row in rows(db,'tbl_contentinfo',('titleId','titleName','lastAccessTime','installTime','appType','icon0Info','pic0Info','snd0Info','size')):
    title=row['titleId']
    # Type 0 is what the console itself runs and homebrew tools, which have no place on a shelf of games.
    if not is_game_title(title) or row.get('appType')==0:continue
    name=clean_name(row.get('titleName'))[:80] or title
    size=row.get('size')
-   games[title]={'title':title,'name':name,'played':when(row.get('lastAccessTime')) or when(row.get('installTime')),'seconds':None,'installed':when(row.get('installTime')),'size':size if isinstance(size,int) and size>0 else 0,'art':console_file(row.get('pic0Info')),'music':console_file(row.get('snd0Info'))}
+   games[title]={'title':title,'name':name,'played':when(row.get('lastAccessTime')) or when(row.get('installTime')),'seconds':None,'installed':when(row.get('installTime')),'size':size if isinstance(size,int) and size>0 else 0,'icon':console_file(row.get('icon0Info')),'art':console_file(row.get('pic0Info')),'music':console_file(row.get('snd0Info')),'stamps':{kind:stamp(row.get(column)) for kind,column in (('icon','icon0Info'),('art','pic0Info'),('music','snd0Info'))}}
   personal=[name for name in tables if re.fullmatch('tbl_iconinfo_[0-9]+',name)]
   mine=f'tbl_iconinfo_{user:010d}' if isinstance(user,int) and user>0 else ''
   table=mine if mine in tables else personal[0] if len(personal)==1 else ''
@@ -135,18 +138,36 @@ def load_games(path):
  try:saved=json.loads(Path(path).read_text(encoding='utf8'))
  except (OSError,ValueError):return []
  return [game for game in saved if isinstance(game,dict) and is_game_title(game.get('title')) and isinstance(game.get('name'),str)] if isinstance(saved,list) else []
+def load_kept(path):
+ """For each game, what the console's database said about each file when the PC read it: {title: {'icon'|'art'|'music': note}}."""
+ try:saved=json.loads(Path(path).read_text(encoding='utf8'))
+ except (OSError,ValueError):return {}
+ if not isinstance(saved,dict):return {}
+ return {title:{kind:note for kind,note in notes.items() if kind in ('icon','art','music') and isinstance(note,str)} for title,notes in saved.items() if is_game_title(title) and isinstance(notes,dict)}
+def same_bytes(one,two):
+ try:return Path(one).read_bytes()==Path(two).read_bytes()
+ except OSError:return False
+def replace_soon(partial,target,tries=20):
+ """Windows refuses to replace a file while something reads it, as the window does for a moment when it draws a cover. A moment later it can."""
+ for attempt in range(tries):
+  try:Path(partial).replace(target);return
+  except PermissionError:
+   if attempt==tries-1:raise
+   time.sleep(.05)
 def save_icon(source,target):
- """Keeps a copy large enough for a cover on a big screen. Fails on anything that is not an image."""
+ """Keeps a copy large enough for a cover on a big screen, and says whether it differs from the one already kept. Fails on anything that is not an image."""
  with Image.open(source) as image:
   image=image.convert('RGB');image.thumbnail((512,512))
   partial=Path(target).with_suffix('.partial');image.save(partial,'PNG')
- partial.replace(target)
+ # The same picture comes out as the same file, so an icon read again only counts when the console has a new one.
+ if same_bytes(partial,target):partial.unlink();return False
+ replace_soon(partial,target);return True
 def save_art(source,target):
  """Keeps a game's background art as a picture the page opens quickly. Fails on anything that is not an image."""
  with Image.open(source) as image:
   image=image.convert('RGB');image.thumbnail(ART_SIZE)
   partial=Path(target).with_suffix('.partial');image.save(partial,'JPEG',quality=90)
- partial.replace(target)
+ replace_soon(partial,target)
 
 class GameFlow:
  """Follows what the console runs, so the app knows when the grid gives way to the video and back."""
@@ -177,10 +198,11 @@ class ConsoleLink:
  STATUS_EVERY=.25;LOG_EVERY=.1
  def __init__(self,folder,notify=lambda message:None):
   self.folder=Path(folder);self.small_icons=self.folder/'icons';self.icons=self.folder/'covers';self.arts=self.folder/'art';self.tracks=self.folder/'music';self.notify=notify;self.status={};self.online=False;self.revision=0;self.refreshing=False;self.jobs=queue.SimpleQueue();self.session=None;self.want_library=True
-  self.browsing=False;self.focus='';self.extras=[]
+  # checks: the icons already on the PC, read again once each session, since an app on the console can change its icon without the database saying so.
+  self.browsing=False;self.focus='';self.extras=[];self.checks=[]
   # When set, each session keeps copies of the payload's logs in this folder on the PC, numbered by session.
   self.log_folder=None;self.log_session=0
-  self.games=load_games(self.folder/'games.json')
+  self.games=load_games(self.folder/'games.json');self.kept=load_kept(self.folder/'kept.json')
  def begin(self,host):
   self.end();stop=threading.Event();self.session=stop;self.want_library=True;self.log_session+=1
   threading.Thread(target=self.run,args=(host,stop),name='PlayBridge console link',daemon=True).start()
@@ -240,17 +262,18 @@ class ConsoleLink:
     _,body=call(sock,STATUS);status_at=now+self.STATUS_EVERY;info=json.loads(body)
     if isinstance(info,dict) and self.session is stop:self.status=info;self.online=True
    if self.log_folder is not None and now>=log_at:self.keep(sock,CAPTURE_LOG,'capture');log_at=now+self.LOG_EVERY
-   try:command,body,done=self.jobs.get(timeout=.02 if self.want_library or missing or self.extra_due() else .1)
+   try:command,body,done=self.jobs.get(timeout=.02 if self.want_library or missing or self.check_due() or self.extra_due() else .1)
    except queue.Empty:
     if self.want_library:missing=self.read_library(sock)
     elif missing:self.fetch_icon(sock,missing.pop(0))
+    elif self.check_due():self.fetch_icon(sock,self.next_check())
     elif self.extra_due():self.fetch_extra(sock,self.next_extra())
     continue
    if callable(command):result=command(sock)
    else:result,_=call(sock,command,body)
    if done is not None:done(result)
  def read_library(self,sock):
-  """Takes the database and returns the games still without an icon."""
+  """Takes the database and returns the icons to read now: those still missing and those the database says changed. Every other icon is read again later, while someone browses."""
   self.want_library=False;self.refreshing=True
   try:
    self.icons.mkdir(parents=True,exist_ok=True)
@@ -262,36 +285,74 @@ class ConsoleLink:
     except sqlite3.Error:self.notify('Unable to read the game list from the PS5.');return []
    self.games=games;self.revision+=1;self.extras=self.extras_missing(games)
    (self.folder/'games.json').write_text(json.dumps(games),encoding='utf8')
-   return [game['title'] for game in games if not (self.icons/(game['title']+'.png')).is_file()]
+   now=[game['title'] for game in games if not (self.icons/(game['title']+'.png')).is_file() or self.changed(game,'icon')]
+   self.checks=[game['title'] for game in games if game['title'] not in now]
+   return now
   finally:self.refreshing=False
+ def changed(self,game,kind):
+  """Whether the database's note on a game's file differs from the one kept when the PC read it. Unknown counts as changed."""
+  note=game.get('stamps',{}).get(kind,'')
+  return self.kept.get(game['title'],{}).get(kind)!=note
+ def remember(self,title,kind,note):
+  """Keeps the note on a file the PC now holds, so the next session knows whether the console has replaced it."""
+  if self.kept.get(title,{}).get(kind)==note:return
+  self.kept.setdefault(title,{})[kind]=note
+  target=self.folder/'kept.json';partial=target.with_suffix('.partial')
+  try:partial.write_text(json.dumps(self.kept),encoding='utf8');partial.replace(target)
+  except OSError:pass
+ def game(self,title):
+  return next((game for game in self.games if game['title']==title),{'title':title})
  def fetch_icon(self,sock,title):
+  """Reads a game's icon, where the database says the console keeps it first. An icon that came back the same changes nothing on the page."""
+  game=self.game(title);places=[game['icon']] if game.get('icon') else []
+  places+=[place for place in (root+title+'/icon0.png' for root in ICON_ROOTS) if place not in places]
   with tempfile.TemporaryDirectory(dir=self.folder) as temporary:
    raw=Path(temporary)/'icon'
-   for root in ICON_ROOTS:
-    if fetch(sock,root+title+'/icon0.png',raw):
-     try:save_icon(raw,self.icons/(title+'.png'));self.revision+=1;return
+   for place in places:
+    if fetch(sock,place,raw):
+     try:
+      if save_icon(raw,self.icons/(title+'.png')):self.revision+=1
      except Exception:return
+     self.remember(title,'icon',game.get('stamps',{}).get('icon',''));return
+ def quiet(self):
+  """Someone is looking at the library with no game open: reading a file holds up the console's status, and a game's video comes first."""
+  return self.browsing and not running_title(self.status)
+ def check_due(self):
+  return bool(self.checks) and self.quiet()
+ def next_check(self):
+  """The next icon to read again, the game in focus first."""
+  chosen=self.focus if self.focus in self.checks else self.checks[0];self.checks.remove(chosen);return chosen
  def extras_missing(self,games):
-  """The art and music still to read. A file that turned out unusable leaves a mark, so that it is not read again at every start."""
-  found=[]
+  """The art and music to read: first what is missing, then what the console has replaced since the PC read it.
+  A file that turned out unusable leaves a mark, so that it is not read again at every start, only once the console has another."""
+  missing=[];replaced=[]
   for game in games:
    for kind,folder,suffix in (('art',self.arts,'.jpg'),('music',self.tracks,'.at9')):
-    if game.get(kind) and not (folder/(game['title']+suffix)).exists() and not (folder/(game['title']+'.none')).exists():found.append((kind,game['title'],game[kind]))
-  return found
+    if not game.get(kind):continue
+    job=(kind,game['title'],game[kind],game.get('stamps',{}).get(kind,''))
+    if not (folder/(game['title']+suffix)).exists() and not (folder/(game['title']+'.none')).exists():missing.append(job)
+    elif self.changed(game,kind):replaced.append(job)
+  return missing+replaced
  def extra_due(self):
-  """Only while someone is looking at the library with no game open: reading a file holds up the console's status, and a game's video comes first."""
-  return bool(self.extras) and self.browsing and not running_title(self.status)
+  return bool(self.extras) and self.quiet()
  def next_extra(self):
   """The next file to read, the game in focus first."""
   chosen=next((job for job in self.extras if job[1]==self.focus),self.extras[0]);self.extras.remove(chosen);return chosen
  def fetch_extra(self,sock,job):
-  kind,title,path=job;folder=self.arts if kind=='art' else self.tracks;folder.mkdir(parents=True,exist_ok=True)
+  kind,title,path,note=job;folder=self.arts if kind=='art' else self.tracks;folder.mkdir(parents=True,exist_ok=True)
+  target=folder/(title+('.jpg' if kind=='art' else '.at9'));mark=folder/(title+'.none')
   with tempfile.TemporaryDirectory(dir=self.folder) as temporary:
    raw=Path(temporary)/'file'
    # A refusal may only mean an older payload, so it leaves no mark.
    if not fetch(sock,path,raw):return
    try:
-    if kind=='art':save_art(raw,folder/(title+'.jpg'))
-    else:raw.replace(folder/(title+'.at9'))
-    self.revision+=1
-   except Exception:(folder/(title+'.none')).touch()
+    if kind=='art':save_art(raw,target)
+    else:replace_soon(raw,target)
+    mark.unlink(missing_ok=True);self.revision+=1
+   # Still held open on the PC: nothing is wrong with the file, so it is read again next time.
+   except PermissionError:return
+   except Exception:
+    # What the console has now cannot be used, so the old copy goes too: the page shows what the console shows.
+    mark.touch()
+    if target.exists():target.unlink(missing_ok=True);self.revision+=1
+   self.remember(title,kind,note)

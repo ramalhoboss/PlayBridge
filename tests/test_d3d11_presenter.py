@@ -26,6 +26,54 @@ def result_of(rows,y,u,v):
  """The picture a limited range colour should give, from 0 to 255."""
  return [round(255*(row[0]*y/255+row[1]*u/255+row[2]*v/255+row[3])) for row in rows]
 
+def edid(version=(1,4),ranges=None,extensions=()):
+ """A made-up EDID: the base block with range limits (lowest Hz, highest Hz, kind, offsets) and the extension blocks given."""
+ base=bytearray(128);base[:8]=b'\x00\xff\xff\xff\xff\xff\xff\x00';base[18],base[19]=version
+ for at in (54,72,90,108):base[at:at+5]=bytes((0,0,0,0x10,0))
+ if ranges:low,high,kind,offsets=ranges;base[72:90]=bytes((0,0,0,0xFD,offsets,low,high,30,83,17,kind,10))+b' '*6
+ base[126]=len(extensions);return bytes(base)+b''.join(extensions)
+def cta(*data):
+ block=bytearray(128);block[0]=2;block[1]=3;body=b''.join(data);block[4:4+len(body)]=body;block[2]=4+len(body);return bytes(block)
+def vendor(oui,payload=b''):
+ body=bytes((oui&255,oui>>8&255,oui>>16))+payload;return bytes((3<<5|len(body),))+body
+def hdmi_forum(vrr_min,vrr_max):
+ # Version, TMDS rate, the SCDC, FRL and ALLM bytes, then VRRmin with VRRmax's top bits, and VRRmax's low byte.
+ return vendor(d.OUI_HDMI_FORUM,bytes((1,0x78,0x80,0,0,vrr_min|(vrr_max>>8)<<6,vrr_max&255)))
+def displayid(*blocks):
+ block=bytearray(128);block[0]=0x70;block[1]=0x20;body=b''.join(blocks);block[2]=len(body);block[5:5+len(body)]=body;return bytes(block)
+
+class ScreenTests(unittest.TestCase):
+ def test_a_screen_without_any_sign_of_variable_refresh_has_a_fixed_rate(self):
+  # Like a common 60 Hz office screen: EDID 1.3, GTF range limits of 50 to 76 Hz and the plain HDMI block.
+  self.assertIs(d.edid_varies(edid((1,3),(50,76,0,0),[cta(vendor(0x000C03,bytes((0x10,0))))])),False)
+  self.assertIs(d.edid_varies(edid((1,3),(56,75,0,0))),False)
+  self.assertIs(d.edid_varies(edid()),False)
+ def test_bare_range_limits_over_10_hz_show_adaptive_sync(self):
+  self.assertIs(d.edid_varies(edid(ranges=(48,144,1,0))),True)
+  # Offsets add 255: 48 to 300 Hz, and 455 to 460 Hz.
+  self.assertIs(d.edid_varies(edid(ranges=(48,45,1,2))),True)
+  self.assertIs(d.edid_varies(edid(ranges=(200,205,1,3))),False)
+  # 10 Hz or less is no range to vary in.
+  self.assertIs(d.edid_varies(edid(ranges=(55,65,1,0))),False)
+ def test_freesync_hdmi_vrr_and_displayid_blocks_show_variable_refresh(self):
+  self.assertIs(d.edid_varies(edid((1,3),(50,76,0,0),[cta(vendor(d.OUI_AMD,bytes((2,0,48,144))))])),True)
+  self.assertIs(d.edid_varies(edid(extensions=[cta(hdmi_forum(48,120))])),True)
+  self.assertIs(d.edid_varies(edid(extensions=[cta(hdmi_forum(0,0))])),False)
+  self.assertIs(d.edid_varies(edid(extensions=[cta(hdmi_forum(0,300))])),True)
+  self.assertIs(d.edid_varies(edid(extensions=[displayid(bytes((0x2B,0,2,0,0)))])),True)
+  self.assertIs(d.edid_varies(edid(extensions=[displayid(bytes((0x22,0,3,0,0,0)),bytes((0x25,0,1,0)))])),True)
+  self.assertIs(d.edid_varies(edid(extensions=[displayid(bytes((0x22,0,3,0,0,0)))])),False)
+ def test_no_edid_is_unknown(self):
+  for value in (None,b'',b'\x00'*128,edid()[:100]):self.assertIsNone(d.edid_varies(value),value)
+ def test_a_short_or_cut_block_is_read_without_an_error(self):
+  cut=bytearray(edid(extensions=[cta(vendor(d.OUI_AMD))]));cut[128+2]=200
+  self.assertIs(d.edid_varies(bytes(cut)),True)
+  self.assertIs(d.edid_varies(edid(extensions=[cta(bytes((3<<5|2,0x1A,0)))])),False)
+ def test_this_pc_names_a_screen_for_a_window(self):
+  root=tk.Tk();root.geometry('120x80+20+20');root.update()
+  try:self.assertIn(d.screen_varies(root.winfo_id()),(True,False,None))
+  finally:root.destroy()
+
 class SumsTests(unittest.TestCase):
  def test_limited_range_reaches_black_and_white(self):
   rows=d.colour_rows(1,False)
@@ -260,7 +308,21 @@ class DrawingTests(unittest.TestCase):
  def variable_refresh_output(self):
   if not d.tearing_supported():self.skipTest('this driver cannot present at once')
   other=tk.Frame(self.root,bg='',width=320,height=200);other.place(x=0,y=0,width=320,height=200);self.root.update()
-  return other,Reading(other,vrr=True)
+  with patch.object(d,'screen_varies',return_value=True):return other,Reading(other,vrr=True)
+ def test_a_screen_with_a_fixed_rate_keeps_the_swap_chain_as_before(self):
+  # Presenting at once there would tear the picture as it moves, so the switch does nothing on such a screen.
+  other=tk.Frame(self.root,bg='',width=320,height=200);other.place(x=0,y=0,width=320,height=200);self.root.update()
+  try:
+   for varies,fixed in ((False,True),(None,False)):
+    with patch.object(d,'screen_varies',return_value=varies),patch.object(d,'tearing_supported',return_value=True):output=Reading(other,vrr=True)
+    try:
+     self.assertEqual((output.fixed_screen,output.tearing),(fixed,not fixed))
+     self.assertEqual(output.swap_flags(),d.FRAME_LATENCY_WAITABLE|(0 if fixed else d.ALLOW_TEARING))
+    finally:output.detach()
+   with patch.object(d,'screen_varies',side_effect=AssertionError('asked without the switch')):output=Reading(other)
+   try:self.assertEqual((output.fixed_screen,output.tearing),(False,False))
+   finally:output.detach()
+  finally:other.destroy();self.root.update()
  def test_variable_refresh_draws_the_same_picture(self):
   other,output=self.variable_refresh_output()
   try:

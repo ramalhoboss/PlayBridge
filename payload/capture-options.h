@@ -8,6 +8,13 @@
 #define FRAME_BYTE_BUDGET 0x100000u
 #define CODEC_H264 0u
 #define CODEC_HEVC 1u
+/* The options' third word: the resolution in its low byte, the codec in the next and flags above them. Receivers before a flag
+   send 0 there, and a payload refuses a flag it does not know, so the PC sets one only while its setting is on. */
+#define OPTION_NOTIFY 1u
+#define OPTION_FLAGS OPTION_NOTIFY
+static int split_target(uint32_t word,uint32_t*resolution,uint32_t*codec,uint32_t*flags){
+ *resolution=word&0xffu;*codec=(word>>8)&0xffu;*flags=word>>16;return !(*flags&~OPTION_FLAGS);
+}
 static int valid_target(uint32_t resolution,uint32_t bitrate,uint32_t codec){
  if(codec==CODEC_HEVC){
   if(resolution==RESOLUTION_1080P)return bitrate==8000000||bitrate==12000000||bitrate==16000000;

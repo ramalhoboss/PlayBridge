@@ -23,7 +23,7 @@ class StreamMetrics:
 
 # Explicit allowlists: no host address, device names (the graphics card's model aside), paths, frame/audio data,
 # exception messages, environment, credentials, or arbitrary acknowledgement keys.
-SAFE_STATS=('audio_queue_ms','presented_fps','video_decoded','video_presented','video_replaced','video_packets_dropped','prepared_replaced','video_late_waits','audio_empty_callbacks','device_underflows','audio_trim_samples','reconnection_attempts','transport_delay_growth_ms','latency_scope','observed_seconds','video_decoder','graphics_card','graphics_vendor','gpu_decodes_up_to','refresh_hz','present_timeouts','cross_card','frames_in_flight','screen_rate','on_battery','screen_rate_check','hidden_frames','hitches','stream_gaps','network_link','microphone','mic_mixed','mic_short_ms','mic_dropped_ms','vrr')
+SAFE_STATS=('audio_queue_ms','presented_fps','video_decoded','video_presented','video_replaced','video_packets_dropped','prepared_replaced','video_late_waits','audio_empty_callbacks','device_underflows','audio_trim_samples','reconnection_attempts','transport_delay_growth_ms','latency_scope','observed_seconds','video_decoder','graphics_card','graphics_vendor','gpu_decodes_up_to','refresh_hz','present_timeouts','cross_card','frames_in_flight','screen_rate','on_battery','screen_rate_check','hidden_frames','hitches','stream_gaps','network_link','microphone','mic_mixed','mic_short_ms','mic_dropped_ms','vrr','controller_link')
 SAFE_STREAM=('decoded_width','decoded_height','pixel_format','received_mbps','video_packets_per_second','rate_window_seconds')
 SAFE_CAPTURE=('protocol','confirmed','fps_target','bitrate_target','resource_profile','resolution','resolution_requested','output_mode','refused_by')
 def diagnostic_report(snapshot):

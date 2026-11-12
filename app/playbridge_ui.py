@@ -10,7 +10,8 @@ from sound_board import SoundBoard
 from console_control import CLOSE, GameFlow, POWER_OFF, REBOOT, REST, console_line, menu_in_front, running_title
 from pad_input import CONSOLE_PAD_READY, PadBridge
 from settings_look import GlassPage
-import graphics_card,payload_sender,live_broadcast,mic_mix
+from focus_ring import FocusWalker
+import graphics_card,payload_sender,live_broadcast,mic_mix,video_encoders
 from hang_watch import HangWatch
 from keep_awake import BatteryHint,KeepAwake,on_battery
 from screen_rate import ScreenRate
@@ -104,12 +105,12 @@ def run_ui(app):
   nonlocal settings_page
   page=GlassPage(workspace);settings_page=page
   sections={}
-  for key,label,icon_name,subtitle in (('console','Console','controller','Address, favourites, connection and power'),('picture','Picture','fullscreen','Quality, graphics card, video output and upscaling'),('captures','Captures','camera','Instant replay, files and diagnostics'),('sound','Sound','speaker','Music and sounds on the Games page'),('live','Streaming','live','Twitch, YouTube, any RTMP server, or OBS on this PC'),('look','Appearance','games','Gaming Mode and motion')):
+  for key,label,icon_name,subtitle in (('console','Console','controller','Address, favourites, connection and power'),('picture','Picture','fullscreen','Quality, graphics card, video output and upscaling'),('captures','Captures','camera','Instant replay, files and diagnostics'),('sound','Sound','speaker','Music and sounds on the Games page'),('live','Streaming','live','Twitch, YouTube, any RTMP server, or OBS on this PC'),('look','Appearance','games','Gaming Mode, motion and the look of PlayBridge'),('updates','Updates','replay','New versions of PlayBridge from GitHub')):
    sections[key]=page.section(key,label,Image.open(core.HERE/'assets'/(icon_name+'.png')).convert('RGBA'),subtitle)
   foot=page.footer
   def open_section(key):
    page.open(key)
-   # Only these two hold anything that waits for Save. Everything else applies at once.
+   # Every setting applies the moment it changes. The line under these two says what that did, or what is wrong with the address.
    page.show_footer(key in ('console','picture'))
   page.choose_hook=open_section;page.open_section=open_section
   def card(section,title=None):return page.card(section,title)
@@ -135,14 +136,33 @@ def run_ui(app):
   def choose_favourite(label):
    if label not in favourite_map:return
    item=favourite_map[label];host.delete(0,'end');host.insert(0,item['host']);console_name.delete(0,'end');console_name.insert(0,item['name']);profile.set(core.PROFILES[item['profile']]['name'])
+   # Its profile applies at once, as the profile menu does; a different address waits for Save, and Save then uses both.
+   if item['host']==app.args.host:save()
+   else:waiting()
   place=card(sections['console'],'Your console')
   if favourite_map:menu(place,values=list(favourite_map),command=choose_favourite,variable=ctk.StringVar(value='Choose a saved console'))
   caption(place,'IP address').pack(anchor='w')
-  host_rim,host=entry(place);host.insert(0,app.args.host);host_rim.pack(fill='x',pady=(4,10))
+  # The address is the one setting that waits for Save (or Enter): a new one drops the stream and sends the ELF again, so it is
+  # never used half typed. Everything else on this page applies the moment it changes.
+  host_row=tk.Frame(place,bg=CARD);host_row.pack(fill='x',pady=(4,10))
+  host_rim,host=entry(host_row);host.insert(0,app.args.host);host_rim.pack(side='left',fill='x',expand=True)
+  LuxButton(host_row,'Save',lambda:save(True),width=110,height=FIELD_HEIGHT,radius=FIELD_HEIGHT//2,text_size=15,behind=CARD,tone='main').pack(side='left',padx=(8,0))
+  def waiting():
+   """Says that the address in the field is not the one in use yet."""
+   typed=host.get().strip()
+   if typed!=app.args.host:say(f'Press Save to connect to {typed}.',GOLD_SOFT,keep=True)
+  def left_host(_):
+   if not host.winfo_exists():return
+   # Back to the address in use: nothing waits, and a complaint about what was typed before no longer applies.
+   if host.get().strip()==app.args.host:say('')
+   else:
+    try:ipaddress.IPv4Address(host.get().strip());waiting()
+    except ValueError:say('Enter a valid IPv4 address, such as 192.168.1.20.',ALERT)
+  host.bind('<Return>',lambda _:save(True),add='+');host.bind('<FocusOut>',left_host,add='+')
   scan_results=queue.Queue();discovered={}
   scan_choice=ctk.StringVar(value='Select a console')
   def select_console(label):
-   if label in discovered:host.delete(0,'end');host.insert(0,discovered[label])
+   if label in discovered:host.delete(0,'end');host.insert(0,discovered[label]);waiting()
   found_rim,found_menu=drop(place,variable=scan_choice,values=['Select a console'],command=select_console);found_rim.pack(fill='x',pady=(0,6))
   scan_status=note(place,'Find your PS5 or enter its IP address above.')
   def finish_scan():
@@ -152,7 +172,7 @@ def run_ui(app):
    discovered.clear();discovered.update({item['name']+' · '+item['ip']:item['ip'] for item in items})
    found_menu.configure(values=list(discovered) or ['No console found'])
    if discovered:
-    label=next(iter(discovered));scan_choice.set(label);select_console(label);scan_status.configure(text='Select your console, then save to connect.')
+    label=next(iter(discovered));scan_choice.set(label);select_console(label);scan_status.configure(text='Choose your console above, then press Save to connect.' if len(discovered)>1 else 'Found it. Press Save to connect.')
    else:scan_choice.set('No console found');scan_status.configure(text=problem or 'No console found. Enter the IP manually; check Payload Manager.')
   def scan():
    scan_button.restyle(enabled=False,text='Scanning…');scan_status.configure(text='Searching the local network…');preferred=host.get().strip()
@@ -174,9 +194,14 @@ def run_ui(app):
   heart=local_image('heart.png');heart_icon=tint(heart,TEXT) if heart is not None else None
   wide_button(place,'Save to favourites',save_favourite,icon=heart_icon,icon_size=20)
   place=card(sections['console'],'Connection')
-  reconnect=ctk.BooleanVar(value=app.args.auto_reconnect);switch(place,'Reconnect automatically',reconnect)
-  manual=ctk.BooleanVar(value=app.args.connect_only);switch(place,'ELF already loaded in Payload Manager',manual)
+  reconnect=ctk.BooleanVar(value=app.args.auto_reconnect);switch(place,'Reconnect automatically',reconnect,lambda:save())
+  manual=ctk.BooleanVar(value=app.args.connect_only);switch(place,'ELF already loaded in Payload Manager',manual,lambda:save())
   note(place,'Off: PlayBridge uploads the ELF automatically.\nOn: load PlayBridge.elf, then connect within 60 seconds.')
+  notices=ctk.BooleanVar(value=core.config().get('ps5_notices',False))
+  def change_notices():
+   core.save_config(ps5_notices=notices.get());say('Saved. Used the next time PlayBridge connects.')
+  switch(place,'Notices on the PS5',notices,change_notices)
+  note(place,'The PS5 shows a notice when PlayBridge starts streaming to this PC and when it stops. A PlayBridge.elf you load yourself has to be from this version, or it refuses the connection while this is on.')
   place=card(sections['console'],'Send a payload')
   recent_payloads=[item for item in core.config().get('recent_payloads',[]) if isinstance(item,str)]
   def payload_label(path):return Path(path).name+'  ·  '+(Path(path).parent.name or str(Path(path).parent))
@@ -220,8 +245,8 @@ def run_ui(app):
   # Picture.
   place=card(sections['picture'],'Quality profile')
   profiles={v['name']:k for k,v in core.PROFILES.items()};profile=ctk.StringVar(value=core.PROFILES[app.args.profile]['name'])
-  menu(place,variable=profile,values=list(profiles))
-  note(place,'Profiles apply on reconnect. 30 fps limits PC playback only.\n1440p and 4K need the PS5 video output set to that resolution.')
+  menu(place,variable=profile,values=list(profiles),command=lambda _:save())
+  note(place,'Choosing a profile reconnects to the PS5 with it at once. 30 fps limits PC playback only.\n1440p and 4K need the PS5 video output set to that resolution.')
   note(place,graphics_card.summary(app.graphics()))
   # Only where there is a choice, as on a laptop with the processor's graphics and an NVIDIA or AMD card.
   found=graphics_card.cards()
@@ -230,13 +255,13 @@ def run_ui(app):
    automatic='Automatic: '+graphics_card.label(graphics_card.automatic(found),found)
    kept=core.config().get('graphics_card',graphics_card.AUTOMATIC);names=[item['name'] for item in found]
    gpu_card=ctk.StringVar(value=kept if kept in names else automatic)
-   menu(place,variable=gpu_card,values=[automatic]+names,command=lambda value:core.save_config(graphics_card=graphics_card.AUTOMATIC if value==automatic else value))
+   menu(place,variable=gpu_card,values=[automatic]+names,command=lambda value:(core.save_config(graphics_card=graphics_card.AUTOMATIC if value==automatic else value),reopen()))
    note(place,'The card that decodes and draws the video. Automatic takes the one with the most memory of its own, such as the NVIDIA or AMD card in a gaming laptop. Applies the next time PlayBridge opens.')
   place=card(sections['picture'],'On screen')
   switch(place,'Show performance stats',diagnostic,lambda:core.save_config(diagnostic=diagnostic.get()))
   place=card(sections['picture'],'Video output')
   gpu_on=ctk.BooleanVar(value=core.config().get('direct_video',True))
-  switch(place,'GPU video output',gpu_on,lambda:core.save_config(direct_video=gpu_on.get()))
+  switch(place,'GPU video output',gpu_on,lambda:(core.save_config(direct_video=gpu_on.get()),reopen()))
   note(place,'The graphics card decodes and draws the video, which uses far less of the processor and keeps playing while the window is busy. Applies the next time PlayBridge opens.')
   switch(place,'Match the screen to the stream',match_on,lambda:core.save_config(match_refresh=match_on.get()))
   note(place,'60 fps judders on a 144 or 165 Hz screen, because some frames stay up longer than others. While a game streams, PlayBridge switches the screen to 120 or 60 Hz, and back when the stream ends.')
@@ -250,10 +275,11 @@ def run_ui(app):
     presenter.fsr=fsr_on.get();core.save_config(fsr=fsr_on.get())
    switch(place,'FSR 1 upscaling',fsr_on,change_fsr)
    note(place,'When the screen is larger than the picture, such as 1080p on a 1440p or 4K monitor, AMD FidelityFX Super Resolution 1 enlarges it, and Sharpen picture uses its sharpening. Works on any graphics card.')
-   from d3d11_presenter import tearing_supported
-   if tearing_supported():
+   from d3d11_presenter import screen_varies,tearing_supported
+   # Only where the screen can follow it: a screen with a fixed rate would tear, so the switch would do nothing there.
+   if tearing_supported() and screen_varies(presenter.hwnd) is not False:
     vrr_wanted=ctk.BooleanVar(value=core.config().get('vrr',False))
-    switch(place,'Variable refresh rate',vrr_wanted,lambda:core.save_config(vrr=vrr_wanted.get()))
+    switch(place,'Variable refresh rate',vrr_wanted,lambda:(core.save_config(vrr=vrr_wanted.get()),reopen()))
     note(place,'For screens with G-Sync, FreeSync or Adaptive-Sync: each frame shows the moment it is due, so 60 fps plays evenly on a 144 Hz screen without switching it to 60 Hz. Works best in full screen (F11), and other screens may show tearing. While it is on, PlayBridge leaves the screen rate alone. Applies the next time PlayBridge opens.')
   # Captures.
   place=card(sections['captures'],'Instant replay')
@@ -283,6 +309,29 @@ def run_ui(app):
    if folder:core.save_config(capture_folder=folder);app.notify('Capture folder updated.')
   wide_button(place,'Choose capture folder',choose_capture_folder)
   wide_button(place,'Export diagnostics',export_session)
+  place=card(sections['captures'],'Smaller recordings')
+  compact_on=ctk.BooleanVar(value=core.config().get('compact_recordings',False))
+  def change_compact():
+   core.save_config(compact_recordings=compact_on.get())
+   if compact_on.get():app.compactor.resume(core.config().get('compact_waiting',[]))
+  switch(place,'Make recordings smaller',compact_on,change_compact)
+  compact_note=note(place,'Looking for this PC\'s video encoders…')
+  compact_progress=note(place,'')
+  def show_compact(encoder):
+   if encoder is None:compact_note.configure(text='This PC has no encoder for this, so recordings stay as the PS5 made them.');return
+   compact_note.configure(text=f'After each recording or replay is saved, PlayBridge makes its video again with {video_encoders.NAMES.get(encoder,encoder)}, at about a third of the size, and keeps the sound as it is. It works only while no stream plays, and the original goes to the Recycle Bin once the new file has been checked.')
+  def follow_compact():
+   if not compact_progress.winfo_exists():return
+   compact_progress.configure(text=app.compactor.status());win.after(1000,follow_compact)
+  follow_compact()
+  # Finding the encoders tries each one, so it runs away from the window and fills in both notes when it is done.
+  encoder_results=queue.Queue()
+  threading.Thread(target=lambda:encoder_results.put((video_encoders.for_files(),video_encoders.for_live())),name='PlayBridge encoders',daemon=True).start()
+  def encoders_found():
+   try:files,live=encoder_results.get_nowait()
+   except queue.Empty:win.after(200,encoders_found);return
+   show_compact(files);show_live_encoder(live)
+  win.after(200,encoders_found)
   # Streaming.
   place=card(sections['live'],'Go live')
   services={name:key for key,name in live_broadcast.SERVICES.items()}
@@ -291,17 +340,39 @@ def run_ui(app):
   server_rim,server_field=entry(place,placeholder_text='rtmp://')
   if isinstance(saved.get('live_server'),str):server_field.insert(0,saved['live_server'])
   key_label=caption(place,'Stream key')
-  key_rim,key_field=entry(place,show='•')
+  key_row=tk.Frame(place,bg=CARD)
+  key_rim,key_field=entry(key_row,show='•');key_rim.pack(side='left',fill='x',expand=True)
   key_field.insert(0,live_broadcast.unseal(saved.get('live_key','')))
+  def show_key():
+   hidden=key_field.cget('show')!='';key_field.configure(show='' if hidden else '•');key_shown.restyle(text='Hide' if hidden else 'Show')
+  key_shown=LuxButton(key_row,'Show',show_key,width=96,height=FIELD_HEIGHT,radius=FIELD_HEIGHT//2,text_size=15,behind=CARD);key_shown.pack(side='left',padx=(8,0))
+  def check_live(*_):
+   """Says what is wrong with the key or the address while it is typed, before Go live is pressed. An empty field waits."""
+   if app.broadcast.active:return
+   kind=services.get(service.get(),'twitch');key=key_field.get().strip();server=server_field.get().strip()
+   try:
+    if key or (kind=='custom' and len(server)>=10):live_broadcast.destination(kind,key or 'k',server)
+   except ValueError as problem:live_status.configure(text=str(problem),text_color=ALERT);return
+   live_status.configure(text=hints[kind],text_color=MUTED)
+  key_field.bind('<KeyRelease>',check_live,add='+');server_field.bind('<KeyRelease>',check_live,add='+')
   live_go=LuxButton(place,'Go live',lambda:start_live(),height=48,radius=24,text_size=16,behind=CARD,tone='main')
   live_status=note(place,'')
+  smaller=tk.Frame(place,bg=CARD)
+  compress_on=ctk.BooleanVar(value=core.config().get('live_compress',False))
+  switch(smaller,'Smaller stream (HEVC or AV1)',compress_on,lambda:core.save_config(live_compress=compress_on.get()))
+  compress_note=note(smaller,'Looking for this PC\'s video encoders…')
+  def show_live_encoder(encoder):
+   if encoder is None:compress_note.configure(text='This PC\'s graphics card makes neither HEVC nor AV1, so the stream always goes as the PS5 sent it.');return
+   compress_note.configure(text=f'{video_encoders.NAMES.get(encoder,encoder)} makes the video again at about a quarter of the PS5\'s bitrate (4K at about {video_encoders.bitrate(encoder,2160,live=True)//1_000_000} Mbps), for a slower upload. It uses the graphics card\'s encoder, not the processor.')
   hints={'twitch':'Twitch recommends at most 6 Mbps, so the Data saver profile suits it best. Higher profiles work on many channels.','youtube':'YouTube takes every 1080p profile. The key travels over an encrypted connection.','custom':'Enter the server address and, if your service gives it separately, the stream key.','obs':f'In OBS, add a Media Source, untick Local File, and enter udp://127.0.0.1:{live_broadcast.OBS_PORT} as the input, with mpegts as its format. Then go live here.'}
   def arrange(*_):
    kind=services.get(service.get(),'twitch')
-   for widget in (server_label,server_rim,key_label,key_rim,live_go,live_status):widget.pack_forget()
+   for widget in (server_label,server_rim,key_label,key_row,smaller,live_go,live_status):widget.pack_forget()
    if kind=='custom':server_label.pack(anchor='w');server_rim.pack(fill='x',pady=(4,10))
-   if kind!='obs':key_label.pack(anchor='w');key_rim.pack(fill='x',pady=(4,10))
+   if kind!='obs':key_label.pack(anchor='w');key_row.pack(fill='x',pady=(4,10))
+   if kind in live_broadcast.COMPRESSIBLE:smaller.pack(fill='x')
    live_go.pack(fill='x',pady=(4,10));live_status.pack(anchor='w',pady=(2,10));live_status.configure(text=hints[kind],text_color=MUTED)
+   if kind!='obs':check_live()
   menu(place,variable=service,values=list(services),command=arrange)
   arrange()
   def start_live():
@@ -315,6 +386,7 @@ def run_ui(app):
   page.live_controls=(live_go,live_status)
   place=card(sections['live'],'How it works')
   note(place,'PlayBridge sends on the video and sound the PS5 already made, without encoding them again, so it costs this PC almost nothing. The stream uses your quality profile, as H.264 and AAC, so check that its bitrate suits your channel.')
+  note(place,'For YouTube and other RTMP servers, Smaller stream makes the video again as AV1 or HEVC on the graphics card, so 4K fits a slower upload. Twitch takes those only in its Enhanced Broadcasting beta, so it always gets H.264.')
   note(place,'Ctrl+B or the button beside the small window starts and ends it with these settings. Recording and instant replay keep working while you are live.')
   # Sound.
   place=card(sections['sound'],'In the library')
@@ -337,26 +409,66 @@ def run_ui(app):
    ambient.animations=animations.get();core.save_config(animations=animations.get())
   switch(place,'Animations',animations,change_motion)
   note(place,'The library\'s moving tiles and the waiting screen. Motion pauses during video playback.')
+  place=card(sections['look'],'Look')
+  glass=ctk.BooleanVar(value=core.config().get('ui','qt')=='qt')
+  switch(place,'Glass look',glass,lambda:(core.save_config(ui='qt' if glass.get() else 'tk'),reopen()))
+  note(place,'Glass panels and motion, drawn on the graphics card. Off keeps this classic window. Applies the next time PlayBridge opens.')
+  # Updates.
+  place=card(sections['updates'],f'PlayBridge {app.updates.status()["current"]}')
+  update_line=note(place,app.updates.text())
+  def install_update():
+   if app.updates.status()['installable']:app.restart_after_update=True;close()
+  check_button=wide_button(place,'Check now',app.updates.check_now)
+  install_button=wide_button(place,'Restart and update',install_update,tone='main');install_button.pack_forget()
+  automatic=ctk.BooleanVar(value=app.updates.automatic)
+  switch(place,'Update automatically',automatic,lambda:(app.updates.set_automatic(automatic.get()),core.save_config(update_auto=automatic.get())))
+  note(place,'PlayBridge looks for a new version on GitHub when it opens and every six hours. It downloads it slowly in the background, so a stream keeps its speed, checks it against the release\'s checksums, and puts it in when you close PlayBridge.')
+  seen=[-1]
+  def follow_updates():
+   # Redrawn only when the update state moves on, looked at twice a second.
+   if not update_line.winfo_exists():return
+   state=app.updates.status()
+   if state['revision']!=seen[0]:
+    seen[0]=state['revision'];update_line.configure(text=app.updates.text(),text_color=ALERT if state['state']=='failed' else MUTED)
+    busy=state['state'] in ('checking','downloading','ready')
+    check_button.restyle(enabled=not busy,text='Looking…' if state['state']=='checking' else 'Downloading…' if state['state']=='downloading' else 'Check now')
+    if state['installable'] and not install_button.winfo_ismapped():install_button.pack(fill='x',pady=(4,10),after=check_button)
+   win.after(500,follow_updates)
+  follow_updates()
   error=ctk.CTkLabel(foot,text='',text_color=ALERT,font=BODY)
-  def save():
+  def say(text,color=MUTED,keep=False):
+   """The line under Console and Picture. A confirmation fades after a few seconds; a problem, or an address waiting for Save, stays
+   until it is dealt with."""
+   if not error.winfo_exists():return
+   error.configure(text=text,text_color=color)
+   if color!=ALERT and not keep:win.after(6000,lambda:error.winfo_exists() and error.cget('text')==text and error.configure(text=''))
+  def reopen():say('Saved. It takes effect the next time PlayBridge opens.',GOLD_SOFT)
+  def save(reach=False):
+   """Keeps what Console and Picture say the moment it changes. reach: the user asked for this console (Enter in the address, or
+   picking one), so PlayBridge connects to it when it is not connected yet."""
    typed=host.get().strip()
    try:ipaddress.IPv4Address(typed)
-   except ValueError:error.configure(text='Enter a valid IPv4 address.',text_color=ALERT);return
-   # A new connection sends the ELF again, so only what needs one starts one.
-   chosen=(typed,manual.get(),profiles[profile.get()]);changed=chosen!=(app.args.host,app.args.connect_only,app.args.profile) or not app.worker.is_alive()
+   except ValueError:say('Enter a valid IPv4 address, such as 192.168.1.20.' if typed else 'Enter your PS5\'s IP address.',ALERT);return
+   chosen=(typed,manual.get(),profiles[profile.get()]);before=(app.args.host,app.args.connect_only,app.args.profile,app.args.auto_reconnect)
+   running=app.worker.is_alive();new_host=typed!=app.args.host;new_profile=chosen[2]!=app.args.profile
+   # A new connection sends the ELF again, so only a new address, a new profile while connected, or an asked-for console starts one.
+   # The ELF switch and reconnecting apply to the next connection, so flipping them never drops a game that is playing.
+   connect=new_host or (new_profile and running) or (reach and not running)
    # A new address from the user is kept from now on, even when another PS5 answers.
-   if typed!=app.args.host:app.follow=False
+   if new_host:app.follow=False
    app.args.host,app.args.connect_only,app.args.profile=chosen;app.args.auto_reconnect=reconnect.get();core.save_config(host=app.args.host,host_auto=app.follow,connect_only=app.args.connect_only,profile=app.args.profile,auto_reconnect=app.args.auto_reconnect);host_label.configure(text=app.args.host)
-   error.configure(text='Saved. Connecting to your PS5…' if changed else 'Saved.',text_color=MUTED)
-   if not changed:return
+   if connect:say(f'Reconnecting with {profile.get()}…' if new_profile and not new_host else f'Connecting to the PS5 at {typed}…',GOLD_SOFT)
+   elif new_profile:say(f'Saved. {profile.get()} is used the next time you connect.')
+   elif before!=(*chosen,reconnect.get()):say('Saved. Used the next time PlayBridge connects.' if chosen[1]!=before[1] else 'Saved.')
+   elif reach:say(f'Saved. Already connected to the PS5 at {typed}.' if app.connection_state=='Connected' else f'Saved. Still connecting to the PS5 at {typed}…')
+   if not connect:return
    disconnect()
    def connect_when_ready():
     if app.stop.is_set():return
     if app.worker.is_alive():win.after(100,connect_when_ready)
     else:app.restart()
    win.after(100,connect_when_ready)
-  LuxButton(foot,'Save changes',save,width=200,height=50,radius=25,text_size=17,tone='main',behind=BG).pack(side='left')
-  error.pack(side='left',padx=14)
+  error.pack(side='left',padx=(0,14))
   open_section('console')
  library=CaptureLibrary(workspace,app)
  def export_session():
@@ -436,10 +548,29 @@ def run_ui(app):
   show_games(False)
  def show_strip():
   strip.show(tab=page if page in TABS else '',selected='settings' if page=='settings' else '',status=status_text(top_info),online=top_info.get('state')=='online',clock=time.strftime('%H:%M'),pad=bool(top_info.get('pad')))
+ def typing():
+  """True while a text field has the keys, where the arrows and Escape belong to the field."""
+  widget=win.focus_get()
+  return widget is not None and widget.winfo_class() in ('Entry','Text')
+ def reveal(widget):
+  """Scrolls the page so the control in the ring shows, when it sits on the page's scrolling part."""
+  holder=settings_page if page=='settings' else library.page
+  view=getattr(holder,'view',None)
+  if view is None or not str(widget).startswith(str(view)):return
+  height=view.winfo_height();top=widget.winfo_rooty()-view.winfo_rooty();bottom=top+widget.winfo_height();margin=round(24*strip.layout.unit)
+  if top>=margin and bottom<=height-margin:return
+  total=max(holder.height,height);shift=top-margin if top<margin else bottom-height+margin
+  view.yview_moveto(max(0,min(1,(view.canvasy(0)+shift)/total)));holder.pin()
+ def pop(items,right,top,choose):PopMenu(win,items,right,top,strip.layout.unit,choose)
+ # The gold ring of the keys and the controller on Settings and Media. A click puts the mouse back in charge and hides it.
+ walker=FocusWalker(pop,reveal);rail=False
+ win.bind_all('<Button-1>',lambda _:walker.hide(),add='+')
  def show_page(name):
-  nonlocal page,back_page,games_shown,has_video,last_info,revealed_at
+  nonlocal page,back_page,games_shown,has_video,last_info,revealed_at,rail
   if name==page:return
-  PopMenu.close()
+  PopMenu.close();walker.hide()
+  if settings_page is not None and rail:settings_page.hover(None)
+  rail=False
   # The small window holds only the picture, so any other page brings the full window back.
   if mini is not None and name!='live':small_window()
   # Everything is laid out before anything leaves, or the first visit shows the empty window for as long as it takes to build.
@@ -487,7 +618,7 @@ def run_ui(app):
  Tooltip(session_button,'Session performance · Ctrl+I');Tooltip(screenshot_button,'Screenshot · F8');Tooltip(record_button,'Start / stop recording · F9');Tooltip(replay_button,'Save the last moments · F10');Tooltip(captures_button,'Your captures · Ctrl+L');Tooltip(mini_button,'Small window on top · Ctrl+M');Tooltip(live_button,'Go live · Ctrl+B')
  Tooltip(mute_button,'Mute / unmute');Tooltip(output,'Audio output');Tooltip(volume,'Volume')
  bottom=tk.Frame(win,bg=BG);bottom.grid(row=3,column=0,sticky='ew',padx=20,pady=(0,6));bottom.grid_columnconfigure(0,weight=1)
- message=ctk.CTkLabel(bottom,text='',text_color=MUTED,font=('Segoe UI',10),anchor='w',height=16);message.grid(row=0,column=0,sticky='ew')
+ message=ctk.CTkLabel(bottom,text='',text_color=MUTED,font=('Segoe UI',12),anchor='w',height=20);message.grid(row=0,column=0,sticky='ew')
  diagnostic=ctk.BooleanVar(value=core.config().get('diagnostic',False))
  match_on=ctk.BooleanVar(value=core.config().get('match_refresh',True))
  mic_on=ctk.BooleanVar(value=False)
@@ -514,7 +645,7 @@ def run_ui(app):
  # Variable refresh, when it is on and the driver offers it: each frame goes to the screen at its own time, from a timer that follows
  # the stream, and the screen starts its refresh then. Otherwise the paint follows the screen's refreshes as before.
  vrr_on=direct and presenter.tearing
- vrr_state='on' if vrr_on else 'unsupported' if core.config().get('vrr',False) else 'off'
+ vrr_state='on' if vrr_on else 'fixed screen' if getattr(presenter,'fixed_screen',False) else 'unsupported' if core.config().get('vrr',False) else 'off'
  def next_due():
   with app.lock:return app.pacer.due()
  # Never two frames closer than one refresh, and never so far apart that 60 fps could not keep up.
@@ -608,7 +739,26 @@ def run_ui(app):
  win.bind('<Motion>',cursor.moved,add='+')
  page_actions.update(open=start_game,close=close_game,connect=connect_toggle,live=show_stream,media=lambda:show_page('media'),settings=lambda:show_page('settings'),fullscreen=lambda:set_gaming(not gaming_mode),rest=rest_console,off=power_off_console,reboot=reboot_console,soft_reset=soft_reset,recovery=recovery_console,exit=lambda:set_gaming(False))
  def close():awake.want(False);rate.want(False,0);app.microphone.close();app.stop.set();sounds.close();win.destroy()
+ def focus_root():
+  return (settings_page.view if page=='settings' else library.page) if page in ('settings','media') else None
+ def focus_key(event):
+  """The arrows and the controller on Settings and Media. On Settings the menu on the left is reached by going left past the
+  panels; there, up and down open the sections and right goes back into them."""
+  nonlocal rail
+  root=focus_root()
+  if root is None:return
+  if page=='settings' and rail:
+   order=settings_page.order;at=order.index(settings_page.current) if settings_page.current in order else 0
+   if event in ('up','down'):
+    key=order[(at+(1 if event=='down' else -1))%len(order)];settings_page.open_section(key);settings_page.hover(key)
+   elif event in ('right','accept'):rail=False;settings_page.hover(None);walker.hide();walker.move(root,'down')
+   return
+  if event=='accept':walker.accept(root);return
+  if event not in ('up','down','left','right'):return
+  if not walker.move(root,event) and page=='settings' and event=='left':
+   rail=True;walker.hide();settings_page.hover(settings_page.current)
  def escape(_):
+  if typing():win.focus_set();return 'break'
   if ConfirmDialog.current is not None:ConfirmDialog.close()
   elif PopMenu.current is not None:PopMenu.close()
   elif games_shown and games.dismiss():pass
@@ -618,6 +768,13 @@ def run_ui(app):
   elif fullscreen:full()
  def grid_key(event):
   if games_shown and games.navigate(event):return 'break'
+  if page in ('settings','media') and PopMenu.current is None and ConfirmDialog.current is None:
+   # In a text field, left and right move the cursor and Enter leaves it; up and down still leave for the next control.
+   if typing():
+    if event in ('left','right'):return
+    win.focus_set()
+    if event=='accept':return 'break'
+   focus_key(event);return 'break'
  def pad_event(event):
   dialog=ConfirmDialog.current
   if dialog is not None:
@@ -638,6 +795,7 @@ def run_ui(app):
   elif event in ('back','leave'):show_page(back_page)
   elif event=='next':show_page(next_tab(1))
   elif event=='previous':show_page(next_tab(-1))
+  elif event in ('up','down','left','right','accept'):focus_key(event)
  def save_replay_key(_):
   app.save_replay();return 'break'
  win.protocol('WM_DELETE_WINDOW',close);win.bind('<Escape>',escape);win.bind('<F11>',lambda _:full());win.bind('<Control-i>',lambda _:toggle_session());win.bind('<Control-l>',lambda _:show_page('media'));win.bind('<Control-comma>',lambda _:show_page('settings'));win.bind('<F8>',lambda _:app.take_screenshot());win.bind('<F9>',lambda _:app.toggle_recording());win.bind('<F10>',save_replay_key);win.bind('<F7>',lambda _:set_microphone(not app.microphone.on));win.bind('<F6>',lambda _:reveal_game() if games_shown else show_games(True));win.bind('<Control-g>',lambda _:set_gaming(not gaming_mode));win.bind('<Control-m>',lambda _:small_window());win.bind('<Control-b>',lambda _:toggle_live());win.bind('<Left>',lambda _:grid_key('left'));win.bind('<Right>',lambda _:grid_key('right'));win.bind('<Up>',lambda _:grid_key('up'));win.bind('<Down>',lambda _:grid_key('down'));win.bind('<Return>',lambda _:grid_key('accept'));win.bind('<Prior>',lambda _:grid_key('previous'));win.bind('<Next>',lambda _:grid_key('next'));canvas.bind('<Double-Button-1>',lambda _:small_window() if mini is not None else full())
@@ -729,7 +887,7 @@ def run_ui(app):
    # What the screen side looked like, to tell a PC that stutters from one that does not.
    app.stats['refresh_hz']=round(1/refresh.period,1);app.stats['vrr']=vrr_state;app.stats['hitches']=dict(hitches.counts);app.stats['hitch_log']=list(hitches.log)
    if direct:app.stats['present_timeouts']=presenter.timeouts;app.stats['cross_card']=presenter.cross;app.stats['frames_in_flight']=presenter.flight
-   app.stats['screen_rate']=rate.label();app.stats['screen_rate_check']=rate.note
+   app.stats['screen_rate']=rate.label();app.stats['screen_rate_check']=rate.note;app.stats['controller_link']=pad.link(time.monotonic())
    # What the app cannot fix itself, it says, once a session and only when frames are really being lost.
    wanted_fps=core.PROFILES[app.args.profile].get('playback_fps') or (app.capture_info or {}).get('fps_target') or 60
    streaming=app.connection_state=='Connected' and app.worker.is_alive()
@@ -780,12 +938,21 @@ def run_ui(app):
    elif linked and health['decoded_width'] and (app.capture_info or {}).get('resolution',4)>=5:info+='  ·  Processor decoding'
    if core.PROFILES[app.args.profile].get('playback_fps'):info+='  ·  30 fps PC playback'
    if app.microphone.on:info+='  ·  MIC'
+   # The controller on the console says where it stands, and the game's picture never waits for it.
+   if pad.sending:
+    link=pad.link(time.monotonic())
+    if not pad.name:info+='  ·  No controller on this PC'
+    elif link in ('waiting','starting'):info+='  ·  Controller starting…'
+    elif link=='failed':info+=f'  ·  Controller could not start ({pad.answer[1]&0xffffffff:08x})'
+    elif link=='refused':info+=f'  ·  Controller input refused ({pad.answer[1]&0xffffffff:08x})'
+    elif link=='unavailable':info+='  ·  Controller unavailable'
    if app.recorder.active:info+='  ·  '+(('REC '+str(int(now-recording_at))+' s') if recording_at is not None else 'Recording: '+app.recorder.state)
    if app.broadcast.state=='live':info+='  ·  LIVE '+live_broadcast.clock(app.broadcast.elapsed())+' on '+app.broadcast.name
    elif app.broadcast.active:info+='  ·  Going live…'
    if now<app.notice_until:info=app.notice
    if diagnostic.get():info+=f'   |   {fps:.0f} fps · PC {app.stats["last_frame_to_ui_ms"]:.1f} ms · audio queue {queue_ms:.0f} ms'
-   message.configure(text=info,text_color='#FFAAA5' if app.error else MUTED)
+   # Errors in red and fresh news in gold, so neither hides among the stream's own details.
+   message.configure(text=info,text_color='#FFAAA5' if app.error else GOLD_SOFT if now<app.notice_until else MUTED)
   # A 1 ms timer makes Tk spin and uses a whole core even with nothing to do. With the frames on another thread, this loop has only the window to look after.
   win.after(8 if direct and page=='live' else 2,tick)
  pad.start()

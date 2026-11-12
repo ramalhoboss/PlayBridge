@@ -62,7 +62,10 @@ class SoundTests(unittest.TestCase):
    bad=Path(tmp)/'bad.at9';bad.write_bytes(b'not audio');sounds.want_track(bad);sounds.load_track();self.assertIs(sounds.swap,own)
    sounds.track=own;sounds.swap=None;sounds.want_track(None);sounds.load_track();self.assertIsNone(sounds.swap)
    # Back to a track already decoded takes no decoding.
-   sounds.want_track(path);before=dict(sounds.kept);sounds.load_track();self.assertIs(sounds.swap,before[path])
+   sounds.want_track(path);before=dict(sounds.kept);sounds.load_track();self.assertIs(sounds.swap,before[board.file_key(path)])
+   # A track the console replaced under the same name is decoded again.
+   old=sounds.track=sounds.swap;sounds.swap=None;moved=path.stat().st_mtime_ns+10**9;os.utime(path,ns=(moved,moved));sounds.load_track()
+   self.assertIsNotNone(sounds.swap);self.assertIsNot(sounds.swap,old);self.assertIn(board.file_key(path),sounds.kept)
  def test_the_volume_scales_everything(self):
   sounds=silent_board(volume=.5);self.addCleanup(sounds.close);sounds.track=np.full((board.RATE,2),.2,dtype=np.float32);sounds.gain=1.0;sounds.shown=True;sounds.music_wanted=True
   self.assertAlmostEqual(float(sounds.mix(64)[32,0]),.1,places=4)

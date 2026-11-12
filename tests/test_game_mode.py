@@ -60,6 +60,23 @@ class ShelfTests(unittest.TestCase):
    # Once still, the next screen of tiles is drawn too, after the pages.
    self.assertLessEqual({many[index]['title'] for index in range(21,min(60,21+2*across))},{job[0][2] for job in shelf.wanted if job[0][0]=='tile'})
   finally:root.destroy()
+ def test_an_icon_replaced_under_the_same_name_is_drawn_again(self):
+  try:root=tk.Tk()
+  except tk.TclError:self.skipTest('no display')
+  try:
+   import tempfile,scene
+   from PIL import Image
+   with tempfile.TemporaryDirectory() as tmp:
+    icon=Path(tmp)/'PPSA00001.png';art=Path(tmp)/'PPSA00001.jpg';Image.new('RGB',(64,64),(200,0,0)).save(icon);Image.new('RGB',(64,36),(0,0,200)).save(art)
+    link=Link(GAMES);link.icon=lambda title:icon if title=='PPSA00001' else None;link.art=lambda title:art if title=='PPSA00001' else None;link.game_name=lambda title:title;link.revision=0
+    shelf=GameShelf(root,link,{});shelf.games=list(GAMES);shelf.layout=scene.page_layout(1920,1080);shelf.revision=0
+    tile,faces,page=shelf.tile_job(GAMES[0])[0],shelf.faces_job(GAMES[0],shelf.layout.focus)[0],shelf.page_job(GAMES[0])[0]
+    # The console sends a new icon and new art. The link counts a change, and the page asks the files again.
+    later=icon.stat().st_mtime_ns+10**9;os.utime(icon,ns=(later,later));os.utime(art,ns=(later,later));link.revision=1;shelf.sync('',None,'')
+    self.assertNotEqual(shelf.tile_job(GAMES[0])[0],tile);self.assertNotEqual(shelf.faces_job(GAMES[0],shelf.layout.focus)[0],faces);self.assertNotEqual(shelf.page_job(GAMES[0])[0],page)
+    # Until then, nothing is asked of the disk again.
+    self.assertEqual(shelf.tile_job(GAMES[0])[0],shelf.tile_job(GAMES[0])[0])
+  finally:root.destroy()
  def test_the_big_button_says_what_it_will_do(self):
   try:root=tk.Tk()
   except tk.TclError:self.skipTest('no display')

@@ -161,7 +161,9 @@ def scrim(size):
  """How much of the art shows at each point: less at the top for the row, at the left for the words and at the bottom for the cards. Worked out small, because nothing in it is sharp."""
  y,x=np.mgrid[0:90,0:160];u=x/159;v=y/89
  left=np.clip(1-u/.62,0,1)**1.3*.7;top=np.clip(1-v/.4,0,1)**1.5*.58;bottom=np.clip((v-.38)/.62,0,1)**1.25*.84
- light=Image.fromarray((((1-left)*(1-top)*(1-bottom))*255).astype('uint8'),'L').resize(size,BICUBIC);return Image.merge('RGB',(light,light,light))
+ # A band behind the game's name, so its letters never fight a bright logo in the art.
+ band=np.exp(-(v-.6)**2/.012)*np.clip(1-u/.75,0,1)**1.1*.45
+ light=Image.fromarray((((1-left)*(1-top)*(1-bottom)*(1-band))*255).astype('uint8'),'L').resize(size,BICUBIC);return Image.merge('RGB',(light,light,light))
 @functools.lru_cache(maxsize=2)
 def grain(size):
  """Fine noise, because so gentle a ramp in so few steps of dark would show bands."""

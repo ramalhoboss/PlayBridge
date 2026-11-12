@@ -55,6 +55,11 @@ def read_audio(path):
  parts+=[piece.to_ndarray() for piece in change.resample(None)]
  # In C order: np.take would otherwise copy the whole track for every block of sound, and the output would run dry.
  return np.concatenate(parts,axis=1).T.astype(np.float32,order='C')
+def file_key(path):
+ """A music file and when it last changed, so a track the console replaced is decoded again."""
+ if not path:return path
+ try:return (path,path.stat().st_mtime_ns)
+ except (OSError,AttributeError):return (path,0)
 def music_track():
  """A local file if this copy of the app has one, otherwise the app's own music."""
  for name in ('ambient.flac','ambient.wav','ambient.ogg'):
@@ -128,17 +133,17 @@ class SoundBoard:
    if self.shown and self.music_on and self.music_wanted:self.load_track()
  def load_track(self):
   """Gets the wanted music ready, on this thread, because decoding takes a moment. A file that will not decode leaves the app's own music playing."""
-  wanted=self.wanted_file
-  if wanted==self.playing_file:return
-  track=self.kept.get(wanted)
+  wanted=self.wanted_file;key=file_key(wanted)
+  if key==self.playing_file:return
+  track=self.kept.get(key)
   if track is None and wanted:
-   try:track=game_track(wanted);self.kept[wanted]=track
+   try:track=game_track(wanted);self.kept[key]=track
    except Exception:track=None
    while len(self.kept)>KEPT_TRACKS:del self.kept[next(iter(self.kept))]
   if track is None:
    if self.own_track is None:self.own_track=music_track()
    track=self.own_track
-  self.playing_file=wanted
+  self.playing_file=key
   if track is not self.track:self.swap=track
  def open(self):
   try:

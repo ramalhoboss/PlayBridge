@@ -32,12 +32,21 @@ def database(folder):
  db.executemany('INSERT INTO tbl_iconinfo_0000000042 VALUES(?,?,?)',(('PPSA00001','2026-03-01T10:00:00Z',7260),('PPSA00002','','0:30:00'),('PPSA09999','2026-04-01T10:00:00Z',1)))
  db.commit();db.close();return path
 
+def finish_links(seconds=5):
+ for thread in threading.enumerate():
+  if thread.name=='PlayBridge console link' and thread is not threading.current_thread():thread.join(seconds)
 def wait_for(check,seconds=5):
  end=time.monotonic()+seconds
  while time.monotonic()<end:
   if check():return True
   time.sleep(.01)
  return False
+
+def green(path):
+ """Whether a picture on disk is the green one the fake console sends. Windows refuses to open a file in the moment the link replaces it: not yet."""
+ try:
+  with Image.open(path) as image:return image.convert('RGB').getpixel((5,5))[1]>150
+ except PermissionError:return False
 
 def dds_header(width,height,fourcc,size):
  """The start of a DirectDraw Surface file, as Pillow reads it."""
@@ -56,6 +65,24 @@ class LibraryTests(unittest.TestCase):
    one,two=sorted(control.read_games(path),key=lambda game:game['title'])
   self.assertEqual((one['art'],one['music'],one['size']),('/user/appmeta/CUSA00001/pic0.dds','/user/appmeta/CUSA00001/snd0.at9',11179851776));self.assertGreater(one['installed'],1.7e9)
   self.assertEqual((two['art'],two['music'],two['size'],two['installed']),('','',0,0.0))
+ def test_each_file_keeps_the_databases_whole_note_so_a_replaced_file_shows(self):
+  with tempfile.TemporaryDirectory() as tmp:
+   path=Path(tmp)/'notes.db';db=sqlite3.connect(path);db.execute('CREATE TABLE tbl_contentinfo(titleId,titleName,icon0Info,pic0Info,snd0Info)')
+   db.executemany('INSERT INTO tbl_contentinfo VALUES(?,?,?,?,?)',(('PPSA97024','Browser','/user/appmeta/PPSA97024/icon0.png?ts=1794000000','/user/appmeta/PPSA97024/pic0.png?ts=1794000001',None),('PPSA00002','Two',7,'/café/pic0.png','')));db.commit();db.close()
+   one,two=sorted(control.read_games(path),key=lambda game:game['title'],reverse=True)
+  self.assertEqual(one['icon'],'/user/appmeta/PPSA97024/icon0.png');self.assertEqual(one['stamps'],{'icon':'/user/appmeta/PPSA97024/icon0.png?ts=1794000000','art':'/user/appmeta/PPSA97024/pic0.png?ts=1794000001','music':''})
+  self.assertEqual((two['icon'],two['stamps']),('',{'icon':'','art':'','music':''}))
+ def test_a_broken_note_file_is_ignored(self):
+  with tempfile.TemporaryDirectory() as tmp:
+   path=Path(tmp)/'kept.json';path.write_text('[',encoding='utf8');self.assertEqual(control.load_kept(path),{})
+   path.write_text(json.dumps({'PPSA00001':{'icon':'a','art':7,'other':'x'},'../x':{'icon':'b'},'PPSA00002':'c'}),encoding='utf8');self.assertEqual(control.load_kept(path),{'PPSA00001':{'icon':'a'}})
+ def test_an_icon_read_again_unchanged_leaves_the_file_alone(self):
+  with tempfile.TemporaryDirectory() as tmp:
+   source=Path(tmp)/'in';Image.new('RGB',(512,512),(10,20,30)).save(source,'PNG');target=Path(tmp)/'PPSA00001.png'
+   self.assertTrue(control.save_icon(source,target));before=target.stat().st_mtime_ns
+   self.assertFalse(control.save_icon(source,target));self.assertEqual(target.stat().st_mtime_ns,before);self.assertFalse(target.with_suffix('.partial').exists())
+   Image.new('RGB',(512,512),(200,20,30)).save(source,'PNG');self.assertTrue(control.save_icon(source,target))
+   with Image.open(target) as image:self.assertGreater(image.getpixel((5,5))[0],150)
  def test_only_a_plain_path_counts_as_a_console_file(self):
   self.assertEqual(control.console_file('/a/b.dds?ts=1'),'/a/b.dds');self.assertEqual(control.console_file('/a/b.dds'),'/a/b.dds')
   for value in (None,'',7,'relative/b.dds','http://x/y.png','/caf\u00e9/pic0.dds'):self.assertEqual(control.console_file(value),'')
@@ -133,7 +160,8 @@ class LinkTests(unittest.TestCase):
  def setUp(self):
   self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.folder=Path(self.tmp.name)/'library';self.folder.mkdir();self.source=database(self.tmp.name);self.notes=[]
  def link(self,port):
-  link=control.ConsoleLink(self.folder,self.notes.append);self.addCleanup(link.end);self.addCleanup(port.close)
+  # The link's thread is waited for after it is told to end, so it never writes into a folder being removed or reaches the next test's port.
+  link=control.ConsoleLink(self.folder,self.notes.append);self.addCleanup(finish_links);self.addCleanup(link.end);self.addCleanup(port.close)
   original=control.CONTROL_PORT;control.CONTROL_PORT=port.port;self.addCleanup(setattr,control,'CONTROL_PORT',original);link.begin('127.0.0.1');return link
  def icon(self):
   path=Path(self.tmp.name)/'icon.png';Image.new('RGB',(512,512),(1,2,3)).save(path);return path.read_bytes()
@@ -181,6 +209,62 @@ class LinkTests(unittest.TestCase):
   link=self.link(FakeControlPort(files,dict(user=42,app=-1,title='')));self.assertTrue(wait_for(lambda:link.online and link.games),self.notes);link.extras=link.extras_missing(games);link.browsing=True
   self.assertTrue(wait_for(lambda:not link.extras and (self.folder/'art'/'PPSA00001.none').exists()),self.notes);self.assertIsNone(link.art('PPSA00001'))
   self.assertEqual([job[1] for job in link.extras_missing(games)],['PPSA00002'])
+ def noted_database(self,notes):
+  """A console database whose games say where their icons are, with the date the console adds."""
+  path=Path(self.tmp.name)/'noted.db';db=sqlite3.connect(path);db.execute('CREATE TABLE tbl_contentinfo(titleId,titleName,icon0Info)')
+  db.executemany('INSERT INTO tbl_contentinfo VALUES(?,?,?)',[(title,title,f'/user/appmeta/{title}/icon0.png?ts={note}') for title,note in notes.items()]);db.commit();db.close();return path.read_bytes()
+ def picture(self,colour):
+  path=Path(self.tmp.name)/'picture.png';Image.new('RGB',(512,512),colour).save(path);return path.read_bytes()
+ def cover(self,title,colour):
+  covers=self.folder/'covers';covers.mkdir(exist_ok=True);(covers/(title+'.png')).write_bytes(self.picture(colour));return covers/(title+'.png')
+ def test_icons_are_read_again_each_session_and_a_changed_one_replaces_the_old(self):
+  # PPSA97024: the database says the console replaced it. PPSA97020: the database says nothing, the console's icon changed anyway. PPSA00003: the same icon.
+  changed,quiet,same=self.cover('PPSA97024',(200,0,0)),self.cover('PPSA97020',(200,0,0)),self.cover('PPSA00003',(0,0,200))
+  (self.folder/'kept.json').write_text(json.dumps({'PPSA97024':{'icon':'/user/appmeta/PPSA97024/icon0.png?ts=1'},'PPSA97020':{'icon':'/user/appmeta/PPSA97020/icon0.png?ts=1'},'PPSA00003':{'icon':'/user/appmeta/PPSA00003/icon0.png?ts=1'}}),encoding='utf8')
+  files={control.DATABASE:self.noted_database({'PPSA97024':2,'PPSA97020':1,'PPSA00003':1})}
+  for title,colour in (('PPSA97024',(0,200,0)),('PPSA97020',(0,200,0)),('PPSA00003',(0,0,200))):files[f'/user/appmeta/{title}/icon0.png']=self.picture(colour)
+  before=same.stat().st_mtime_ns;port=FakeControlPort(files,dict(user=42,app=-1,title=''));link=self.link(port)
+  # The one the database marks is read at once, nobody need be looking.
+  noted=lambda:control.load_kept(self.folder/'kept.json')['PPSA97024'].get('icon')=='/user/appmeta/PPSA97024/icon0.png?ts=2'
+  self.assertTrue(wait_for(lambda:link.games and green(changed) and noted()),self.notes);self.assertFalse(green(quiet))
+  # The rest are read again while someone browses with no game open.
+  revision=link.revision;link.browsing=True
+  self.assertTrue(wait_for(lambda:green(quiet) and not link.checks),self.notes);time.sleep(.1)
+  asked=[body.decode() for command,body in port.commands if command==control.FILE]
+  self.assertIn('/user/appmeta/PPSA00003/icon0.png',asked);self.assertEqual(same.stat().st_mtime_ns,before);self.assertEqual(link.revision,revision+1)
+ def test_icons_are_read_where_the_database_says_first(self):
+  files={control.DATABASE:self.noted_database({'PPSA97024':1}),'/user/appmeta/PPSA97024/icon0.png':self.picture((200,0,0)),'/user/appmeta/external/PPSA97024/icon0.png':self.picture((0,200,0))}
+  path=Path(self.tmp.name)/'external.db';path.write_bytes(files[control.DATABASE]);db=sqlite3.connect(path);db.execute("UPDATE tbl_contentinfo SET icon0Info='/user/appmeta/external/PPSA97024/icon0.png?ts=1'");db.commit();db.close();files[control.DATABASE]=path.read_bytes()
+  link=self.link(FakeControlPort(files,dict(user=42,app=-1,title='')))
+  self.assertTrue(wait_for(lambda:link.icon('PPSA97024')),self.notes)
+  self.assertTrue(green(link.icon('PPSA97024')))
+ def test_art_and_music_the_console_replaced_are_read_again(self):
+  arts=self.folder/'art';tracks=self.folder/'music';arts.mkdir();tracks.mkdir()
+  game=dict(self.art_game('PPSA00001'),stamps={'art':'/user/appmeta/PPSA00001/pic0.dds?ts=2','music':'/user/appmeta/PPSA00001/snd0.at9?ts=1'})
+  other=dict(self.art_game('PPSA00002',music=False),stamps={'art':'/user/appmeta/PPSA00002/pic0.dds?ts=5','music':''});new=self.art_game('PPSA00003',music=False)
+  (arts/'PPSA00001.jpg').write_bytes(b'old');(tracks/'PPSA00001.at9').write_bytes(b'old');(arts/'PPSA00002.none').touch()
+  link=control.ConsoleLink(self.folder);link.kept={'PPSA00001':{'art':'/user/appmeta/PPSA00001/pic0.dds?ts=1','music':'/user/appmeta/PPSA00001/snd0.at9?ts=1'},'PPSA00002':{'art':'/user/appmeta/PPSA00002/pic0.dds?ts=4'}}
+  # Missing first, then what was replaced; a file unchanged since it was read is left alone, and an unusable one is tried again once the console has another.
+  self.assertEqual([job[:2] for job in link.extras_missing([game,other,new])],[('art','PPSA00003'),('art','PPSA00001'),('art','PPSA00002')])
+  link.kept={};self.assertEqual(len(link.extras_missing([game])),2,'a file kept before the notes existed is read once more')
+ def test_a_file_the_window_is_reading_is_replaced_once_it_lets_go(self):
+  target=self.folder/'cover.png';target.write_bytes(b'old');partial=self.folder/'cover.partial';partial.write_bytes(b'new')
+  held=open(target,'rb')
+  try:
+   if os.name=='nt':self.assertRaises(PermissionError,control.replace_soon,partial,target,1)
+   threading.Timer(.2,held.close).start();control.replace_soon(partial,target)
+  finally:held.close()
+  self.assertEqual(target.read_bytes(),b'new');self.assertFalse(partial.exists())
+ def test_a_replaced_file_takes_the_place_of_the_old_and_its_note_is_kept(self):
+  game=dict(self.art_game('PPSA00001',music=False),stamps={'art':'/user/appmeta/PPSA00001/pic0.dds?ts=2'});arts=self.folder/'art';arts.mkdir()
+  (arts/'PPSA00001.none').touch();files={control.DATABASE:self.source.read_bytes(),game['art']:self.picture((0,200,0))}
+  link=self.link(FakeControlPort(files,dict(user=42,app=-1,title='')));self.assertTrue(wait_for(lambda:link.online and link.games),self.notes);link.extras=link.extras_missing([game]);link.browsing=True
+  self.assertTrue(wait_for(lambda:link.art('PPSA00001')),self.notes);self.assertFalse((arts/'PPSA00001.none').exists())
+  self.assertTrue(wait_for(lambda:control.load_kept(self.folder/'kept.json').get('PPSA00001',{}).get('art')=='/user/appmeta/PPSA00001/pic0.dds?ts=2'))
+  self.assertEqual(link.extras_missing([game]),[])
+  # What the console has next cannot be used: the old copy goes, so the page does not keep showing it.
+  game['stamps']['art']+='3';files[game['art']]=b'not an image';link.extras=link.extras_missing([game])
+  self.assertTrue(wait_for(lambda:link.art('PPSA00001') is None and (arts/'PPSA00001.none').exists()),self.notes)
  def test_the_console_refusing_the_list_is_reported(self):
   link=self.link(FakeControlPort());self.assertTrue(wait_for(lambda:self.notes));self.assertIn('game list',self.notes[0]);self.assertTrue(link.online)
  def test_a_broken_database_is_reported_and_the_old_list_stays(self):

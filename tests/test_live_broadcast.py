@@ -6,6 +6,8 @@ sys.path.insert(0,str(Path(__file__).resolve().parent))
 import av
 import live_broadcast as live
 from media_fixture import packets
+# FFmpeg reads AV1 with dav1d where it has it.
+AV1=('av1','libdav1d')
 
 def events(broadcast):
  found=[]
@@ -25,6 +27,7 @@ class DestinationTests(unittest.TestCase):
   with self.assertRaisesRegex(ValueError,'Enter your stream key'):live.destination('twitch','')
   with self.assertRaisesRegex(ValueError,'never has'):live.destination('twitch','abc/def')
   with self.assertRaisesRegex(ValueError,'never has'):live.destination('youtube','abc def')
+  with self.assertRaisesRegex(ValueError,'server address'):live.destination('twitch','rtmp://live.twitch.tv/app/live_123')
  def test_any_rtmp_server_with_or_without_a_key(self):
   self.assertEqual(live.destination('custom','key1','rtmp://example.test/live/'),('rtmp://example.test/live/key1','flv'))
   self.assertEqual(live.destination('custom','','rtmps://example.test/live/key2'),('rtmps://example.test/live/key2','flv'))
@@ -55,6 +58,23 @@ class BroadcastTests(unittest.TestCase):
     self.assertEqual(result.streams.video[0].codec_context.name,'h264');self.assertEqual(result.streams.audio[0].codec_context.name,'aac')
     frames=sum(1 for _ in result.decode(video=0))
    self.assertGreaterEqual(frames,50)
+ def test_a_smaller_stream_is_made_again_as_av1_in_enhanced_flv(self):
+  # The processor's AV1 stands in for a graphics card's here, so the test runs on any PC; the app only offers the cards' encoders.
+  with tempfile.TemporaryDirectory() as folder:
+   path=str(Path(folder)/'live.flv');b=live.LiveBroadcast();self.assertTrue(b.start(path,'flv','Test',encoder='libsvtav1'))
+   for packet in self.packets:b.feed(*packet)
+   drain(b,30);self.assertEqual(b.state,'live');b.stop(wait=True)
+   messages=[m for _,m in events(b)];self.assertIn('You are live on Test in AV1.',messages)
+   with av.open(path) as result:
+    self.assertIn(result.streams.video[0].codec_context.name,AV1);self.assertEqual(result.streams.audio[0].codec_context.name,'aac')
+    frames=sum(1 for _ in result.decode(video=0))
+   self.assertGreaterEqual(frames,50)
+ def test_hevc_from_the_ps5_may_go_over_rtmp_once_it_is_made_again(self):
+  b=live.LiveBroadcast();b.codec=live.HEVC
+  with tempfile.TemporaryDirectory() as folder:
+   self.assertTrue(b.start(str(Path(folder)/'x.flv'),'flv','Test',encoder='libsvtav1'));b.stop(wait=True)
+ def test_only_youtube_and_other_rtmp_servers_get_a_smaller_stream(self):
+  self.assertEqual(live.COMPRESSIBLE,('youtube','custom'))
  def test_obs_gets_mpeg_ts_over_udp(self):
   receiver=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);receiver.bind(('127.0.0.1',0));receiver.settimeout(5);port=receiver.getsockname()[1]
   try:

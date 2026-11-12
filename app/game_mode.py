@@ -212,12 +212,19 @@ class GameShelf(tk.Frame):
   key=('art',title)
   if key not in self.paths:self.paths[key]=self.link.art(title)
   return self.paths[key]
+ def when(self,path):
+  """When a picture's file last changed, read once for each change of the library: the console can replace an icon or art under the same name, and a drawing made from the old one must not be shown again."""
+  key=('when',path)
+  if key not in self.paths:
+   try:self.paths[key]=path.stat().st_mtime_ns if path else 0
+   except OSError:self.paths[key]=0
+  return self.paths[key]
  def faces_job(self,game,side):
   title=game['title'];path=self.path(title);name=game['name']
-  return ('faces',side,title,path),lambda:scene.cover_faces(load_icon(path),side,name)
+  return ('faces',side,title,path,self.when(path)),lambda:scene.cover_faces(load_icon(path),side,name)
  def tile_job(self,game):
   title=game['title'];path=self.path(title);name=game['name'];side=self.layout.small
-  return ('tile',side,title,path),lambda:scene.flat_tile(load_icon(path),side,name)
+  return ('tile',side,title,path,self.when(path)),lambda:scene.flat_tile(load_icon(path),side,name)
  def rest_job(self,game):
   faces=self.faces_job(game,self.layout.focus)
   return ('rest',faces[0]),lambda:scene.render_cover(self.made(*faces),self.REST_YAW,0.0,quality=scene.BICUBIC)
@@ -229,7 +236,7 @@ class GameShelf(tk.Frame):
    name='Your games';line=empty_line(self.link,self.text);cards=total_cards(self.link.games);art=cover=None
   else:
    name=game['name'];line=game_line(game,self.running,self.waiting);cards=game_cards(game);art=self.art_path(game['title']);cover=self.path(game['title'])
-  return ('page',size,name,line,cards,art,cover),lambda:scene.library_page(load_picture(art,size),load_icon(cover),layout,name,line,cards)
+  return ('page',size,name,line,cards,art,self.when(art),cover,self.when(cover)),lambda:scene.library_page(load_picture(art,size),load_icon(cover),layout,name,line,cards)
  def live_job(self):
   layout=self.layout;info=self.info;fps=info.get('fps');stream=(min(1,fps/60) if fps else 0,str(round(fps)) if fps else '—',info.get('picture') or 'No picture yet',info.get('bitrate') or '—')
   open_name=self.link.game_name(self.running) if self.running else 'No game open';cpu,soc=info.get('cpu'),info.get('soc')
@@ -472,9 +479,9 @@ class GameShelf(tk.Frame):
   if self.under is not None and self.shown:self.present.picture(self.under,0,0)
  def tile_picture(self,game,offset):
   """A tile's picture where it is: flat in the row, in 3D in the focus, following the pointer, and swinging on its axis on the way between the two. The swing is drawn small and enlarged, since nobody can see the detail while it moves."""
-  layout=self.layout;title=game['title'];path=self.path(title);reach=abs(offset);faces_key=('faces',layout.focus,title,path)
+  layout=self.layout;title=game['title'];path=self.path(title);reach=abs(offset);changed=self.when(path);faces_key=('faces',layout.focus,title,path,changed)
   if reach>=.995:
-   picture=self.peek(('tile',layout.small,title,path));return (picture,-(layout.small//2),-(layout.small//2)) if picture is not None else None
+   picture=self.peek(('tile',layout.small,title,path,changed));return (picture,-(layout.small//2),-(layout.small//2)) if picture is not None else None
   rest=self.peek(('rest',faces_key))
   if reach<.005:
    yaw=round(math.degrees(self.tilt[0]));pitch=round(math.degrees(self.tilt[1]))
@@ -487,7 +494,7 @@ class GameShelf(tk.Frame):
    return picture
   sign=1 if offset>0 else -1;step=max(1,min(self.TURN_STEPS-1,round(reach*self.TURN_STEPS)));key=('turn',faces_key,sign,step);picture=self.moving.get(key)
   if picture is None:
-   faces=self.peek(('faces',layout.half,title,path))
+   faces=self.peek(('faces',layout.half,title,path,changed))
    if faces is None:return rest
    share=step/self.TURN_STEPS;sprite,left,top=scene.render_cover(faces,scene.turn_of(sign*share)+self.REST_YAW*(1-share),0.0,1-share);scale=scene.tile_pose(share,layout)[2]/faces['side']
    sprite=scene.dimmed(sprite.resize((round(sprite.width*scale),round(sprite.height*scale)),scene.BILINEAR),1-(1-scene.SMALL_LIGHT)*share);picture=(sprite,round(left*scale),round(top*scale));self.remember(key,picture)

@@ -33,13 +33,13 @@ class PerformanceDock(ctk.CTkScrollableFrame):
         card=Bezel(self,fill=CARD,outer=BG,radius=14);card.pack(fill='x',padx=8,pady=(0,9))
         ctk.CTkLabel(card.body,text='Console',text_color=MUTED,font=('Segoe UI',11)).pack(anchor='w',padx=14,pady=(10,0))
         self.console_game=ctk.CTkLabel(card.body,text='Not connected',text_color=TEXT,font=('Segoe UI Semilight',16),wraplength=200,justify='left');self.console_game.pack(anchor='w',padx=14)
-        self.console_line=ctk.CTkLabel(card.body,text='',text_color=MUTED,font=('Segoe UI',10),wraplength=200,justify='left');self.console_line.pack(anchor='w',padx=14,pady=(0,6))
+        self.console_line=ctk.CTkLabel(card.body,text='',text_color=MUTED,font=('Segoe UI',11),wraplength=200,justify='left');self.console_line.pack(anchor='w',padx=14,pady=(0,6))
         actions=tk.Frame(card.body,bg=CARD);actions.pack(fill='x',padx=8,pady=(0,8));actions.grid_columnconfigure((0,1),weight=1,uniform='actions')
         for index,(label,command) in enumerate(console):
             LuxButton(actions,label,command,height=28,radius=14,text_size=10,behind=CARD).grid(row=index//2,column=index%2,sticky='ew',padx=2,pady=2)
         self.rate=ctk.CTkLabel(self,text='Received  ·  —',text_color=TEXT,font=('Segoe UI',11));self.rate.pack(anchor='w',padx=14,pady=(8,0))
         self.graph=tk.Canvas(self,height=65,bg=BG,highlightthickness=0);self.graph.pack(fill='x',padx=14,pady=(6,0))
-        ctk.CTkLabel(self,text='Last 60 seconds · media payload',text_color=MUTED,font=('Segoe UI',9)).pack(anchor='w',padx=14)
+        ctk.CTkLabel(self,text='Last 60 seconds · media payload',text_color=MUTED,font=('Segoe UI',11)).pack(anchor='w',padx=14)
         self.details=ctk.CTkLabel(self,text='',text_color=MUTED,font=('Segoe UI',11),justify='left',anchor='w');self.details.pack(fill='x',padx=14,pady=(16,10))
         LuxButton(self,'Export diagnostics',export,height=34,radius=17,behind=BG).pack(fill='x',padx=8,pady=(4,16))
     def show_ring(self, fps):
@@ -169,7 +169,7 @@ class CaptureLibrary:
             LuxButton(card,'Open photo' if item.kind=='Photos' else 'Play recording',lambda p=item.path:self.launch(p),height=42,radius=21,text_size=15,behind=CARD).pack(fill='x',padx=12,pady=(6,14))
         board.layout()
         pages=max(1,(len(self.items)+11)//12)
-        board.status(error or f'{len(self.items)} recent captures · Page {self.number+1} of {pages}')
+        board.status(error or f'{len(self.items)} recent capture{"" if len(self.items)==1 else "s"} · Page {self.number+1} of {pages}')
         self.back.restyle(enabled=bool(self.number));self.next.restyle(enabled=self.number+1<pages)
     def launch(self,path):
         try:os.startfile(str(path))

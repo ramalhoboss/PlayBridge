@@ -12,14 +12,12 @@ static void u64(unsigned char*p,int o,uint64_t v){memcpy(p+o,&v,8);}
 #include "capture-options.h"
 #include "control-rules.h"
 __declspec(dllexport) int pb_valid(uint32_t r,uint32_t b,uint32_t c){return valid_target(r,b,c);}
+__declspec(dllexport) int pb_split(uint32_t w,uint32_t*parts){return split_target(w,parts,parts+1,parts+2);}
 __declspec(dllexport) size_t pb_headers(unsigned char*o,const unsigned char*h,uint32_t c){return codec_headers(o,h,c);}
 __declspec(dllexport) size_t pb_delimiter(unsigned char*o,uint32_t c){return delimiter(o,c);}
 __declspec(dllexport) int pb_title(const char*t,size_t n){return valid_title(t,n);}
 __declspec(dllexport) int pb_file(const char*p,size_t n){return allowed_file(p,n);}
 __declspec(dllexport) int pb_folder(const char*p,size_t n){return allowed_folder(p,n);}
-__declspec(dllexport) int pb_pad(const unsigned char*w,size_t n,uint32_t*q,uint32_t*b,unsigned char*s){return read_pad_wire(w,n,q,b,s);}
-__declspec(dllexport) int pb_newer(uint32_t a,uint32_t b){return newer_sequence(a,b);}
-__declspec(dllexport) void pb_fill(unsigned char*d,uint32_t b,const unsigned char*s,uint64_t t){fill_pad_data(d,b,s,t);}
 __declspec(dllexport) uint32_t pb_supported(uint32_t r,uint32_t m){return supported_resolution(r,m);}
 __declspec(dllexport) uint32_t pb_apply(unsigned char*p,uint32_t r,uint32_t f,uint32_t b){return apply_resolution(p,r,f,b);}
 __declspec(dllexport) int pb_reopen(uint32_t c){return read_needs_reopen(c);}
@@ -68,7 +66,6 @@ class PayloadOptionTests(unittest.TestCase):
   for name in ('pb_valid','pb_supported','pb_apply','pb_ready'):getattr(cls.lib,name).restype=ctypes.c_uint32
   for name in ('pb_headers','pb_delimiter','pb_title','pb_file'):getattr(cls.lib,name).restype=ctypes.c_size_t
   for name in ('pb_title','pb_file','pb_folder'):getattr(cls.lib,name).argtypes=[ctypes.c_char_p,ctypes.c_size_t]
-  cls.lib.pb_fill.argtypes=[ctypes.c_char_p,ctypes.c_uint32,ctypes.c_char_p,ctypes.c_uint64]
  @classmethod
  def tearDownClass(cls):
   # Unload first: Windows keeps a loaded DLL's file locked.
@@ -87,6 +84,15 @@ class PayloadOptionTests(unittest.TestCase):
    for m in ok:self.assertTrue(self.lib.pb_valid(r,m*1000000,1),(r,m))
    for m in bad:self.assertFalse(self.lib.pb_valid(r,m*1000000,1),(r,m))
   self.assertFalse(self.lib.pb_valid(6,40000000,2))
+ def split(self,word):
+  parts=(ctypes.c_uint32*3)();known=self.lib.pb_split(word,parts);return known,tuple(parts)
+ def test_the_third_word_splits_into_resolution_codec_and_flags(self):
+  self.assertEqual(self.split(0),(1,(0,0,0)))
+  self.assertEqual(self.split(0x106),(1,(6,1,0)))
+  # The notice flag passes; any flag this payload does not know refuses the options, as an older payload refuses them all.
+  self.assertEqual(self.split(0x10106),(1,(6,1,1)))
+  self.assertEqual(self.split(0x20004)[0],0)
+  self.assertEqual(self.split(0x80000000)[0],0)
  def headers(self,sets,codec):
   block=bytearray(0x1a8)
   for (length_at,body_at),data in zip(((0x10,0x18),(0x98,0xa0),(0x120,0x128)),sets):
@@ -106,9 +112,9 @@ class PayloadOptionTests(unittest.TestCase):
   for title in (b'PPSA01234',b'CUSA00001'):self.assertTrue(self.lib.pb_title(title,len(title)),title)
   for title in (b'',b'PPSA0123',b'PPSA012345',b'ppsa01234',b'PPSA0123X',b'../../etc',b'PPS\x0001234'):self.assertFalse(self.lib.pb_title(title,len(title)),title)
  def test_only_the_game_list_and_each_games_art_and_music_can_be_read(self):
-  for path in (b'/user/catalog_downloader/appmeta/PPSA01234/pic0.png',b'/user/catalog_downloader/appmeta/PPSA01234/icon0.png',b'/system_data/priv/mms/app.db',b'/system_data/priv/mms/app.db-wal',b'/user/appmeta/PPSA01234/icon0.png',b'/user/appmeta/external/CUSA00001/icon0.png',b'/mnt/ext0/user/appmeta/PPSA01234/icon0.png',b'/mnt/ext1/user/appmeta/PPSA01234/icon0.png',b'/data/playbridge-control.txt',b'/data/playbridge-control.old.txt',b'/data/ps5screen-av3.txt',b'/user/appmeta/CUSA00001/pic0.dds',b'/user/appmeta/CUSA00001/pic0.png',b'/user/appmeta/CUSA00001/snd0.at9',b'/user/app/PPSA01234/sce_sys/pic0.dds',b'/user/app/PPSA01234/sce_sys/snd0.at9',b'/user/app/PPSA01234/sce_sys/icon0.png',b'/mnt/ext1/user/app/PPSA01234/sce_sys/pic0.dds'):
+  for path in (b'/user/catalog_downloader/appmeta/PPSA01234/pic0.png',b'/user/catalog_downloader/appmeta/PPSA01234/icon0.png',b'/system_data/priv/mms/app.db',b'/system_data/priv/mms/app.db-wal',b'/user/appmeta/PPSA01234/icon0.png',b'/user/appmeta/external/CUSA00001/icon0.png',b'/mnt/ext0/user/appmeta/PPSA01234/icon0.png',b'/mnt/ext1/user/appmeta/PPSA01234/icon0.png',b'/data/playbridge-control.txt',b'/data/playbridge-control.old.txt',b'/data/ps5screen-av3.txt',b'/data/playbridge-pad.txt',b'/data/playbridge-pad.old.txt',b'/user/appmeta/CUSA00001/pic0.dds',b'/user/appmeta/CUSA00001/pic0.png',b'/user/appmeta/CUSA00001/snd0.at9',b'/user/app/PPSA01234/sce_sys/pic0.dds',b'/user/app/PPSA01234/sce_sys/snd0.at9',b'/user/app/PPSA01234/sce_sys/icon0.png',b'/mnt/ext1/user/app/PPSA01234/sce_sys/pic0.dds'):
    self.assertTrue(self.lib.pb_file(path,len(path)),path)
-  for path in (b'/user/catalog_downloader/appmeta/PPSA01234/param.json',b'/user/catalog_downloader/PPSA01234/pic0.png',b'/user/catalog_downloader/appmeta/../PPSA01234/pic0.png',b'',b'/',b'/system_data/priv/mms/app.db-shm',b'/system_data/priv/mms/app.db\x00.txt',b'/system_data/priv/mms/',b'/user/appmeta/PPSA01234/param.json',b'/user/appmeta/PPSA01234/../../home/icon0.png',b'/user/appmeta/../PPSA01234/icon0.png',b'/user/appmeta/ppsa01234/icon0.png',b'/user/appmeta/PPSA01234/icon0.png/',b'/data/other.txt',b'/user/home/PPSA01234/icon0.png',b'/user/app/PPSA01234/pic0.dds',b'/user/app/PPSA01234/eboot.bin',b'/user/app/PPSA01234/sce_sys/param.json',b'/user/app/PPSA01234/sce_sys/../eboot.bin',b'/user/app/PPSA01234/sce_sys',b'/user/appmeta/PPSA01234/sce_sys/pic0.dds',b'/user/app/ppsa01234/sce_sys/pic0.dds'):
+  for path in (b'/user/catalog_downloader/appmeta/PPSA01234/param.json',b'/user/catalog_downloader/PPSA01234/pic0.png',b'/user/catalog_downloader/appmeta/../PPSA01234/pic0.png',b'',b'/',b'/system_data/priv/mms/app.db-shm',b'/system_data/priv/mms/app.db\x00.txt',b'/system_data/priv/mms/',b'/user/appmeta/PPSA01234/param.json',b'/user/appmeta/PPSA01234/../../home/icon0.png',b'/user/appmeta/../PPSA01234/icon0.png',b'/user/appmeta/ppsa01234/icon0.png',b'/user/appmeta/PPSA01234/icon0.png/',b'/data/other.txt',b'/data/playbridge-pad.txt.bak',b'/user/home/PPSA01234/icon0.png',b'/user/app/PPSA01234/pic0.dds',b'/user/app/PPSA01234/eboot.bin',b'/user/app/PPSA01234/sce_sys/param.json',b'/user/app/PPSA01234/sce_sys/../eboot.bin',b'/user/app/PPSA01234/sce_sys',b'/user/appmeta/PPSA01234/sce_sys/pic0.dds',b'/user/app/ppsa01234/sce_sys/pic0.dds'):
    self.assertFalse(self.lib.pb_file(path,len(path)),path)
  def test_the_consoles_own_captures_can_be_listed_and_read_and_nothing_beside_them(self):
   for path in (b'/user/av_contents',b'/user/av_contents/content',b'/user/av_contents/content/Some Game',b'/mnt/ext0/user/av_contents',b'/mnt/ext1/user/av_contents/content'):
@@ -119,18 +125,6 @@ class PayloadOptionTests(unittest.TestCase):
    self.assertTrue(self.lib.pb_file(path,len(path)),path)
   for path in (b'/user/av_contents/x/db.sqlite',b'/user/av_contents/x/../../app/PPSA01234/eboot.bin.mp4',b'/user/av_contents/.jpg',b'/user/av_contents/x/.mp4x',b'/user/av_contents/x/shot.jpg/',b'/user/home/shot.jpg',b'/user/av_contents/x'+bytes([1])+b'/shot.jpg'):
    self.assertFalse(self.lib.pb_file(path,len(path)),path)
- def test_controller_packets_are_checked_and_masked(self):
-  sequence=ctypes.c_uint32();buttons=ctypes.c_uint32();sticks=(ctypes.c_ubyte*6)()
-  good=struct.pack('<4sIIBBBBBBH',b'PBP1',7,0xffffffff,1,2,3,4,5,6,0)
-  self.assertTrue(self.lib.pb_pad(good,20,ctypes.byref(sequence),ctypes.byref(buttons),sticks))
-  self.assertEqual((sequence.value,buttons.value,bytes(sticks)),(7,0x0011fffe,bytes((1,2,3,4,5,6))))
-  self.assertFalse(self.lib.pb_pad(good,19,ctypes.byref(sequence),ctypes.byref(buttons),sticks));self.assertFalse(self.lib.pb_pad(b'XXXX'+good[4:],20,ctypes.byref(sequence),ctypes.byref(buttons),sticks))
- def test_an_old_controller_packet_is_not_newer_even_across_the_wrap(self):
-  self.assertTrue(self.lib.pb_newer(5,4));self.assertFalse(self.lib.pb_newer(4,5));self.assertFalse(self.lib.pb_newer(4,4));self.assertTrue(self.lib.pb_newer(1,0xffffffff))
- def test_the_pad_record_has_the_layout_the_console_reads(self):
-  data=ctypes.create_string_buffer(0x100);self.lib.pb_fill(data,0x4000,bytes((1,2,3,4,5,6)),0x1122334455667788);d=data.raw
-  self.assertEqual(struct.unpack_from('<I',d,0)[0],0x4000);self.assertEqual(d[4:10],bytes((1,2,3,4,5,6)))
-  self.assertEqual(struct.unpack_from('<4f',d,0xc),(0.0,0.0,0.0,1.0));self.assertEqual(d[0x4c],1);self.assertEqual(struct.unpack_from('<Q',d,0x50)[0],0x1122334455667788)
  def test_output_mode_limits_resolution(self):
   # 0x10 was measured on a 1080p output and 0x13c on a 4K output.
   for mode,want,got in ((0x10,6,4),(0x10,5,4),(0x10,4,4),(0x30,6,5),(0x30,5,5),(0x13c,6,6),(0x13c,5,5),(0x13c,4,4)):

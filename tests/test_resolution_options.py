@@ -73,6 +73,11 @@ class ResolutionTests(unittest.TestCase):
   with patch.dict(core.PROFILES,{'trial':{'fps':60,'bitrate':30000000,'resolution':6,'codec':1}}):
    self.assertEqual(struct.unpack('<4sIII',core.capture_request('trial')),(b'PBO1',60,30000000,0x106))
   self.assertEqual(struct.unpack('<4sIII',core.capture_request('balanced')),(b'PBO1',60,8000000,0))
+ def test_ps5_notices_go_in_the_third_byte_only_when_asked(self):
+  self.assertEqual(struct.unpack('<4sIII',core.capture_request('balanced',False))[3],0)
+  self.assertEqual(struct.unpack('<4sIII',core.capture_request('balanced',True))[3],0x10000)
+  with patch.dict(core.PROFILES,{'trial':{'fps':60,'bitrate':30000000,'resolution':6,'codec':1}}):
+   self.assertEqual(struct.unpack('<4sIII',core.capture_request('trial',True))[3],0x10106)
  def test_the_confirmed_codec_chooses_the_decoder(self):
   p=self.player('uhd_maximum');p.capture_info={'resolution':6};p.codec=1
   with patch.object(core,'gpu_decoder',return_value=None):
@@ -83,9 +88,13 @@ class ResolutionTests(unittest.TestCase):
   with patch.object(core.ConsoleLink,'begin') as begin:
    self.stream('balanced',self.ack(control=1),[]);begin.assert_called_once()
  def test_request_carries_the_resolution(self):
-  for profile,field in (('balanced',0),('qhd_high',5),('uhd_maximum',6)):
-   _,console=self.stream(profile,self.ack(),[])
-   self.assertEqual(console.request,(b'PBO1',60,core.PROFILES[profile]['bitrate'],field))
+  # The session reads this PC's own settings, so the notice switch is pinned on each side here instead of taken from them.
+  real=core.config
+  for notices,flag in ((False,0),(True,core.NOTIFY_FLAG)):
+   with patch.object(core,'config',lambda:{**real(),'ps5_notices':notices}):
+    for profile,field in (('balanced',0),('qhd_high',5),('uhd_maximum',6)):
+     _,console=self.stream(profile,self.ack(),[])
+     self.assertEqual(console.request,(b'PBO1',60,core.PROFILES[profile]['bitrate'],field|flag))
  def test_stream_decodes_on_the_worker_with_audio(self):
   p,_=self.stream('balanced',self.ack(),paced(self.packets))
   self.assertGreater(p.stats['video_decoded'],30);self.assertGreater(p.stats['audio_samples_decoded'],0);self.assertEqual(p.stats['video_packets_dropped'],0)

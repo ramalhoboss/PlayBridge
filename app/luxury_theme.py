@@ -83,11 +83,12 @@ def rounded_mask(size, inset, radius):
     mask.paste(tile.transpose(across).transpose(down), (width-reach, height-reach))
     return mask
 
-def bezel_image(size, fill=PANEL, outer=BG, radius=16, thickness=1):
-    """A card with a hairline rim, on the colour behind it."""
+def bezel_image(size, fill=PANEL, outer=BG, radius=16, thickness=1, ring=False):
+    """A card with a hairline rim, on the colour behind it. A ring is the gold rim of the control the keys or the controller are on."""
     image = Image.new('RGB', size, outer)
-    image.paste(RIM, mask=rounded_mask(size, 0, radius))
-    image.paste(fill, mask=rounded_mask(size, thickness, radius-thickness))
+    image.paste(GOLD if ring else RIM, mask=rounded_mask(size, 0, radius))
+    edge = max(thickness*2, 2) if ring else thickness
+    image.paste(fill, mask=rounded_mask(size, edge, radius-edge))
     return image
 
 class Bezel(tk.Canvas):
@@ -104,6 +105,7 @@ class Bezel(tk.Canvas):
         self.drawn = None
         self.timer = None
         self.picture = None
+        self.ring = False
         self.item = self.create_image(0, 0, anchor='nw')
         self.body = tk.Frame(self, bg=fill)
         self.body.pack(fill='both', expand=True, padx=self.inset, pady=self.inset)
@@ -115,10 +117,14 @@ class Bezel(tk.Canvas):
     def draw(self):
         self.timer = None
         size = (self.winfo_width(), self.winfo_height())
-        if size != self.drawn and min(size) > 2:
-            self.drawn = size
-            self.picture = ImageTk.PhotoImage(bezel_image(size, self.fill, self.outer, self.radius, self.thickness), master=self)
+        if (size, self.ring) != self.drawn and min(size) > 2:
+            self.drawn = (size, self.ring)
+            self.picture = ImageTk.PhotoImage(bezel_image(size, self.fill, self.outer, self.radius, self.thickness, self.ring), master=self)
             self.itemconfigure(self.item, image=self.picture)
+    def set_ring(self, on):
+        if on != self.ring:
+            self.ring = on
+            self.draw()
 
 @functools.lru_cache(maxsize=16)
 def bold_font(pixels):
@@ -152,9 +158,11 @@ def thin_scrollbar(frame):
 def label_font(pixels):
     return ImageFont.truetype('seguisb.ttf', pixels) if os.path.isfile(os.path.join(os.environ.get('WINDIR', ''), 'Fonts', 'seguisb.ttf')) else bold_font(pixels) or ImageFont.load_default(pixels)
 
-def button_image(size, text='', icon=None, tone='plain', hovering=False, selected=False, enabled=True, behind=PANEL, radius=12, text_size=12, icon_size=20, text_colour=None, compound='left', factor=1, align='middle'):
-    """A button as one picture: its face, a hairline rim, its icon and its label. The main action is solid white and turns gold under the pointer, as the library's Play does."""
+def button_image(size, text='', icon=None, tone='plain', hovering=False, selected=False, enabled=True, behind=PANEL, radius=12, text_size=12, icon_size=20, text_colour=None, compound='left', factor=1, align='middle', focused=False):
+    """A button as one picture: its face, a hairline rim, its icon and its label. The main action is solid white and turns gold under the pointer, as the library's Play does.
+    The button the keys or the controller are on looks as it does under the pointer and wears a gold ring."""
     width, height = size
+    hovering = hovering or focused
     # behind is one colour, or the piece of a picture the button sits on.
     image = behind.convert('RGB').resize(size) if isinstance(behind, Image.Image) else Image.new('RGB', size, behind)
     whole, inner = rounded_mask(size, 0, radius), rounded_mask(size, factor, radius-factor)
@@ -188,6 +196,9 @@ def button_image(size, text='', icon=None, tone='plain', hovering=False, selecte
             x += icon_size+gap
         if text:
             draw.text((x, height/2), text, font=font, fill=ink, anchor='lm')
+    if focused:
+        ring = max(2, round(2*factor))
+        draw.rounded_rectangle((0, 0, width-1, height-1), radius, outline=GOLD, width=ring)
     return image
 
 class LuxButton(tk.Canvas):
@@ -210,6 +221,7 @@ class LuxButton(tk.Canvas):
         self.clickable = clickable
         self.align = align
         self.hovering = False
+        self.focused = False
         self.under = None
         self.pictures = {}
         self.item = self.create_image(0, 0, anchor='nw')
@@ -246,10 +258,10 @@ class LuxButton(tk.Canvas):
         if min(size) < 2:
             return
         hovering = self.hovering and self.enabled
-        key = (size, self.text, id(self.icon), self.tone, hovering, self.selected, self.enabled, self.text_colour)
+        key = (size, self.text, id(self.icon), self.tone, hovering, self.selected, self.enabled, self.text_colour, self.focused)
         if key not in self.pictures:
             behind = self.under if self.under is not None else self.behind
-            self.pictures[key] = ImageTk.PhotoImage(button_image(size, self.text, self.icon, self.tone, hovering, self.selected, self.enabled, behind, self.radius, self.text_size, self.icon_size, self.text_colour, self.compound, self.factor, self.align), master=self)
+            self.pictures[key] = ImageTk.PhotoImage(button_image(size, self.text, self.icon, self.tone, hovering, self.selected, self.enabled, behind, self.radius, self.text_size, self.icon_size, self.text_colour, self.compound, self.factor, self.align, self.focused), master=self)
         self.itemconfigure(self.item, image=self.pictures[key])
 
 def dark_title_bar(window):

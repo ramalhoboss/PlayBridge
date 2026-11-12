@@ -19,10 +19,11 @@ from video_convert import reformat_for_display
 from frame_pacing import FramePacer
 from media_capture import CaptureRecorder,ReplayBuffer,is_idr,save_clip
 from live_broadcast import LiveBroadcast
+from compact_video import Compactor
 from console_control import ConsoleLink,POWER_OFF,REBOOT,REST
 from console_discovery import SUPPORTED_FIRMWARE,firmware_name,locate,supported
 from stream_metrics import StreamMetrics,export_diagnostics
-import graphics_card,network_link
+import graphics_card,network_link,updater
 from audio_output import candidates,check_report,default_output,describe,output_name,output_settings
 from mic_mix import LEVEL_MAX,MicMix,Microphone
 from av.codec.hwaccel import HWAccel
@@ -61,9 +62,12 @@ def connect_capture(host,give_up,wait=CAPTURE_WAIT_SECONDS,clock=time.monotonic)
   try:return socket.create_connection((host,9076),CAPTURE_TRY_SECONDS)
   except OSError:
    if clock()>=end or give_up(.1):return None
-def capture_request(profile):
- # 1080p H.264 keeps sending 0 so an older manually loaded ELF can still stream. The second byte is the codec.
- p=PROFILES[profile];return struct.pack('<4sIII',b'PBO1',p['fps'],p['bitrate'],p.get('resolution',0)|p.get('codec',0)<<8)
+NOTIFY_FLAG=1<<16
+def capture_request(profile,notices=False):
+ # 1080p H.264 keeps sending 0 so an older manually loaded ELF can still stream. The second byte is the codec, and the bits above it
+ # flags: notices asks the PS5 to show one when the stream starts and ends. A payload before 1.6 refuses any flag, so it is sent
+ # only while its setting is on.
+ p=PROFILES[profile];return struct.pack('<4sIII',b'PBO1',p['fps'],p['bitrate'],p.get('resolution',0)|p.get('codec',0)<<8|(NOTIFY_FLAG if notices else 0))
 def video_threads(resolution):
  # The console sends one slice per frame, so only frame threads can share the work. Each extra thread adds a frame of delay.
  return ('FRAME',3) if resolution>=6 else ('FRAME',2) if resolution==5 else ('SLICE',1)
@@ -107,12 +111,16 @@ class Timings:
 class Player:
  def __init__(self,args):
   self.metrics=StreamMetrics();self.metrics_lock=threading.Lock();self.recorder=CaptureRecorder();self.broadcast=LiveBroadcast();self.last_native_frame=None;self.capture_info=None;self.notice='';self.notice_until=0;self.screenshot_thread=None;self.retry_at=0;self.intentional_disconnect=False;self.follow=config().get('host_auto',True);self.elsewhere=None;self.renderer=(('gdi' if args.headless or not config().get('direct_video',True) else 'd3d11') if sys.platform=='win32' else 'tk') if args.renderer=='auto' else args.renderer;self.timings=Timings();self.args=args;self.stop=threading.Event();self.session_done=threading.Event();self.render_size=(1280,720);self.volume=1.0;self.muted=False;self.save_at=0;self.connection_state='Connecting…';self.lock=threading.Lock();self.pcm=bytearray();self.frames=collections.deque();self.last_drawn=None;self.audio=None;self.sock=None;self.error='';self.stats=collections.Counter();self.peak=0;self.output_name='';self.first_video=None;self.first_audio=None;self.first_arrival=None;self.latest_pts={};self.events=collections.deque(maxlen=60);self.arrival_origin=None;self.transport_growth_ms=0;self.decode_failure=None;self.started=time.perf_counter();self.pacer=FramePacer(self.stats);self.decoder_name='software';self.decoder_on_gpu=False;self.codec=0;self.console=None;self.video_hidden=False;self.sound_hidden=False;self.replay=ReplayBuffer(config().get('replay_seconds',60));self.replay_thread=None;self.link=ConsoleLink(STATE/'library',self.notify);self.gaps=collections.deque(maxlen=30)
+  self.update_state='idle';self.updates=updater.Updater(STATE/'update',automatic=bool(config().get('update_auto',True)),on_change=self.update_changed);self.restart_after_update=False
   # The payload's logs from this run, for finding out why a stream ended. They stay on this PC and the next start clears them.
   self.link.log_folder=STATE/'ps5-logs'
   # Your voice in what is saved or sent, only while the microphone is on.
   self.mic_mix=MicMix(av);self.microphone=Microphone(self.mic_mix,sd)
   try:self.mic_mix.level=min(LEVEL_MAX,max(0.0,float(config().get('mic_level',1.0))))
   except (TypeError,ValueError):pass
+  # Recordings made smaller after they are saved, only while no stream plays. Off unless chosen in Settings.
+  self.compactor=Compactor(lambda:self.connection_state=='Connected');self.compact_saved=None
+  if config().get('compact_recordings',False):self.compactor.resume(config().get('compact_waiting',[]))
   # The graphics card that decodes and draws, the same one for both. Read once: changing it applies the next time the app opens.
   try:self.adapter=graphics_card.choose(config().get('graphics_card',graphics_card.AUTOMATIC)) if sys.platform=='win32' else None
   except Exception:self.adapter=None
@@ -264,7 +272,7 @@ class Player:
     raise RuntimeError('PS5 listener did not start on 9076')
    try:self.stats['network_link']=network_link.link(self.sock.getpeername()[0])
    except OSError:self.stats['network_link']=None
-   self.sock.sendall(capture_request(self.args.profile))
+   self.sock.sendall(capture_request(self.args.profile,bool(config().get('ps5_notices',False))))
    self.connection_state='Starting capture…';self.sock.settimeout(5);self.sock.setsockopt(socket.IPPROTO_TCP,socket.TCP_NODELAY,1)
    audio=av.CodecContext.create('aac','r');resampler=av.AudioResampler(format='s16',layout='stereo',rate=48000)
    record=(STATE/'av3-test.wire').open('wb') if self.args.record else None
@@ -333,6 +341,12 @@ class Player:
    self.link.last_look();self.link.end()
    if self.sock:self.sock.close()
    self.connection_state='Disconnected' if not self.error else 'Not connected'
+ def update_changed(self):
+  """Each step of an update goes on the session timeline once, so a check that went wrong can be seen in av3-stats.json."""
+  state=self.updates.state
+  if state!=self.update_state:
+   self.update_state=state
+   if state!='checking':self.event('Update: '+self.updates.text())
  def event(self,text):
   """A timeline of the session for av3-stats.json on this PC only: exported diagnostics leave it out."""
   self.events.append((round(time.perf_counter()-self.started,2),text))
@@ -412,18 +426,34 @@ class Player:
    try:kind,message,path=self.recorder.events.get_nowait()
    except queue.Empty:break
    self.notify(message+(': '+path if path else ''))
+   if kind=='saved' and path and config().get('compact_recordings',False):self.compactor.add(path)
+  while True:
+   try:_,message,_=self.compactor.events.get_nowait()
+   except queue.Empty:break
+   self.notify(message)
+  # The list of files still to make smaller is saved here, on the app's own thread, so no two threads write the settings at once.
+  waiting=self.compactor.remembered()
+  if waiting!=self.compact_saved:
+   if self.compact_saved is not None or waiting:save_config(compact_waiting=waiting)
+   self.compact_saved=waiting
   while True:
    try:_,message=self.broadcast.events.get_nowait()
    except queue.Empty:break
    self.notify(message)
  def go_live(self,service,key,server=''):
   """Starts sending the stream on. Returns what stopped it, in words, or ''."""
-  from live_broadcast import SERVICES,destination
+  from live_broadcast import COMPRESSIBLE,SERVICES,destination
   if self.broadcast.active:return 'You are already live.'
   try:address,container=destination(service,key,server)
   except ValueError as problem:return str(problem)
   if self.connection_state!='Connected':return 'Connect to your PS5 before going live.'
-  try:self.broadcast.start(address,container,SERVICES[service])
+  # Smaller stream: only where the service takes HEVC and AV1 over RTMP, and only on a graphics card's encoder.
+  encoder=None
+  if config().get('live_compress',False) and service in COMPRESSIBLE:
+   import video_encoders
+   encoder=video_encoders.for_live()
+   if encoder is None:self.notify('This PC\'s graphics card makes neither HEVC nor AV1, so the stream goes as the PS5 sent it.')
+  try:self.broadcast.start(address,container,SERVICES[service],encoder=encoder)
   except ValueError as problem:return str(problem)
   self.notify(f'Going live on {SERVICES[service]} at the next keyframe…');return ''
  def end_live(self):
@@ -446,14 +476,20 @@ class Player:
  def run(self):
   self.open_audio();self.converter=threading.Thread(target=self.convert_video,daemon=True);self.converter.start();self.worker=threading.Thread(target=(lambda:self.session_done.set()) if self.args.preview else self.network,daemon=True);self.worker.start()
   if self.args.preview:self.connection_state='Ready to connect'
+  # New versions from GitHub; never in a timed or headless run, which are tests.
+  if not (self.args.headless or self.args.seconds or self.args.preview):
+   threading.Thread(target=updater.tidy,args=(self.updates.folder,),name='PlayBridge update tidy',daemon=True).start();self.updates.start()
   if self.args.headless:
    self.session_done.wait(self.args.seconds or 10)
   else:self.ui()
+  self.updates.close()
+  # A version downloaded and checked goes in now, once this one has closed; Restart and update also opens it again.
+  if self.updates.install(relaunch=self.restart_after_update):self.event(f'Installing PlayBridge {self.updates.version} after closing')
   self.stop.set()
   if self.sock:
    try:self.sock.shutdown(socket.SHUT_RDWR)
    except OSError:pass
-  self.link.end();self.worker.join(timeout=6);self.converter.join(timeout=2);self.recorder.stop(wait=True);self.broadcast.stop(wait=True)
+  self.compactor.stop();self.link.end();self.worker.join(timeout=6);self.converter.join(timeout=2);self.recorder.stop(wait=True);self.broadcast.stop(wait=True)
   if self.screenshot_thread is not None:self.screenshot_thread.join(timeout=3)
   if self.replay_thread is not None:self.replay_thread.join(timeout=30)
   if self.audio:self.audio.stop();self.audio.close()
@@ -491,11 +527,21 @@ class Player:
   with self.lock:self.pcm.clear();self.frames.clear();self.pacer.clear()
   self.stats['reconnections']+=1;self.worker=threading.Thread(target=self.network,daemon=True);self.worker.start()
  def ui(self):
+  # The Qt look when it was chosen and Qt is there; otherwise, or if it cannot start, the Tk window, so PlayBridge always opens.
+  if self.args.ui=='qt':
+   try:from qt_shell import run_qt
+   except ImportError as error:self.event(f'Qt look unavailable: {error}')
+   else:
+    try:run_qt(self);return
+    except RuntimeError as error:self.event(f'Qt look did not start: {error}')
   from playbridge_ui import run_ui
   run_ui(self)
 
 def main():
- ap=argparse.ArgumentParser();ap.add_argument('--profile',choices=tuple(PROFILES),default=config().get('profile','balanced'));ap.add_argument('--auto-reconnect',action=argparse.BooleanOptionalAction,default=config().get('auto_reconnect',True));ap.add_argument('--renderer',choices=('auto','d3d11','gdi','tk'),default='auto');ap.add_argument('--host',default=config().get('host','192.168.1.100'));ap.add_argument('--connect-only',action='store_true',default=config().get('connect_only',False));ap.add_argument('--preview',action='store_true');ap.add_argument('--seconds',type=int,default=0);ap.add_argument('--headless',action='store_true');ap.add_argument('--record',action='store_true',help='Save raw diagnostic wire packets; use F9 for MP4 recording');ap.add_argument('--device');ap.add_argument('--devices',action='store_true');args=ap.parse_args()
+ # A new version, just downloaded, started by the old one to take its place: nothing else opens.
+ if len(sys.argv)>2 and sys.argv[1]=='--finish-update':
+  import updater;return updater.finish(sys.argv[2],'--relaunch' in sys.argv[3:])
+ ap=argparse.ArgumentParser();ap.add_argument('--profile',choices=tuple(PROFILES),default=config().get('profile','balanced'));ap.add_argument('--auto-reconnect',action=argparse.BooleanOptionalAction,default=config().get('auto_reconnect',True));ap.add_argument('--renderer',choices=('auto','d3d11','gdi','tk'),default='auto');ap.add_argument('--ui',choices=('tk','qt'),default=config().get('ui') if config().get('ui') in ('tk','qt') else 'qt');ap.add_argument('--host',default=config().get('host','192.168.1.100'));ap.add_argument('--connect-only',action='store_true',default=config().get('connect_only',False));ap.add_argument('--preview',action='store_true');ap.add_argument('--seconds',type=int,default=0);ap.add_argument('--headless',action='store_true');ap.add_argument('--record',action='store_true',help='Save raw diagnostic wire packets; use F9 for MP4 recording');ap.add_argument('--device');ap.add_argument('--devices',action='store_true');args=ap.parse_args()
  if args.devices:print(sd.query_devices());return 0
  guard=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
  try:guard.bind(('127.0.0.1',19077 if args.preview else 19076))

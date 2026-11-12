@@ -4,8 +4,13 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'app'))
 import pad_input as pad
 
 class FakeSocket:
- def __init__(self):self.sent=[]
+ def __init__(self,answers=()):self.sent=[];self.answers=list(answers)
  def sendto(self,data,address):self.sent.append((data,address))
+ def recvfrom(self,size):
+  if not self.answers:raise BlockingIOError
+  answer=self.answers.pop(0)
+  if isinstance(answer,Exception):raise answer
+  return answer,('192.0.2.1',pad.PAD_PORT)
 def drained(events):
  result=[]
  while not events.empty():result.append(events.get_nowait())
@@ -75,4 +80,42 @@ class BridgeTests(unittest.TestCase):
    def read(self):return self.reads.pop(0) if self.reads else stop.set()
    def find(self):return self.finds.pop(0) if self.finds else ''
   stop=threading.Event();bridge=pad.PadBridge(lambda:'127.0.0.1',stop,Pads());bridge.LOOK_AGAIN=.01;bridge.INTERVAL=.001;bridge.run();self.assertEqual(bridge.name,'')
+class LinkTests(unittest.TestCase):
+ def bridge(self):
+  bridge=pad.PadBridge(lambda:'192.0.2.1',threading.Event());bridge.sending=True;return bridge
+ def test_the_answer_round_trips(self):
+  self.assertEqual(pad.read_status(pad.status_wire(pad.FAILED,-2137784317,7)),(pad.FAILED,-2137784317,7))
+  self.assertIsNone(pad.read_status(b'PBS1'+bytes(8)));self.assertIsNone(pad.read_status(b'XXXX'+bytes(12)))
+ def test_off_while_the_controller_is_not_playing(self):
+  bridge=self.bridge();bridge.sending=False;bridge.step(pad.NEUTRAL,0,FakeSocket());self.assertEqual(bridge.link(0),'off')
+ def test_no_answer_is_waiting_at_first_then_unavailable(self):
+  bridge=self.bridge();udp=FakeSocket();bridge.step(pad.PadState(pad.CROSS),10,udp)
+  self.assertEqual(bridge.link(11),'waiting');self.assertEqual(bridge.link(12.5),'unavailable')
+  # Sending carried on all the same: the console side is never waited for.
+  bridge.step(pad.NEUTRAL,12.5,udp);self.assertEqual(len(udp.sent),2)
+ def test_answers_give_the_state_and_go_stale(self):
+  bridge=self.bridge();bridge.step(pad.NEUTRAL,0,FakeSocket())
+  for state,name in ((pad.STARTING,'starting'),(pad.READY,'ready'),(pad.FAILED,'failed'),(9,'unavailable')):
+   bridge.listen(FakeSocket([pad.status_wire(state,0,1)]),1);self.assertEqual(bridge.link(1.5),name)
+  bridge.listen(FakeSocket([pad.status_wire(pad.READY,0,1)]),2);self.assertEqual(bridge.link(4.5),'unavailable')
+  # Ready with an error: the console turned the states down. It counts again once it takes one.
+  bridge.listen(FakeSocket([pad.status_wire(pad.READY,-2137784317,2)]),5);self.assertEqual(bridge.link(5),'refused')
+  bridge.listen(FakeSocket([pad.status_wire(pad.READY,0,3)]),5.1);self.assertEqual(bridge.link(5.1),'ready')
+ def test_reading_never_waits_and_skips_noise_and_errors(self):
+  bridge=self.bridge();bridge.step(pad.NEUTRAL,0,FakeSocket())
+  bridge.listen(FakeSocket([ConnectionResetError(10054,'port closed'),b'junk',pad.status_wire(pad.READY,0,4)]),1)
+  self.assertEqual(bridge.link(1),'ready');self.assertEqual(bridge.answer[2],4)
+  bridge.listen(FakeSocket(),2);self.assertEqual(bridge.answer[2],4)
+ def test_stopping_sends_neutral_so_nothing_stays_held(self):
+  bridge=self.bridge();udp=FakeSocket();bridge.step(pad.PadState(pad.CROSS|pad.R2,r2=255),0,udp)
+  bridge.sending=False;bridge.step(pad.PadState(pad.CROSS|pad.R2,r2=255),.01,udp)
+  self.assertEqual(len(udp.sent),1+pad.PadBridge.RELEASE)
+  for data,_ in udp.sent[1:]:self.assertEqual(data[8:],pad.wire(0,pad.NEUTRAL)[8:])
+  # Going back to the grid stops it too.
+  bridge=self.bridge();udp=FakeSocket();bridge.step(pad.PadState(pad.CROSS),0,udp);bridge.navigating=True;bridge.step(pad.PadState(pad.CROSS),.01,udp)
+  self.assertEqual(len(udp.sent),1+pad.PadBridge.RELEASE)
+ def test_the_real_socket_does_not_block(self):
+  with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as udp:
+   udp.setblocking(False);bridge=self.bridge();import time;start=time.perf_counter();bridge.listen(udp,0);self.assertLess(time.perf_counter()-start,.05)
+
 if __name__=='__main__':unittest.main()
