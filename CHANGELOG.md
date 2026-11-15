@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.7.1 — 2026-11-15
+- Update question. When a new version from GitHub is downloaded and checked, PlayBridge asks once: Restart and update now, or Later, and with Later it goes in when PlayBridge closes, as before. It never asks over the game's picture: on the live view, in fullscreen or in the small window it waits until you leave them, and it waits for an open question or menu to close. The classic window asks too. A copy run from source asks once for each version and offers the release page.
+- New README screenshots of Settings, Live, Media and Streaming in the 1.7.0 look.
+- The payload is the same as in v1.7.0.
+
 ## v1.7.0 — 2026-11-15
 - PlayStation Network. Settings → Connections → PlayStation Network signs in with the code Sony's own page shows after you sign in on playstation.com; the sign-in is kept encrypted for your Windows user and Sign out forgets it. The new Friends page shows your friends, who is online, what they play and on which console, with All, Online and Favourites. Add friend finds a player by online ID; friend requests can be sent, accepted, declined and taken back, and a friend removed. The top bar shows your avatar, your status and a PSN menu.
 - PSN messages. Direct and group conversations, read and answered on the PC. Text and pictures go out (picked, pasted or dropped; turned upright, without location data, at up to 768 pixels on the long side, as the PlayStation App sends them), and the pictures, GIFs, stickers, videos and voice messages friends send are shown or played. Emoji reactions, copy, save a picture, delete your own message for everyone in the 10 minutes after sending it (PSN's limit), remove any message from this PC only, favourite and mute, and groups: create, rename, add people, take people out and leave. Friends see that you are typing and the conversation is marked as read on PSN. Message ids go into Sony's addresses encoded, as the App sends them.

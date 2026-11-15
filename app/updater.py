@@ -34,6 +34,20 @@ def read_release(data):
  if not version or not exe or not sums or not exe.get('browser_download_url') or not sums.get('browser_download_url'):return None
  return dict(version='.'.join(map(str,version)),page=data.get('html_url') or f'https://github.com/{REPOSITORY}/releases/latest',exe_url=exe['browser_download_url'],
   exe_size=int(exe.get('size') or 0),sums_url=sums['browser_download_url'])
+def prompt(status,source=False):
+ """What PlayBridge asks once a new version is in, or None: 'install' when it is downloaded and checked, 'page' when this copy
+ cannot put it in itself (run from source). Later on 'install' still puts it in when PlayBridge closes."""
+ version=status.get('version')
+ if not version:return None
+ if status.get('installable'):
+  return dict(kind='install',version=version,title=f'PlayBridge {version} is ready',action='Restart and update',cancel='Later',
+   text=f'A new version of PlayBridge came out on GitHub. It is downloaded and checked. Restart now to go from {status.get("current",VERSION)} '
+        f'to {version}, or select Later: it then goes in by itself when you close PlayBridge.')
+ if status.get('state')=='available':
+  return dict(kind='page',version=version,title=f'PlayBridge {version} is out',action='Open the release page',cancel='Later',
+   text='This copy runs from source, so it does not update itself. The release page has the new version and its source code.' if source
+        else 'Download the new version from its release page on GitHub.')
+ return None
 def checksum_for(text,name=EXE):
  """The SHA-256 that a SHA256SUMS.txt gives for one file, or None."""
  for line in str(text).splitlines():

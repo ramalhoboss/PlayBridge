@@ -661,7 +661,7 @@ FocusScope {
                         onClicked: shell.act("update_page", null)
                     }
                     Toggle { width: parent.width; text: "Update automatically"; checked: !!updates.up.automatic; onToggled: function(on) { shell.act("update_auto", on) } }
-                    Note { text: "PlayBridge looks for a new version on GitHub when it opens and every six hours. It downloads it slowly in the background, so a stream keeps its speed, checks it against the release's checksums, and puts it in when you close PlayBridge." }
+                    Note { text: "PlayBridge looks for a new version on GitHub when it opens and every six hours. It downloads it slowly in the background, so a stream keeps its speed, checks it against the release's checksums, and then asks whether to restart and update now. Otherwise it goes in when you close PlayBridge." }
                 }
             }
         }

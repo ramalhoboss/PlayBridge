@@ -104,7 +104,7 @@ def empty_line(link,searching,shelf=''):
 class ConfirmDialog:
  """Asks before anything that could lose progress or end the session. Answers the mouse, the keyboard and the controller."""
  current=None
- def __init__(self,parent,title,text,action,command,height=230):
+ def __init__(self,parent,title,text,action,command,height=230,cancel='Cancel'):
   ConfirmDialog.close();ConfirmDialog.current=self;self.command=command
   self.window=window=ctk.CTkToplevel(parent);window.title('PlayBridge');window.configure(fg_color=BG);dark_title_bar(window);window.resizable(False,False);window.transient(parent)
   x=parent.winfo_rootx()+(parent.winfo_width()-460)//2;y=parent.winfo_rooty()+(parent.winfo_height()-height)//2;window.geometry(f'460x{height}+{max(0,x)}+{max(0,y)}')
@@ -112,7 +112,7 @@ class ConfirmDialog:
   heading(box.body,title,22).pack(anchor='w',padx=18,pady=(16,8))
   ctk.CTkLabel(box.body,text=text,text_color=TEXT,font=('Segoe UI',12),wraplength=380,justify='left').pack(anchor='w',padx=18)
   buttons=tk.Frame(box.body,bg=CARD);buttons.pack(side='bottom',fill='x',padx=14,pady=12)
-  LuxButton(buttons,'Cancel',self.cancel,width=120,height=36,radius=18,behind=CARD).pack(side='right')
+  LuxButton(buttons,cancel,self.cancel,width=120,height=36,radius=18,behind=CARD).pack(side='right')
   LuxButton(buttons,action,self.accept,width=150,height=36,radius=18,behind=CARD,tone='main').pack(side='right',padx=(0,8))
   window.protocol('WM_DELETE_WINDOW',self.cancel);window.bind('<Return>',lambda _:self.accept());window.bind('<Escape>',lambda _:self.cancel());window.after(80,window.focus_force)
  def accept(self):

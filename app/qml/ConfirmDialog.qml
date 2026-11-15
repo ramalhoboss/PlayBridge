@@ -40,7 +40,7 @@ Popup {
             anchors.rightMargin: 8
             spacing: 10
             PillButton { text: box.d.action || "OK"; tone: "main"; width: Math.max(150, implicitWidth); height: 42; onClicked: shell.act("dialog_accept", null) }
-            PillButton { text: "Cancel"; width: 120; height: 42; onClicked: shell.act("dialog_cancel", null) }
+            PillButton { text: box.d.cancel || "Cancel"; width: 120; height: 42; onClicked: shell.act("dialog_cancel", null) }
         }
     }
     onOpened: content.forceActiveFocus()

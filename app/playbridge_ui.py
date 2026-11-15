@@ -11,7 +11,7 @@ from console_control import CLOSE, GameFlow, POWER_OFF, REBOOT, REST, console_li
 from pad_input import PadBridge
 from settings_look import GlassPage
 from focus_ring import FocusWalker
-import graphics_card,payload_sender,live_broadcast,mic_mix,video_encoders
+import graphics_card,payload_sender,live_broadcast,mic_mix,updater,video_encoders,webbrowser
 from hang_watch import HangWatch
 from keep_awake import BatteryHint,KeepAwake,on_battery
 from screen_rate import ScreenRate
@@ -428,7 +428,7 @@ def run_ui(app):
   install_button=wide_button(place,'Restart and update',install_update,tone='main');install_button.pack_forget()
   automatic=ctk.BooleanVar(value=app.updates.automatic)
   switch(place,'Update automatically',automatic,lambda:(app.updates.set_automatic(automatic.get()),core.save_config(update_auto=automatic.get())))
-  note(place,'PlayBridge looks for a new version on GitHub when it opens and every six hours. It downloads it slowly in the background, so a stream keeps its speed, checks it against the release\'s checksums, and puts it in when you close PlayBridge.')
+  note(place,'PlayBridge looks for a new version on GitHub when it opens and every six hours. It downloads it slowly in the background, so a stream keeps its speed, checks it against the release\'s checksums, and then asks whether to restart and update now. Otherwise it goes in when you close PlayBridge.')
   seen=[-1]
   def follow_updates():
    # Redrawn only when the update state moves on, looked at twice a second.
@@ -484,7 +484,7 @@ def run_ui(app):
  flow=GameFlow();page='live';back_page='games';games_shown=False;gaming_mode=False;menu_was_in_front=False;seen_status=None;revealed_at=0;opened_title='';opened_at=0;first_status=True;top_info={}
  def say(text):
   app.notify(text);sounds.play('error')
- def ask_first(title,text,action,command,height=230):ConfirmDialog(win,title,text,action,command,height)
+ def ask_first(title,text,action,command,height=230,cancel='Cancel'):ConfirmDialog(win,title,text,action,command,height,cancel)
  def close_game():
   title=running_title(app.link.status)
   if not title:app.notify('No game is open.');return
@@ -986,4 +986,21 @@ def run_ui(app):
  win.after(1,lambda:set_gaming(True) if core.config().get('gaming_mode',False) else show_games(True))
  # A microphone left on stays on, and says so when it opens.
  if core.config().get('mic_on',False):win.after(800,lambda:set_microphone(True))
+ offered=[None]
+ def offer_update():
+  # A new version from GitHub is asked about once, as soon as it is in: never over the game's picture, a menu or another question,
+  # which it waits for. A copy run from source asks once for each version, kept in the preferences.
+  if app.stop.is_set():return
+  ask=updater.prompt(app.updates.status(),source=not getattr(sys,'frozen',False))
+  if ask and ask['version']!=offered[0] and ConfirmDialog.current is None and PopMenu.current is None and not fullscreen and mini is None and not (page=='live' and has_video):
+   offered[0]=ask['version']
+   if ask['kind']=='install':
+    def install():
+     if app.updates.status()['installable']:app.restart_after_update=True;close()
+    app.event(f'Asked to update to PlayBridge {ask["version"]}');ask_first(ask['title'],ask['text'],ask['action'],install,270,ask['cancel'])
+   elif core.config().get('update_offered')!=ask['version']:
+    core.save_config(update_offered=ask['version']);app.event(f'Asked to update to PlayBridge {ask["version"]}')
+    ask_first(ask['title'],ask['text'],ask['action'],lambda:webbrowser.open(app.updates.page or f'https://github.com/{updater.REPOSITORY}/releases/latest'),250,ask['cancel'])
+  win.after(1000,offer_update)
+ win.after(1000,offer_update)
  win.after(5,tick);win.mainloop()

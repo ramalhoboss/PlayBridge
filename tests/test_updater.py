@@ -86,6 +86,23 @@ class UpdaterTest(unittest.TestCase):
   with mock.patch.object(updater,'frozen',lambda:False):
    updates=self.updates();updates.run();status=updates.status()
   self.assertEqual(status['state'],'available');self.assertFalse(status['installable']);self.assertFalse(self.folder.exists() and any(self.folder.iterdir()))
+ def test_a_downloaded_version_asks_to_restart_and_update(self):
+  self.publish();updates=self.updates();self.assertIsNone(updater.prompt(updates.status()));updates.run()
+  ask=updater.prompt(updates.status())
+  self.assertEqual((ask['kind'],ask['version'],ask['action'],ask['cancel']),('install','99.0.0','Restart and update','Later'))
+  self.assertIn('99.0.0',ask['title']);self.assertIn(VERSION,ask['text']);self.assertIn('when you close PlayBridge',ask['text'])
+ def test_from_source_it_asks_to_open_the_release_page(self):
+  self.publish()
+  with mock.patch.object(updater,'frozen',lambda:False):
+   updates=self.updates();updates.run();ask=updater.prompt(updates.status(),source=True)
+  self.assertEqual((ask['kind'],ask['version'],ask['action']),('page','99.0.0','Open the release page'));self.assertIn('source',ask['text'])
+ def test_nothing_is_asked_without_a_new_version(self):
+  self.publish(tag='v'+VERSION);updates=self.updates();updates.run();self.assertIsNone(updater.prompt(updates.status()))
+  self.publish(sums='');updates=self.updates();updates.run()
+  self.assertEqual(updates.status()['state'],'failed');self.assertIsNone(updater.prompt(updates.status()))
+  self.publish();updates=self.updates()
+  with mock.patch.object(updater,'checksum_for',lambda text:'0'*64):updates.run()
+  self.assertEqual(updates.status()['state'],'failed');self.assertIsNone(updater.prompt(updates.status()))
  def test_no_network_is_a_failure_that_says_so(self):
   with mock.patch.object(updater,'LATEST',self.base+'/missing'):
    updates=self.updates();updates.run()

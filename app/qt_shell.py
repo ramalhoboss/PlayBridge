@@ -171,7 +171,7 @@ class Shell(QObject):
   self.pad.wanted=self.phones.in_use
   if saved.get('phone_on',False):self.phones.start()
   self.diagnostic=bool(saved.get('diagnostic',False));self.match_on=bool(saved.get('match_refresh',True));self.animations=bool(saved.get('animations',True))
-  self.say_text=('','plain');self.say_until=None;self.update_seen=-1;self.scan_results=queue.Queue();self.discovered={};self.scanning=False;self.scan_status='Find your PS5 or enter its IP address above.';self.found_label='Select a console'
+  self.say_text=('','plain');self.say_until=None;self.update_seen=-1;self.update_offered=None;self.scan_results=queue.Queue();self.discovered={};self.scanning=False;self.scan_status='Find your PS5 or enter its IP address above.';self.found_label='Select a console'
   self.favourite_status=('Save this IP and quality profile for next time.','plain');self.payload_status=('Sends any ELF to the loader your exploit opened on port 9021. A payload runs with full access to the PS5, so send only files you trust.','plain')
   self.payload_results=queue.Queue();self.live_status=None;self.encoders=None;self.encoder_results=queue.Queue();self.section='console';self.typed_host=None;self.typed_profile=None
   # Text the window puts in the address and name fields, as when a console is found: a new version each time, so the field takes it once.
@@ -396,6 +396,7 @@ class Shell(QObject):
   elif self.run_timer.state=='running' and self.timer_shown and now-self.hud_at>=.1:self.show_overlay(self.values['page'],self.hud_health,self.hud_linked)
   self.poll_queues()
  def each_second(self,now):
+  self.offer_update()
   app=self.app;core=self.core
   decoded=app.stats.get('video_decoded',0);self.decoded_rate=(decoded-self.decoded_mark)/(now-self.rate_at);self.decoded_mark=decoded;self.second_at=self.rate_at
   self.fps=self.rate_frames/(now-self.rate_at);app.stats['presented_fps']=round(self.fps,1);self.rate_frames=0;self.rate_at=now
@@ -716,8 +717,20 @@ class Shell(QObject):
   self.menu_was_in_front=covered
  def say(self,text):
   self.app.notify(text);self.sounds.play('error')
- def ask_first(self,title,text,action,command):
-  self.dialog_command=command;self.put('dialog',dict(title=title,text=text,action=action))
+ def ask_first(self,title,text,action,command,cancel='Cancel'):
+  self.dialog_command=command;self.put('dialog',dict(title=title,text=text,action=action,cancel=cancel))
+ def offer_update(self):
+  """A new version from GitHub is asked about once, as soon as it is in: never over the game's picture, a menu or another question,
+  which it waits for. A copy run from source asks once for each version, kept in the preferences."""
+  ask=updater.prompt(self.app.updates.status(),source=not getattr(sys,'frozen',False))
+  if not ask or ask['version']==self.update_offered:return
+  if self.values['dialog'] or self.values['popup'] or self.menu_shown or self.values['fullscreen'] or self.values['mini'] or (self.values['page']=='live' and self.has_video):return
+  self.update_offered=ask['version']
+  if ask['kind']=='page':
+   if self.core.config().get('update_offered')==ask['version']:return
+   self.core.save_config(update_offered=ask['version']);command=lambda:self.do_update_page(None)
+  else:command=lambda:self.do_update_install(None)
+  self.app.event(f'Asked to update to PlayBridge {ask["version"]}');self.ask_first(ask['title'],ask['text'],ask['action'],command,ask['cancel'])
  def do_dialog_accept(self,_):
   command,self.dialog_command=self.dialog_command,None;self.put('dialog',{})
   if command:command()
