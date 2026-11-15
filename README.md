@@ -1,6 +1,6 @@
 <p align="center"><img src="docs/images/banner.png" alt="PlayBridge: your PS5 games, video and audio on your Windows PC" width="100%"></p>
 <p align="center">
-  <a href="https://github.com/ramalhoboss/PlayBridge/releases/latest"><img alt="Download v1.7.0" src="docs/images/badge-download.png" height="36"></a>
+  <a href="https://github.com/ramalhoboss/PlayBridge/releases/latest"><img alt="Download v1.7.1" src="docs/images/badge-download.png" height="36"></a>
   <img alt="Windows x64" src="docs/images/badge-windows.png" height="36">
   <img alt="PS5 firmware 13.60" src="docs/images/badge-ps5.png" height="36">
   <img alt="Up to 4K60" src="docs/images/badge-4k.png" height="36">
@@ -20,6 +20,11 @@ No HDMI capture card. No official Remote Play client or PSN Remote Play pairing.
 <p align="center"><img src="docs/images/playbridge-games.jpg" alt="PlayBridge Games page with a row of game and homebrew tiles, the selected app's art filling the window, its title, a Play button and cards for play time, size, a 4K 60 fps stream and console temperature, and the signed-in PSN player in the top bar" width="100%"></p>
 
 > Screenshots show the real application. The Games page above shows a real PS5 library: covers and music come from your own console when you connect, and none are included in the download. The Friends page further down shows a real PSN conversation, with the friend's name, their photo and a real name blurred. The game pictures are PS5 recordings copied from the console with **From your PS5**; the one on the Live page was played back to the app on the PC to take the screenshot, and the Settings page shows an example IP address. PlayBridge is in English; the console's own language remains whatever you selected on the PS5.
+
+## New in v1.7.1
+
+- **PlayBridge asks before it updates:** once a new version from GitHub is downloaded and checked, PlayBridge asks whether to **Restart and update** now. With **Later** it goes in when you close PlayBridge. The question never covers the game: on the live view, in fullscreen or in the small window it waits until you leave them.
+- The payload is the same as in v1.7.0, so there is nothing new to load on the PS5.
 
 ## New in v1.7.0
 
@@ -62,14 +67,14 @@ Earlier versions are described in the [changelog](CHANGELOG.md).
 
 | File | What it contains |
 |---|---|
-| [PlayBridge.exe](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.7.0/PlayBridge.exe) | Portable Windows application, including Python dependencies and the embedded ELF. |
-| [PlayBridge.elf](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.7.0/PlayBridge.elf) | Standalone PS5 payload for manual loading. |
-| [PlayBridge-Windows-v1.7.0.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.7.0/PlayBridge-Windows-v1.7.0.zip) | Windows EXE and quick-start instructions. |
-| [PlayBridge-Payload-v1.7.0.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.7.0/PlayBridge-Payload-v1.7.0.zip) | Both ELFs (the stream and the controllers) and manual-mode instructions. |
-| [PlayBridge-Complete-v1.7.0.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.7.0/PlayBridge-Complete-v1.7.0.zip) | The EXE, both ELFs, quick-start instructions and component notices. |
-| [Third-party-licenses.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.7.0/Third-party-licenses.zip) | Component notices for standalone downloads. |
-| [PlayBridge-Source-v1.7.0.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.7.0/PlayBridge-Source-v1.7.0.zip) | Application and payload source, assets, tests and build instructions. |
-| [SHA256SUMS.txt](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.7.0/SHA256SUMS.txt) | Checksums for the release downloads. |
+| [PlayBridge.exe](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.7.1/PlayBridge.exe) | Portable Windows application, including Python dependencies and the embedded ELF. |
+| [PlayBridge.elf](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.7.1/PlayBridge.elf) | Standalone PS5 payload for manual loading. |
+| [PlayBridge-Windows-v1.7.1.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.7.1/PlayBridge-Windows-v1.7.1.zip) | Windows EXE and quick-start instructions. |
+| [PlayBridge-Payload-v1.7.1.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.7.1/PlayBridge-Payload-v1.7.1.zip) | Both ELFs (the stream and the controllers) and manual-mode instructions. |
+| [PlayBridge-Complete-v1.7.1.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.7.1/PlayBridge-Complete-v1.7.1.zip) | The EXE, both ELFs, quick-start instructions and component notices. |
+| [Third-party-licenses.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.7.1/Third-party-licenses.zip) | Component notices for standalone downloads. |
+| [PlayBridge-Source-v1.7.1.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.7.1/PlayBridge-Source-v1.7.1.zip) | Application and payload source, assets, tests and build instructions. |
+| [SHA256SUMS.txt](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.7.1/SHA256SUMS.txt) | Checksums for the release downloads. |
 
 Download the release assets above to run the application. To inspect or build it, browse [app/](app/), [payload/](payload/) and [tools/](tools/), or download the source archive. GitHub's source archives contain source files, not the Windows EXE.
 
@@ -269,7 +274,7 @@ The standalone ELF waits for one viewer per execution. After ending a manual ses
 | Small window | The game in a small window that stays above other windows (Ctrl+M). |
 | Diagnostics | Session panel and status line, plus an exported ZIP without IP addresses, device names, file paths or logs. |
 | Interface | English, drawn with Qt Quick on the graphics card: frosted glass panels, the focused game's art behind the page and gold as a small accent, in a window with rounded corners and no Windows title bar. The Games page keeps the classic library drawing. Settings flows into columns that use the window's width. Animations are optional, and nothing moves while a game is on screen. **Glass look** off, or a PC where Qt cannot start, gives the classic window. |
-| Updates | Looks for a new release on GitHub when it opens and every six hours, downloads PlayBridge.exe in the background at about 1.5 MB/s, keeps it only when it matches the release's SHA256SUMS.txt, and puts it in when the app closes. Can be turned off. |
+| Updates | Looks for a new release on GitHub when it opens and every six hours, downloads PlayBridge.exe in the background at about 1.5 MB/s, keeps it only when it matches the release's SHA256SUMS.txt, then asks whether to restart and update now; otherwise it goes in when the app closes. Never asks over the game's picture. Can be turned off. |
 | Controllers | **Play on your PS5**: up to four PC controllers (XInput or standard Windows game controllers), the mouse as the right stick and the keyboard play on the console through a companion payload on UDP port 9078, with per-game profiles. Otherwise a PC controller moves around PlayBridge's pages. |
 | PlayStation Network | Friends with their status and game, friend requests, direct and group messages with pictures, reactions, delete and remove, alerts, and the player in the top bar. The sign-in is kept encrypted with Windows DPAPI. |
 | Trophies and stats | Trophies from the console's own files and from PSN, compared with a friend's, with guides and a clip kept when one unlocks. Play time by session, week, game and year. |
@@ -424,6 +429,7 @@ Preferences, the game library and local diagnostic files are stored in <code>%LO
 
 ## Release history
 
+- **v1.7.1:** a question before each update, with Restart and update or Later, never over the game, and new README screenshots.
 - **v1.7.0:** PSN friends and messages, trophies and stats, PC controllers and your phone playing on the PS5, smooth motion for fast screens, a performance overlay and speedrun timer, a clip editor, Discord, Twitch chat, Stream Deck and OBS, PS5 files, saves and fans, and the classic Games page in three views.
 - **v1.6.0:** a new look with 3D game tiles, automatic updates, tiles read again on every connection, smaller recordings and Go live streams in HEVC or AV1, settings that apply at once, a focus ring for keys and controllers, notices on the PS5, and variable refresh only on screens that support it.
 - **v1.5.2:** variable refresh rate for G-Sync, FreeSync and Adaptive-Sync screens, and your microphone in recordings, instant replays and Go live.
