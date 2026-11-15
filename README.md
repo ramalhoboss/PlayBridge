@@ -19,7 +19,7 @@ No HDMI capture card. No official Remote Play client or PSN Remote Play pairing.
 
 <p align="center"><img src="docs/images/playbridge-games.jpg" alt="PlayBridge Games page with a row of game and homebrew tiles, the selected app's art filling the window, its title, a Play button and cards for play time, size, a 4K 60 fps stream and console temperature, and the signed-in PSN player in the top bar" width="100%"></p>
 
-> Screenshots show the real application. The Games page above shows a real PS5 library: covers and music come from your own console when you connect, and none are included in the download. The Friends page further down shows a real PSN conversation, with the friend's name, their photo and a real name blurred. The game pictures are PS5 captures saved with PlayBridge; the one on the Live page was played back to the app on the PC to take the screenshot. PlayBridge is in English; the console's own language remains whatever you selected on the PS5.
+> Screenshots show the real application. The Games page above shows a real PS5 library: covers and music come from your own console when you connect, and none are included in the download. The Friends page further down shows a real PSN conversation, with the friend's name, their photo and a real name blurred. The game pictures are PS5 recordings copied from the console with **From your PS5**; the one on the Live page was played back to the app on the PC to take the screenshot, and the Settings page shows an example IP address. PlayBridge is in English; the console's own language remains whatever you selected on the PS5.
 
 ## New in v1.7.0
 
@@ -101,7 +101,7 @@ PlayBridge uploads its embedded ELF and connects on port **9076**. The mark next
 
 From then on, the usual workflow is simply **open Payload Manager → open PlayBridge**. It connects at startup using your saved settings.
 
-<p align="center"><img src="docs/images/playbridge-settings.png" alt="PlayBridge Settings page, Console section: frosted panels over a blue and violet picture with the IP address, saved consoles, Find console, Send a payload, favourites and connection switches" width="720"></p>
+<p align="center"><img src="docs/images/playbridge-settings.png" alt="PlayBridge Settings page, Console section: the IP address with Save, saved consoles and Find console, a favourite, the connection switches, and the Controller, Controller profile and Mouse aim panels" width="720"></p>
 
 ### 2. Your games
 
@@ -149,7 +149,7 @@ A 1080p PC monitor shows a 4K stream scaled down to its own pixels. Screenshots 
 
 ### 5. While you play
 
-<p align="center"><img src="docs/images/playbridge-live.png" alt="PlayBridge Live page showing a 3840 by 2160 PS5 game capture, with the capture, small window and Go live buttons and the audio controls below it" width="100%"></p>
+<p align="center"><img src="docs/images/playbridge-live.png" alt="PlayBridge Live page showing a 1920 by 1080 PS5 game recording, with the volume and sound output, the capture, record, instant replay, folder, small window and Go live buttons, Session and Disconnect below it" width="100%"></p>
 
 | Control | Action |
 |---|---|
@@ -173,7 +173,7 @@ Captures are saved in **Videos/PlayBridge**, in the Screenshots and Recordings f
 
 **Instant replay** is set in **Settings → Captures**: Off, the last 30 seconds, 60 seconds or 2 minutes. It keeps the stream as it arrives, without re-encoding, in this PC's memory up to 1 GB, and nothing changes on the PS5.
 
-<p align="center"><img src="docs/images/playbridge-media.png" alt="PlayBridge Media page with three PS5 game screenshots as thumbnails, the All, Photos and Videos filters, and the From your PS5 and Open folder buttons" width="720"></p>
+<p align="center"><img src="docs/images/playbridge-media.png" alt="PlayBridge Media page with three PS5 game recordings as thumbnails, each with Play recording and Edit, the All, Photos and Videos filters, and the From your PS5 and Open folder buttons" width="720"></p>
 
 **From your PS5**, at the top of **Media**, lists the screenshots and clips the console saved itself, while a session runs. **Copy new** copies the ones not yet on your PC, and **Copy selected** the ones you tick. Copies go to your capture folder and appear with your other captures. PlayBridge reads only the console's capture folders.
 
@@ -221,7 +221,7 @@ In **Settings → Streaming**, choose **Twitch**, **YouTube**, **TikTok**, **Oth
 
 PlayBridge sends on the H.264 video and AAC sound the PS5 already made, without encoding them again, so it costs the PC almost nothing, and recording and instant replay keep working while you are live. The broadcast uses your quality profile: Twitch recommends at most 6 Mbit/s, so **Data saver** suits it best. **OBS on this PC** receives the stream on UDP port 9100 of this PC.
 
-<p align="center"><img src="docs/images/playbridge-streaming.png" alt="PlayBridge Settings page, Streaming section: the Go live panel with the service menu set to Twitch, the stream key field and the Go live button, and a panel explaining how it works" width="720"></p>
+<p align="center"><img src="docs/images/playbridge-streaming.png" alt="PlayBridge Settings page, Streaming section: the Go live panel with the service menu set to Twitch, the stream key field, the switch for the overlay in the stream and the Go live button, and a panel explaining how it works" width="720"></p>
 
 ### Send a payload
 
