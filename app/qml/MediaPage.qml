@@ -132,7 +132,12 @@ FocusScope {
                             Text { text: card.modelData.when; color: Theme.text; font.family: Theme.face; font.pixelSize: 16 }
                             Text { text: card.modelData.detail; color: Theme.muted; font.family: Theme.face; font.pixelSize: 14 }
                             Item { width: 1; height: 10 }
-                            PillButton { width: parent.width; height: 42; text: card.modelData.action; onClicked: shell.act("media_open", card.modelData.path) }
+                            Row {
+                                width: parent.width
+                                spacing: 8
+                                PillButton { width: card.modelData.kind === "video" ? (parent.width - 8) * 0.58 : parent.width; height: 42; text: card.modelData.action; onClicked: shell.act("media_open", card.modelData.path) }
+                                PillButton { visible: card.modelData.kind === "video"; width: (parent.width - 8) * 0.42; height: 42; text: "Edit"; onClicked: shell.act("clip_edit", card.modelData.path) }
+                            }
                         }
                     }
                 }
@@ -146,6 +151,144 @@ FocusScope {
                     spacing: 10
                     PillButton { text: "Previous"; width: 120; height: 42; enabled: !!page.m.previous; onClicked: shell.act("media_move", -1) }
                     PillButton { text: "Next"; width: 120; height: 42; enabled: !!page.m.next; onClicked: shell.act("media_move", 1) }
+                }
+            }
+        }
+    }
+
+    // The clip editor: over the page while a recording is open in it.
+    Item {
+        id: editor
+        property var c: shell.clip || ({})
+        readonly property real start: range.first.value
+        readonly property real end: range.second.value
+        function clock(seconds) {
+            var whole = Math.max(0, seconds || 0); var minutes = Math.floor(whole / 60); var rest = whole - minutes * 60
+            return minutes + ":" + (rest < 10 ? "0" : "") + rest.toFixed(1)
+        }
+        visible: !!c.path
+        anchors.fill: parent
+        z: 10
+        Rectangle { anchors.fill: parent; color: Qt.rgba(0, 0, 0, 0.6); MouseArea { anchors.fill: parent; hoverEnabled: true } }
+        Glass {
+            frost: page.frost
+            follow: page.x + page.opacity
+            anchors.centerIn: parent
+            anchors.verticalCenterOffset: page.topInset / 2
+            width: Math.min(1120, parent.width - 2 * page.side)
+            height: Math.min(parent.height - page.topInset - 40, sheet.implicitHeight + 56)
+            Column {
+                id: sheet
+                x: 28; y: 28
+                width: parent.width - 56
+                spacing: 16
+                Item {
+                    width: parent.width
+                    height: 46
+                    Column {
+                        anchors.left: parent.left; anchors.right: closer.left; anchors.rightMargin: 12
+                        anchors.verticalCenter: parent.verticalCenter
+                        Text { text: "Edit clip"; color: Theme.text; font.family: Theme.light; font.pixelSize: 30 }
+                        Text { width: parent.width; elide: Text.ElideMiddle; text: editor.c.name || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: 14 }
+                    }
+                    GlyphButton { id: closer; anchors.right: parent.right; glyph: "\uE711"; tip: "Close · Esc"; enabled: !editor.c.busy; onClicked: shell.act("clip_close", null) }
+                }
+                // Where the stretch starts and where it ends.
+                Row {
+                    width: parent.width
+                    spacing: 16
+                    Repeater {
+                        model: 2
+                        delegate: Column {
+                            required property int index
+                            width: (sheet.width - 16) / 2
+                            spacing: 6
+                            Rectangle {
+                                width: parent.width; height: width * 9 / 16; radius: 12; color: Theme.raised; clip: true
+                                Image { anchors.fill: parent; source: (editor.c.stills || [])[index] || ""; fillMode: Image.PreserveAspectFit; asynchronous: true; retainWhileLoading: true }
+                                Text { visible: !!editor.c.loading; anchors.centerIn: parent; text: "Reading the recording…"; color: Theme.muted; font.family: Theme.face; font.pixelSize: 15 }
+                            }
+                            Text { text: (index === 0 ? "Starts at " + editor.clock(editor.start) : "Ends at " + editor.clock(editor.end)); color: Theme.text; font.family: Theme.face; font.pixelSize: 15 }
+                        }
+                    }
+                }
+                // The recording from end to end, and the stretch chosen on it.
+                Item {
+                    width: parent.width
+                    height: 64
+                    Row {
+                        anchors.fill: parent
+                        Repeater {
+                            model: editor.c.strip || []
+                            delegate: Rectangle {
+                                required property string modelData
+                                width: sheet.width / Math.max(1, (editor.c.strip || []).length); height: 64; color: Theme.raised; clip: true
+                                Image { anchors.fill: parent; source: parent.modelData; fillMode: Image.PreserveAspectCrop; asynchronous: true }
+                            }
+                        }
+                    }
+                    RangeSlider {
+                        id: range
+                        anchors.fill: parent
+                        padding: 0
+                        enabled: !editor.c.busy && !editor.c.loading
+                        from: 0
+                        to: Math.max(0.1, editor.c.seconds || 0.1)
+                        stepSize: 0.1
+                        first.value: editor.c.start || 0
+                        second.value: editor.c.end || 0
+                        first.onPressedChanged: if (!first.pressed) shell.act("clip_range", [first.value, second.value])
+                        second.onPressedChanged: if (!second.pressed) shell.act("clip_range", [first.value, second.value])
+                        background: Item {
+                            Rectangle { x: 0; width: range.first.visualPosition * parent.width; height: parent.height; color: Qt.rgba(0, 0, 0, 0.62) }
+                            Rectangle { x: range.second.visualPosition * parent.width; width: parent.width - x; height: parent.height; color: Qt.rgba(0, 0, 0, 0.62) }
+                            Rectangle { x: range.first.visualPosition * parent.width; width: (range.second.visualPosition - range.first.visualPosition) * parent.width; height: parent.height; color: "transparent"; border.width: 2; border.color: Theme.gold; radius: 4 }
+                        }
+                        first.handle: Rectangle { x: range.first.visualPosition * range.availableWidth - width / 2; y: -4; width: 12; height: range.height + 8; radius: 4; color: range.first.pressed ? Theme.goldHover : Theme.gold }
+                        second.handle: Rectangle { x: range.second.visualPosition * range.availableWidth - width / 2; y: -4; width: 12; height: range.height + 8; radius: 4; color: range.second.pressed ? Theme.goldHover : Theme.gold }
+                    }
+                }
+                Text {
+                    text: "Length " + editor.clock(editor.end - editor.start) + "  ·  the whole recording is " + editor.clock(editor.c.seconds) + ". A GIF can be up to 20 seconds."
+                    color: Theme.muted; font.family: Theme.face; font.pixelSize: 14
+                }
+                Row {
+                    spacing: 10
+                    Repeater {
+                        model: editor.c.kinds || []
+                        delegate: PillButton {
+                            required property var modelData
+                            text: modelData.label
+                            tone: "ghost"
+                            height: 42
+                            enabled: !editor.c.busy
+                            selected: editor.c.kind === modelData.key
+                            onClicked: shell.act("clip_kind", modelData.key)
+                        }
+                    }
+                }
+                Text {
+                    width: parent.width; wrapMode: Text.WordWrap; color: Theme.dim; font.family: Theme.face; font.pixelSize: 14
+                    text: editor.c.kind === "gif" ? "A GIF plays everywhere, without sound: 480 pixels wide, 15 pictures a second."
+                        : editor.c.kind === "full" ? "The stretch at the recording's own size, with its sound. The picture is made again, so it starts exactly where you chose."
+                        : "Small enough for Discord, WhatsApp and most chats: H.264 under 10 MB, 720p when it is short enough."
+                }
+                // Progress while the clip is made.
+                Rectangle {
+                    visible: !!editor.c.busy
+                    width: parent.width; height: 6; radius: 3; color: Qt.rgba(1, 1, 1, 0.1)
+                    Rectangle { width: parent.width * (editor.c.share || 0); height: parent.height; radius: 3; color: Theme.gold; Behavior on width { NumberAnimation { duration: Theme.ms(200) } } }
+                }
+                Text {
+                    visible: (editor.c.status || "") !== ""
+                    width: parent.width; wrapMode: Text.WordWrap; font.family: Theme.face; font.pixelSize: 15
+                    text: editor.c.status || ""
+                    color: editor.c.tone === "error" ? Theme.alert : editor.c.tone === "news" ? Theme.online : Theme.muted
+                }
+                Row {
+                    spacing: 12
+                    PillButton { width: 200; height: 48; tone: "main"; text: editor.c.busy ? "Making…" : "Save the clip"; enabled: !editor.c.busy && !editor.c.loading && editor.end - editor.start >= 0.5; onClicked: shell.act("clip_export", null) }
+                    PillButton { visible: (editor.c.made || "") !== ""; width: 180; height: 48; text: "Show in folder"; onClicked: shell.act("clip_show", null) }
                 }
             }
         }

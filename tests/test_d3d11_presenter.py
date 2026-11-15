@@ -262,6 +262,44 @@ class DrawingTests(unittest.TestCase):
  def test_nothing_old_stays_around_a_smaller_picture(self):
   frames=self.gpu_frames();self.drawn(frames[-1]);picture=self.drawn(frames[-1],640,480)
   self.assertEqual(picture.shape,(480,640,3));self.assertEqual(int(picture[:60].max()),0);self.assertEqual(int(picture[-60:].max()),0);self.assertGreater(int(picture[240,320].max()),0)
+ def test_the_overlay_sits_in_the_pictures_corner_mixed_by_its_transparency(self):
+  frame=av.VideoFrame(640,360,'yuv420p')
+  for plane,value in zip(frame.planes,(Y,U,V)):plane.update(bytes([value])*plane.buffer_size)
+  # 40 by 20: opaque red on the left half, white at half transparency on the right.
+  row=bytes([0,0,255,255])*20+bytes([255,255,255,128])*20;self.output.set_overlay((row*20,40,20))
+  try:
+   picture=self.drawn(frame);base=result_of(d.colour_rows(1,False),Y,U,V)
+   self.assertEqual(tuple(int(v) for v in picture[16+10,16+5]),(255,0,0))
+   for got,want in zip(picture[16+10,16+30],base):self.assertAlmostEqual(int(got),round(255*128/255+want*(1-128/255)),delta=3)
+   # Outside it the picture is as before.
+   for got,want in zip(picture[180,320],base):self.assertAlmostEqual(int(got),want,delta=2)
+   for got,want in zip(picture[16+10,16+45],base):self.assertAlmostEqual(int(got),want,delta=2)
+  finally:self.output.set_overlay(None)
+  self.assert_the_colour(self.drawn(frame))
+  for got,want in zip(self.drawn(frame)[16+10,16+5],result_of(d.colour_rows(1,False),Y,U,V)):self.assertAlmostEqual(int(got),want,delta=2)
+ def test_an_in_between_picture_of_two_gpu_frames_shows_their_colour(self):
+  frames=self.gpu_frames()
+  if len(frames)<2:self.skipTest('the hardware decoder gave one frame')
+  first,second=frames[-2],frames[-1];self.output.smooth=True;self.output.smooth_failed=None
+  try:
+   # The shaders compile on a thread of their own; until then there is no in-between picture, and nothing fails.
+   self.output.start_compiling();self.output.compiling.join(30);self.assertIsNotNone(self.output.motion_blobs)
+   self.drawn(first);self.output.picture=None
+   for _ in range(5):
+    if self.output.between(first,second,.5):break
+    time.sleep(.02)
+   self.assertIsNone(self.output.smooth_failed);self.assertIsNotNone(self.output.picture,'no in-between picture');self.assert_the_colour(self.output.picture)
+   # The next frame was copied for the picture, so its turn finds the copy ready.
+   copies=len(self.output.slots);self.assert_the_colour(self.drawn(second));self.assertEqual(len(self.output.slots),copies)
+   # Turned off, the next frame shows from the output's own copy again, not from a slot.
+   self.output.smooth=False;self.assert_the_colour(self.drawn(first));self.assertIs(self.output.views,self.output.surface_views)
+  finally:self.output.smooth=False;self.output.release_slots()
+ def test_no_in_between_picture_without_smooth_motion_or_from_frames_in_memory(self):
+  frames=self.gpu_frames();self.drawn(frames[-1]);self.output.smooth=False;self.assertFalse(self.output.between(frames[-1],frames[-1],.5))
+  self.output.smooth=True
+  try:
+   flat=self.flat_frame();self.assertFalse(self.output.between(flat,flat,.5));self.assertIsNone(self.output.smooth_failed)
+  finally:self.output.smooth=False
  def test_a_new_decoder_brings_a_new_device(self):
   first=self.gpu_frames();self.drawn(first[-1]);device=self.output.device;del first
   second=self.gpu_frames();self.assert_the_colour(self.drawn(second[-1]));self.assertNotEqual(self.output.device,device)

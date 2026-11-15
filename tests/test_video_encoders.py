@@ -37,7 +37,7 @@ class EncoderChoiceTests(unittest.TestCase):
  def test_the_probe_runs_once(self):
   with mock.patch.object(video_encoders,'_works',return_value=True) as probe:
    video_encoders.found();video_encoders.found()
-  self.assertEqual(probe.call_count,len(video_encoders.HARDWARE+video_encoders.SOFTWARE))
+  self.assertEqual(probe.call_count,len(video_encoders.HARDWARE+video_encoders.SOFTWARE+video_encoders.SAME_CODEC))
 
 class BitrateTests(unittest.TestCase):
  def test_av1_needs_less_than_hevc(self):

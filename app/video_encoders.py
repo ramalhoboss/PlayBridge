@@ -10,16 +10,18 @@ import av
 HARDWARE=('av1_nvenc','av1_qsv','hevc_nvenc','hevc_qsv','hevc_amf','av1_amf')
 # The processor's AV1 runs anywhere, too slowly for a live 4K stream but fine for a file that can take its time.
 SOFTWARE=('libsvtav1',)
+# H.264 on a graphics card, only to make a live stream again with the overlay drawn in, for services that take nothing else (Twitch).
+SAME_CODEC=('h264_nvenc','h264_qsv','h264_amf')
 NAMES={'av1_nvenc':'AV1 on the NVIDIA card','av1_qsv':'AV1 on the Intel graphics','av1_amf':'AV1 on the AMD card','hevc_nvenc':'HEVC on the NVIDIA card','hevc_qsv':'HEVC on the Intel graphics','hevc_amf':'HEVC on the AMD card','libsvtav1':'AV1 on the processor'}
 
 _lock=threading.Lock();_found=None
 
-def kind(name):return 'av1' if 'av1' in name else 'hevc'
+def kind(name):return 'av1' if 'av1' in name else 'h264' if 'h264' in name else 'hevc'
 
 def pixel_format(name,live=False):
  """The input format the encoder takes. Every graphics card takes NV12, which is what a graphics card's decoder hands back, so a live
  stream needs no conversion. Files are decoded on the processor as yuv420p, which all but Intel's take as they are."""
- if name.endswith('_qsv') or (live and name in HARDWARE):return 'nv12'
+ if name.endswith('_qsv') or (live and name in HARDWARE+SAME_CODEC):return 'nv12'
  return 'yuv420p'
 
 def options(name,live=False):
@@ -49,7 +51,7 @@ def found():
  """Every encoder that works here, in the order they are preferred. Tried once, in whichever thread asks first."""
  global _found
  with _lock:
-  if _found is None:_found=[name for name in HARDWARE+SOFTWARE if _works(name)]
+  if _found is None:_found=[name for name in HARDWARE+SOFTWARE+SAME_CODEC if _works(name)]
   return list(_found)
 
 def for_live():
@@ -58,14 +60,19 @@ def for_live():
 
 def for_files():
  """The encoder for making recordings smaller: a graphics card's when there is one, otherwise the processor's AV1."""
- return next(iter(found()),None)
+ return next((name for name in found() if name not in SAME_CODEC),None)
+
+def for_live_h264():
+ """H.264 on a graphics card, to make a live stream again in the codec the PS5 sent, or None."""
+ return next((name for name in found() if name in SAME_CODEC),None)
 
 def bitrate(name,height,source=0,live=False):
  """Bits per second: AV1 needs about a third less than HEVC for the same picture, and both far less than the PS5's H.264.
  Never more than the source had, since the picture cannot gain what the PS5 left out."""
  steps=((1080,6_000_000,8_000_000),(1440,10_000_000,14_000_000),(2160,16_000_000,22_000_000))
  av1_rate,hevc_rate=next(((a,h) for top,a,h in steps if height<=top),steps[-1][1:])
- rate=av1_rate if kind(name)=='av1' else hevc_rate
+ # H.264 needs about half as much again as HEVC for the same picture.
+ rate=av1_rate if kind(name)=='av1' else hevc_rate*3//2 if kind(name)=='h264' else hevc_rate
  if not live:rate=rate*5//4
  if source:rate=min(rate,int(source*.8))
  return max(rate,1_000_000)

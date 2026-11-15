@@ -19,6 +19,8 @@ class FakeControlPort:
      if command==control.STATUS:reply=(0,json.dumps(self.status).encode())
      elif command==control.FILE:
       data=self.files.get(body.decode());reply=(2,b'') if data is None else (0,data)
+     elif command==control.RANGE and command not in self.results:
+      offset,length=struct.unpack_from('<QI',body);data=self.files.get(body[12:].decode());reply=(2,b'') if data is None else (0,data[offset:offset+length])
      else:reply=(self.results.get(command,0),b'')
      client.sendall(control.REPLY.pack(b'PBR1',reply[0],len(reply[1]))+reply[1])
   except (OSError,EOFError):pass
@@ -38,7 +40,10 @@ def finish_links(seconds=5):
 def wait_for(check,seconds=5):
  end=time.monotonic()+seconds
  while time.monotonic()<end:
-  if check():return True
+  # A file the link is replacing at that moment cannot be opened on Windows: that check counts as not yet.
+  try:
+   if check():return True
+  except OSError:pass
   time.sleep(.01)
  return False
 
@@ -94,11 +99,13 @@ class LibraryTests(unittest.TestCase):
  def test_names_keep_what_the_card_can_draw(self):
   self.assertEqual(control.clean_name('\u2605 \uefddSHOP APPKG \u2605\uefdc'),'SHOP APPKG');self.assertEqual(control.clean_name('\u2605Internet Browser '),'Internet Browser')
   self.assertEqual(control.clean_name('Uncharted\u2122: Drake\'s Fortune'),'Uncharted\u2122: Drake\'s Fortune');self.assertEqual(control.clean_name('METAL GEAR SOLID \u0394'),'METAL GEAR SOLID \u0394');self.assertEqual(control.clean_name(None),'')
- def test_tools_are_left_out_and_games_without_a_type_are_kept(self):
+ def test_homebrew_apps_are_marked_system_apps_left_out_and_games_without_a_type_kept(self):
   with tempfile.TemporaryDirectory() as tmp:
    path=Path(tmp)/'types.db';db=sqlite3.connect(path);db.execute('CREATE TABLE tbl_contentinfo(titleId,titleName,appType)')
-   db.executemany('INSERT INTO tbl_contentinfo VALUES(?,?,?)',(('PPSA00001','Game',1),('PPSA00002','Port',5),('TOOL00001','Tool',0),('PPSA00003','Unknown',None)));db.commit();db.close()
-   self.assertEqual({game['title'] for game in control.read_games(path)},{'PPSA00001','PPSA00002','PPSA00003'})
+   db.executemany('INSERT INTO tbl_contentinfo VALUES(?,?,?)',(('PPSA00001','Game',1),('PPSA00002','Port',5),('TOOL00001','Tool',0),('PPSA00003','Unknown',None),('NPXS40001','System',0)));db.commit();db.close()
+   games={game['title']:game for game in control.read_games(path)}
+   self.assertEqual(set(games),{'PPSA00001','PPSA00002','PPSA00003','TOOL00001'})
+   self.assertEqual({title for title,game in games.items() if game.get('app')},{'TOOL00001'})
  def test_dates_and_play_time_in_either_form(self):
   self.assertEqual(control.when(1700000000),1700000000.0);self.assertEqual(control.when(1700000000000),1700000000.0);self.assertGreater(control.when('2026-01-01T10:00:00Z'),1.7e9);self.assertEqual(control.when('1700000000'),1700000000.0)
   for empty in ('','never',None):self.assertEqual(control.when(empty),0.0)
@@ -142,6 +149,11 @@ class StatusTests(unittest.TestCase):
   for status in ({'app':5,'title':'PPSA00001','front':'PPSA00001'},{'app':5,'title':'PPSA00001','front':''},{'app':5,'title':'PPSA00001'},{'app':-1,'title':'','front':'NPXS40087'},{'app':5,'title':'PPSA00001','front':7}):self.assertFalse(control.menu_in_front(status))
  def test_the_status_line_leaves_out_what_the_console_could_not_read(self):
   self.assertEqual(control.console_line({'cpu_c':52,'soc_c':-1,'power_mw':92000,'cpu_mhz':3200}),'CPU 52 °C');self.assertEqual(control.console_line({}),'')
+ def test_a_temperature_is_shown_as_the_console_sent_it(self):
+  # The payload sends -1 for a sensor it could not read; every other number is the console's own reading.
+  self.assertEqual(control.console_line({'cpu_c':71,'soc_c':58}),'CPU 71 °C  ·  SoC 58 °C');self.assertEqual(control.console_line({'cpu_c':-1,'soc_c':True}),'')
+  self.assertEqual(control.degrees({'cpu_c':61},'cpu_c'),61)
+  for status in ({'cpu_c':-1},{'cpu_c':0},{'cpu_c':'61'},{'cpu_c':None},{}):self.assertIsNone(control.degrees(status,'cpu_c'))
 
 class FlowTests(unittest.TestCase):
  def test_a_launch_ends_when_the_console_runs_that_game(self):
@@ -293,5 +305,46 @@ class LinkTests(unittest.TestCase):
   self.assertIsNone(flow.update('PPSA00001',2));self.assertEqual(flow.update('',3),'launch');self.assertEqual(flow.waiting,'PPSA00001');self.assertIsNone(flow.update('',4));self.assertEqual(flow.update('PPSA00001',5),'started')
  def test_the_commands_match_the_payload(self):
   rules=(Path(__file__).resolve().parents[1]/'payload'/'control-rules.h').read_text(encoding='utf8');found={name:int(value) for name,value in re.findall(r'CONTROL_([A-Z_]+)=(\d+)',rules)}
-  self.assertEqual(found,dict(STATUS=control.STATUS,FILE=control.FILE,LAUNCH=control.LAUNCH,CLOSE=control.CLOSE,REST=control.REST,POWER_OFF=control.POWER_OFF,REBOOT=control.REBOOT,LIST=control.LIST))
+  self.assertEqual(found,dict(STATUS=control.STATUS,FILE=control.FILE,LAUNCH=control.LAUNCH,CLOSE=control.CLOSE,REST=control.REST,POWER_OFF=control.POWER_OFF,REBOOT=control.REBOOT,LIST=control.LIST,RANGE=control.RANGE,FAN=control.FAN))
+class GameRateTests(unittest.TestCase):
+ def feed(self,rate,seconds,start=0,flips=1000,step=.25,state=0,clock=None):
+  """Status answers every step seconds from a game at rate frames per second; returns the last rate seen."""
+  rate_seen=None;at=start
+  for i in range(int(seconds/step)+1):
+   info=dict(fps_state=state,flips=flips+round(rate*i*step),flips_us=int((at+i*step)*1e6))
+   self.rate.add(info,(clock or 0)+i*step);rate_seen=self.rate.fps
+  return rate_seen
+ def setUp(self):self.rate=control.GameRate()
+ def test_the_rate_is_the_count_growth_over_about_a_second(self):
+  self.assertEqual(self.feed(60,3),60.0);self.rate.reset();self.assertEqual(self.feed(30,3),30.0)
+ def test_it_waits_for_half_a_second_of_readings(self):
+  self.rate.add(dict(fps_state=0,flips=10,flips_us=1_000_000),0);self.assertIsNone(self.rate.fps)
+  self.rate.add(dict(fps_state=0,flips=25,flips_us=1_250_000),.25);self.assertIsNone(self.rate.fps)
+  self.rate.add(dict(fps_state=0,flips=40,flips_us=1_500_000),.5);self.assertEqual(self.rate.fps,60.0)
+ def test_no_game_an_old_payload_or_a_new_count_start_over(self):
+  self.feed(60,2);self.rate.add(dict(fps_state=1,flips=0,flips_us=9_000_000),3);self.assertIsNone(self.rate.fps)
+  self.feed(60,2);self.rate.add(dict(cpu_c=50,title=''),3);self.assertIsNone(self.rate.fps)
+  # Another game: its count starts lower, so the earlier readings are dropped instead of giving a negative rate.
+  self.feed(60,2,flips=50_000);self.assertEqual(self.feed(30,1,start=10,flips=10,clock=10),30.0)
+ def test_a_count_that_stopped_coming_shows_nothing(self):
+  self.feed(60,2)
+  for i in range(12):self.rate.add(dict(fps_state=0,flips=1120,flips_us=2_000_000),2.25+i*.25)
+  self.assertIsNone(self.rate.fps)
+
+class CountingPort(FakeControlPort):
+ """A control port whose status carries a game's frame count growing at 50 a second."""
+ began=time.monotonic()
+ @property
+ def status(self):
+  now=time.monotonic();return {'cpu_c':50,'user':1,'app':-1,'title':'','fps_state':0,'flips':int((now-self.began)*50),'flips_us':int(now*1e6)}
+ @status.setter
+ def status(self,value):pass
+
+class GameRateLinkTests(unittest.TestCase):
+ setUp=LinkTests.setUp;link=LinkTests.link
+ def test_the_link_shows_the_games_rate_and_forgets_it_when_it_ends(self):
+  link=self.link(CountingPort({control.DATABASE:self.source.read_bytes()}))
+  self.assertTrue(wait_for(lambda:link.game_fps is not None and abs(link.game_fps-50)<3),link.game_fps)
+  link.end();self.assertIsNone(link.game_fps)
+
 if __name__=='__main__':unittest.main()

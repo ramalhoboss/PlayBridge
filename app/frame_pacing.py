@@ -4,6 +4,8 @@ import collections,ctypes,math,threading,time
 CAPTURE_FRAME=1001/60000
 # Gaps in a row that disagree with the refresh length before it is learnt again: one screen rate gave way to another.
 RELEARN=20
+# A turn this close counts as reached. At 120 Hz a frame's turn can fall right on a refresh, where rounding alone would move it a refresh.
+NEAR=1e-6
 
 class FramePacer:
  """Prepared frames wait here for their turn on a playback clock. The clock moves by whole refreshes rather than wall time, so a frame's turn cannot flip between two refreshes."""
@@ -14,6 +16,8 @@ class FramePacer:
   self.missing=0;self.clear()
  def clear(self):
   self.items.clear();self.clock=None;self.newest=None;self.shown=None;self.spacing=CAPTURE_FRAME;self.fastest=self.recent=math.inf;self.lowest=math.inf;self.elapsed=0
+  # The frame shown last and the clock when its turn came, for in-between pictures; the last frame pair given one at its middle.
+  self.current=None;self.turn=None;self.middle_done=None
  def add(self,pts,item,now):
   # The first frame, or a jump in the timestamps, restarts the clock.
   if self.clock is None or not 0<pts-self.newest<1:self.clock=pts-self.lead;self.shown=None;self.fastest=self.recent=now-pts
@@ -22,30 +26,59 @@ class FramePacer:
   if len(self.items)>self.capacity:
    # Too far behind the stream: skip ahead instead of adding delay.
    self.items.popleft();self.stats['prepared_replaced']+=1;self.clock=max(self.clock,self.items[0][0]-self.lead)
- def advance(self,seconds,now):
-  """Moves the clock by whole refreshes and returns the frame whose turn has come, or None to keep the current picture."""
+ def advance(self,seconds,now,ahead=0.0):
+  """Moves the clock by whole refreshes and returns the frame whose turn has come, or None to keep the current picture.
+  ahead: how long before its turn the next frame is needed, for in-between pictures; the clock waits for it from then on."""
   if self.clock is None:return None
   self.clock+=seconds;item=None
-  while self.items and self.items[0][0]<=self.clock:
+  while self.items and self.items[0][0]<=self.clock+NEAR:
    if item is not None:self.stats['prepared_replaced']+=1
    self.shown,item=self.items.popleft()
+  if item is not None:self.current=item;self.turn=self.clock
   self.lowest=min(self.lowest,self.newest-self.clock);self.elapsed+=seconds
   late=item is None and self.shown is not None and self.clock>=self.shown+self.spacing
   # The next frame is due and not there: the network or the decoder held it up.
   if late:self.missing+=1
-  if late and now-self.clock-self.fastest<self.max_lead:
+  # Not due yet, but not here in time for the picture before it either.
+  early=item is None and not late and ahead>0 and self.shown is not None and not self.items and self.clock+NEAR>=self.shown+self.spacing-ahead
+  if (late or early) and now-self.clock-self.fastest<self.max_lead+ahead:
    # The next frame is late. Waiting for it leaves a larger margin for the ones after it.
-   self.clock-=seconds;self.stats['video_late_waits']+=1
+   self.clock-=seconds;self.stats['video_late_waits' if late else 'between_waits']+=1
   if self.elapsed>=self.window:
    # Frames kept arriving this far ahead of the clock for the whole window: give a frame of delay back.
-   if self.lowest>=self.spare:self.clock+=CAPTURE_FRAME
+   if self.lowest>=self.spare+ahead:self.clock+=CAPTURE_FRAME
    self.fastest=self.recent;self.recent=math.inf;self.lowest=math.inf;self.elapsed=0
   return item
- def due(self):
+ def between(self,period,vrr=False):
+  """For an in-between picture now: how far the clock has gone from the shown frame's turn towards the next frame's (0 to 1), the shown
+  frame's item and the next one's. None when the next frame is not here, the two are not one or two frames apart, the screen is not
+  half again as fast as the stream, or the clock sits too near either frame for a picture of its own. period: the screen's refresh.
+  On a fixed screen the pictures share out the refreshes until the next frame's turn: 1/2 at 120 Hz, 1/3 and 2/3 or 1/2 at 144 Hz,
+  so none repeats. With variable refresh the next frame shows at its own time."""
+  if self.clock is None or self.current is None or not self.items:return None
+  pts,item=self.items[0];gap=pts-self.shown
+  if not .5*CAPTURE_FRAME<gap<2.5*CAPTURE_FRAME or period>gap/1.5:return None
+  span=pts-self.turn
+  if not vrr:span=max(1,math.ceil((span-NEAR)/period))*period
+  if span<=0:return None
+  t=(self.clock-self.turn)/span
+  if not .05<t<.95:return None
+  # With variable refresh the middle of this pair has had its picture.
+  self.middle_done=pts;return t,self.current,item
+ def due(self,middle=False):
   """Seconds until the next frame's turn on the playback clock, or None when no frame is waiting. For a screen with variable refresh,
-  where each frame is shown at its own time rather than on the next refresh."""
+  where each frame is shown at its own time rather than on the next refresh. middle: with in-between pictures, the middle between the
+  shown frame and the next one comes first, until its picture is shown."""
   if self.clock is None or not self.items:return None
-  return self.items[0][0]-self.clock
+  turn=self.items[0][0]-self.clock
+  if middle and self.current is not None and self.middle_done!=self.items[0][0]:
+   gap=self.items[0][0]-self.shown
+   if .5*CAPTURE_FRAME<gap<2.5*CAPTURE_FRAME:
+    middle=self.turn+gap/2-self.clock
+    if middle>0:return min(turn,middle)
+    # Its time went by without a picture, as when the next frame came late: the next wake is the frame's own turn, not a busy loop.
+    self.middle_done=self.items[0][0]
+  return turn
 
 def precise_sleep():
  """A sleep that ends within about half a millisecond, from a high-resolution waitable timer. time.sleep can overshoot by a whole

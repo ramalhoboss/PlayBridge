@@ -2,12 +2,17 @@ import os,sys,tempfile,time,types,unittest
 from pathlib import Path
 if os.environ.get('PLAYBRIDGE_DEPS'):sys.path.insert(0,os.environ['PLAYBRIDGE_DEPS'])
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'app'))
-from qt_models import Shelf,capture_card,controller_text,file_url,game_kind,library_info
+from qt_models import Shelf,capture_card,controller_text,file_url,game_kind,library_info,message_line
 
 GAMES=[{'title':'PPSA00001','name':'Zeta','played':300,'seconds':60},{'title':'CUSA00002','name':'alpha','played':200,'seconds':7200},{'title':'CUSA00003','name':'Beta Zone','played':100,'seconds':None}]
 class Link:
- def __init__(self,games=GAMES,online=True):self.games=list(games);self.online=online;self.revision=1;self.focus='';self.refreshed=0;self.refreshing=False;self.browsing=False
+ def __init__(self,games=GAMES,online=True):self.games=list(games);self.online=online;self.revision=1;self.focus='';self.refreshed=0;self.refreshing=False;self.browsing=False;self.hidden=set();self.sets={}
  def refresh(self):self.refreshed+=1
+ def set_hidden(self,title,on):
+  if on:self.hidden.add(title)
+  else:self.hidden.discard(title)
+  self.revision+=1
+ def trophy_set(self,title):return self.sets.get(title)
  def icon(self,title):return None
  def art(self,title):return None
 class Clock:
@@ -61,10 +66,32 @@ class ShelfTests(unittest.TestCase):
   self.assertFalse(page.navigate('nothing'))
  def test_the_menu_takes_the_arrows_while_it_is_open(self):
   page,_,ran,_=shelf();page.sync('PPSA00001',None,'');page.open_menu('more')
-  self.assertEqual([key for key,_ in page.menu['items']],['close','refresh','live'])
-  page.navigate('up');self.assertEqual(page.menu['selected'],2);page.navigate('down');page.navigate('down')
+  self.assertEqual([key for key,_ in page.menu['items']],['close','hide','view_menu','refresh','live'])
+  page.navigate('up');self.assertEqual(page.menu['selected'],4);page.navigate('down');page.navigate('down');page.navigate('down');page.navigate('down')
   page.navigate('accept');self.assertIsNone(page.menu);self.assertEqual(page.link.refreshed,1)
   page.open_menu('more');page.menu_choose(0);self.assertEqual(ran[-1],('close',))
+ def test_homebrew_apps_have_their_own_shelf_and_open_instead_of_play(self):
+  page,_,ran,_=shelf();self.assertNotIn('apps',page.shelf_keys(),'no Apps shelf without an app')
+  page,_,ran,_=shelf(games=GAMES+[{'title':'TOOL00001','name':'Homebrew Store','played':50,'seconds':None,'app':True}])
+  self.assertEqual([game['name'] for game in page.games],['Zeta','alpha','Beta Zone'],'apps are not among the games')
+  self.assertIn('apps',page.shelf_keys());page.set_shelf('apps');self.assertEqual([game['name'] for game in page.games],['Homebrew Store'])
+  self.assertEqual(page.action_text(),'Open');self.assertEqual(page.tiles()[0]['kind'],'Homebrew app');self.assertEqual(page.view()['shelfName'],'Apps')
+  page.choose();self.assertEqual(ran[-1],('open','TOOL00001'))
+  page.link.games=list(GAMES);page.link.revision+=1;page.sync('',None,'');self.assertEqual(page.shelf,'all','the Apps shelf goes when its last app does')
+ def test_a_hidden_game_leaves_the_shelf_for_its_own(self):
+  page,_,_,_=shelf();self.assertNotIn('hidden',page.shelf_keys())
+  page.open_menu('more');page.menu_choose([key for key,_ in page.menu['items']].index('hide'))
+  self.assertEqual([game['name'] for game in page.games],['alpha','Beta Zone']);self.assertEqual(page.shelf_keys()[-1],'hidden')
+  page.navigate('up');self.assertEqual(page.shelf,'hidden');self.assertEqual([game['name'] for game in page.games],['Zeta']);self.assertEqual(page.view()['shelfName'],'Hidden games')
+  page.open_menu('more');self.assertIn('show',[key for key,_ in page.menu['items']]);page.menu_choose([key for key,_ in page.menu['items']].index('show'))
+  self.assertEqual(page.shelf,'all');self.assertEqual(len(page.games),3);self.assertNotIn('hidden',page.shelf_keys())
+ def test_the_trophy_list_takes_the_moves_while_it_is_open(self):
+  page,sounds,_,_=shelf();page.open_menu('more');self.assertNotIn('trophies',[key for key,_ in page.menu['items']]);page.dismiss()
+  page.link.sets['PPSA00001']=dict(trophies=[dict(id=n) for n in range(3)])
+  page.open_menu('more');page.menu_choose([key for key,_ in page.menu['items']].index('trophies'));self.assertEqual(page.panel,dict(title='PPSA00001',selected=0))
+  page.navigate('down');page.navigate('down');self.assertEqual(page.panel['selected'],2);page.navigate('down');self.assertEqual(sounds[-1],'edge')
+  page.move(-1);self.assertEqual(page.panel['selected'],1);self.assertEqual(page.target,0)
+  page.navigate('accept');self.assertIsNotNone(page.panel);self.assertTrue(page.dismiss());self.assertIsNone(page.panel)
  def test_no_close_in_the_menu_without_an_open_game(self):
   page,_,_,_=shelf();page.open_menu('more');self.assertNotIn('close',[key for key,_ in page.menu['items']])
  def test_typing_searches_and_back_clears_the_menu_first(self):
@@ -86,14 +113,29 @@ class LineTests(unittest.TestCase):
   self.assertEqual((info['state'],info['fps'],info['picture'],info['bitrate'],info['cpu'],info['soc'],info['pad']),('online',60,'1920×1080','42 Mbps',61,None,True))
   info=library_info('',False,True,False,health,None,'',{});self.assertEqual((info['name'],info['state'],info['fps'],info['picture'],info['bitrate']),('PS5','connecting',None,'',''))
   self.assertEqual(library_info('PS5',False,False,False,{},None,'',{})['state'],'offline')
+  # -1 is the payload's word for a sensor it could not read.
+  info=library_info('PS5',True,True,True,health,59.7,'',{'cpu_c':-1,'soc_c':57});self.assertEqual((info['cpu'],info['soc']),(None,57))
  def test_the_controller_line_only_speaks_when_something_is_wrong(self):
   pad=types.SimpleNamespace(name='',answer=(0,0),link=lambda now:'ready');self.assertIn('No controller',controller_text(pad,0))
   pad.name='Pad';self.assertEqual(controller_text(pad,0),'')
   pad.link=lambda now:'failed';pad.answer=(0,0x8063000a-2**32);self.assertEqual(controller_text(pad,0),'  ·  Controller could not start (8063000a)')
   pad.link=lambda now:'starting';self.assertIn('starting',controller_text(pad,0))
+  pad.link=lambda now:'full';self.assertEqual(controller_text(pad,0),'  ·  Four controllers are in use on your PS5')
  def test_a_capture_card(self):
   item=types.SimpleNamespace(kind='Photos',path=Path('shot.jpeg'),modified=time.mktime((2026,11,10,23,49,0,0,0,-1)),size=2_200_000)
   card=capture_card(item);self.assertEqual((card['kind'],card['action'],card['when']),('photo','Open photo','10 Nov 2026 · 23:49'));self.assertTrue(card['detail'].startswith('JPG'))
   item.kind='Videos';item.path=Path('clip.mp4');card=capture_card(item);self.assertEqual((card['kind'],card['action']),('video','Play recording'));self.assertTrue(card['detail'].startswith('MP4'))
+
+class FooterTests(unittest.TestCase):
+ def line(self,game_fps):
+  N=types.SimpleNamespace
+  app=N(error='',connection_state='',capture_info=dict(confirmed=True,fps_target=60,bitrate_target=20_000_000,resolution=4),link=N(game_fps=game_fps),
+   decoder_name='gpu',args=N(profile='p'),microphone=N(on=False),recorder=N(active=False),broadcast=N(state='',active=False),notice='',notice_until=0,stats={})
+  core=N(resolution_notice=lambda info:'',PROFILES={'p':{}})
+  health=dict(decoded_width=1920,decoded_height=1080,received_mbps=20.0)
+  return message_line(app,core,health,True,True,0,None,N(sending=False),'',60,0,False)[0]
+ def test_the_games_own_rate_follows_the_target(self):
+  self.assertIn('60 fps target / 20 Mbps  ·  Game 58 fps  ·  20.0 Mbps received',self.line(57.6))
+  self.assertNotIn('Game',self.line(None))
 
 if __name__=='__main__':unittest.main()

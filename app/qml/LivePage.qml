@@ -120,7 +120,7 @@ FocusScope {
             Component.onCompleted: report()
             Connections { target: page; function onVisibleChanged() { videoArea.report() } function onSettledChanged() { videoArea.report() } }
             Connections { target: shell; function onFullscreenChanged() { Qt.callLater(videoArea.report) } function onMiniChanged() { Qt.callLater(videoArea.report) } }
-            TapHandler { onDoubleTapped: shell.act("video_double", null) }
+            TapHandler { onTapped: shell.act("video_tap", null); onDoubleTapped: shell.act("video_double", null) }
             HoverHandler { onPointChanged: shell.act("pointer", null) }
         }
     }

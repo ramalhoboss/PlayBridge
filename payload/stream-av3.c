@@ -62,6 +62,7 @@ static int capture_ack(void){
 /* Ends this capture run: the loop around it opens the capture again, or the session ends once the limit is reached. */
 #define REOPEN_OR_END() do{if(reopens<REOPEN_LIMIT){reopens++;reopen=1;}running=0;}while(0)
 #include "console-control.h"
+#include "console-mic.h"
 static void resource_callback(int id,int state,void *info){(void)id;(void)state;(void)info;}
 static void use_resolution(unsigned char*p,uint32_t resolution){
  capture_resolution=resolution;resource_profile=resolution_profile(resolution);capture_bitrate=apply_resolution(p,resolution,capture_fps,capture_bitrate);
@@ -86,7 +87,7 @@ if(dropped)LOG("Dropped %d connection(s) that closed before sending options\n",d
 if(fd==VIEWER_INVALID){LOG("Invalid capture options\n");close(invalid);fclose(logf);return 15;}
 if(fd<0){LOG("No viewer or socket error errno=%d\n",errno);fclose(logf);return 14;}
 client=fd;}
-LOG("Viewer connected\n");viewer_connected=1;if(notify_viewer)LOG("Notice=%08x\n",(uint32_t)notice("PlayBridge is streaming to your PC."));LOG("Capture request fps=%u bitrate=%u resolution=%u\n",capture_fps,capture_bitrate,requested_resolution);uint32_t kh=0;const char*ks[]={"libkernel_web.sprx","libkernel.sprx","libkernel_sys.sprx",0};for(int i=0;ks[i];i++)if(!kernel_dynlib_handle(-1,ks[i],&kh)&&kh)break;load_fn load=kh?(load_fn)kernel_dynlib_resolve(-1,kh,"wzvqT4UqKX8"):0;module(load,"libSceIpmi.sprx");control_start(load);uint32_t ah=module(load,"libSceAvcap2.sprx");if(!ah){fclose(logf);return 2;}
+LOG("Viewer connected\n");viewer_connected=1;if(notify_viewer)LOG("Notice=%08x\n",(uint32_t)notice("PlayBridge is streaming to your PC."));LOG("Capture request fps=%u bitrate=%u resolution=%u\n",capture_fps,capture_bitrate,requested_resolution);uint32_t kh=0;const char*ks[]={"libkernel_web.sprx","libkernel.sprx","libkernel_sys.sprx",0};for(int i=0;ks[i];i++)if(!kernel_dynlib_handle(-1,ks[i],&kh)&&kh)break;load_fn load=kh?(load_fn)kernel_dynlib_resolve(-1,kh,"wzvqT4UqKX8"):0;module(load,"libSceIpmi.sprx");control_start(load);mic_start(load);uint32_t ah=module(load,"libSceAvcap2.sprx");if(!ah){fclose(logf);return 2;}
 int(*Init)(void)=(void*)kernel_dynlib_dlsym(-1,ah,"sceAvcap2Initialize");int(*Term)(void)=(void*)kernel_dynlib_dlsym(-1,ah,"sceAvcap2Terminate");int(*Open)(int64_t*,void*,int)=(void*)kernel_dynlib_dlsym(-1,ah,"sceAvcap2OpenVideo");int(*Start)(int64_t)=(void*)kernel_dynlib_dlsym(-1,ah,"sceAvcap2Start");int(*Stop)(int64_t)=(void*)kernel_dynlib_dlsym(-1,ah,"sceAvcap2Stop");int(*Close)(int64_t)=(void*)kernel_dynlib_dlsym(-1,ah,"sceAvcap2Close");int(*Read)(int64_t,void*,size_t,void*,int)=(void*)kernel_dynlib_dlsym(-1,ah,"sceAvcap2ReadVideo");
 /* GetVideoHeader and the status query have no name this payload can look up, so they are found by their place in libSceAvcap2 on 13.60. */
 uintptr_t ab=(uintptr_t)kernel_dynlib_mapbase_addr(-1,ah);int(*Status)(void*)=ab?(void*)(ab+0x1750):0;

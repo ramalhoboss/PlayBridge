@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PlayBridge local control</title>
+<style>
+:root {
+  --bg: #0d0d11; --panel: rgba(255, 255, 255, 0.05); --edge: rgba(255, 255, 255, 0.10); --text: #f4f4f6; --soft: #b9b9c2;
+  --gold: #ebd48e; --gold-deep: #d4af37; --ink: #16130a; --ok: #6edc8c; --bad: #ff6b6b;
+  --face: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; background: radial-gradient(1200px 600px at 20% -10%, #2a2416 0%, transparent 60%), var(--bg); color: var(--text); font-family: var(--face); }
+main { max-width: 920px; margin: 0 auto; padding: 40px 16px 64px; }
+h1 { font-weight: 300; font-size: 40px; margin: 0 0 6px; letter-spacing: -0.01em; }
+h1 b { font-weight: 600; color: var(--gold); }
+h2 { font-size: 15px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--gold); margin: 36px 0 12px; font-weight: 600; }
+p { color: var(--soft); line-height: 1.55; margin: 0 0 12px; }
+.card { background: var(--panel); border: 1px solid var(--edge); border-radius: 18px; padding: 18px 20px; }
+.row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--edge); }
+.row:first-child { border-top: 0; padding-top: 0; }
+.row:last-child { padding-bottom: 0; }
+.what { font-weight: 600; }
+code { display: block; margin-top: 4px; font-family: "Cascadia Mono", Consolas, monospace; font-size: 13px; color: var(--soft); overflow-wrap: anywhere; }
+.buttons { display: flex; gap: 8px; }
+button {
+  font: inherit; font-weight: 600; font-size: 14px; color: var(--text); background: rgba(255, 255, 255, 0.08); border: 1px solid var(--edge);
+  border-radius: 12px; min-height: 40px; padding: 0 16px; cursor: pointer;
+}
+button:hover { background: rgba(255, 255, 255, 0.14); }
+button.main { background: linear-gradient(var(--gold), var(--gold-deep)); color: var(--ink); border-color: transparent; }
+button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+#said { min-height: 22px; margin-top: 10px; color: var(--ok); }
+#said.bad { color: var(--bad); }
+pre { margin: 0; font-family: "Cascadia Mono", Consolas, monospace; font-size: 13px; color: var(--soft); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; }
+@media (max-width: 560px) { .row { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Play<b>Bridge</b> local control</h1>
+  <p>Programs on this PC can press PlayBridge's buttons through these addresses: a Stream Deck, Touch Portal, a hotkey program or a script. Each one starts with this PC's secret, so keep them to yourself. Another device cannot reach them.</p>
+
+  <h2>Commands</h2>
+  <div class="card" id="commands"></div>
+  <div id="said" role="status" aria-live="polite"></div>
+
+  <h2>Stream Deck</h2>
+  <p>Add a <b>Website</b> action from the System group, paste a command's address, and tick <b>GET request in background</b>, so no browser opens. Touch Portal and hotkey programs: send an HTTP GET or POST to the same address.</p>
+
+  <h2>OBS overlay</h2>
+  <div class="card">
+    <div class="row">
+      <div><div class="what">Browser source</div><code id="overlay"></code></div>
+      <div class="buttons"><button type="button" data-copy="overlay">Copy</button></div>
+    </div>
+  </div>
+  <p style="margin-top:12px">In OBS, add a <b>Browser</b> source with this address, 1920 × 1080. It shows the game, its frame rate and temperatures, REC and LIVE, the speedrun timer and each trophy as it unlocks. Add <b>?chat=1</b> for the Twitch chat, or <b>?scale=1.5</b> for a larger one.</p>
+
+  <h2>Status</h2>
+  <div class="card"><pre id="status">Asking PlayBridge…</pre></div>
+</main>
+<script>
+"use strict";
+const COMMANDS = [["screenshot", "Take a screenshot"], ["record", "Start or stop recording"], ["replay", "Save the instant replay"], ["live", "Go live, or end the live stream"], ["mic", "Turn the microphone on or off"], ["timer", "Start the speedrun timer, or mark a split"], ["timer-stop", "Stop the timer, or clear it once stopped"], ["status", "Everything PlayBridge knows now, as JSON"]];
+const base = location.origin + location.pathname.replace(/\/?$/, "/");
+const said = document.getElementById("said");
+function tell(text, bad) { said.textContent = text; said.className = bad ? "bad" : ""; }
+const list = document.getElementById("commands");
+for (const [name, what] of COMMANDS) {
+  const row = document.createElement("div"); row.className = "row";
+  const left = document.createElement("div");
+  const title = document.createElement("div"); title.className = "what"; title.textContent = what;
+  const address = document.createElement("code"); address.textContent = base + name;
+  left.append(title, address);
+  const buttons = document.createElement("div"); buttons.className = "buttons";
+  const copy = document.createElement("button"); copy.type = "button"; copy.textContent = "Copy"; copy.setAttribute("aria-label", "Copy the address for " + what.toLowerCase());
+  copy.onclick = () => navigator.clipboard.writeText(base + name).then(() => tell("Copied: " + base + name), () => tell("Copying was refused by the browser. Select the address instead.", true));
+  buttons.append(copy);
+  if (name !== "status") {
+    const run = document.createElement("button"); run.type = "button"; run.className = "main"; run.textContent = "Try"; run.setAttribute("aria-label", "Try: " + what.toLowerCase());
+    run.onclick = () => fetch(base + name, { method: "POST" }).then((answer) => answer.ok ? tell(what + ": sent to PlayBridge.") : tell("PlayBridge answered " + answer.status + ".", true), () => tell("PlayBridge did not answer. Is it open, with Local control on?", true));
+    buttons.append(run);
+  }
+  row.append(left, buttons); list.append(row);
+}
+document.getElementById("overlay").textContent = base + "overlay";
+document.querySelector("[data-copy=overlay]").onclick = () => navigator.clipboard.writeText(base + "overlay").then(() => tell("Copied the overlay's address."), () => tell("Copying was refused by the browser. Select the address instead.", true));
+async function status() {
+  try { const answer = await fetch(base + "status", { cache: "no-store" }); document.getElementById("status").textContent = JSON.stringify(await answer.json(), null, 2); }
+  catch (error) { document.getElementById("status").textContent = "PlayBridge did not answer. Is it open, with Local control on?"; }
+}
+status(); setInterval(status, 2000);
+</script>
+</body>
+</html>

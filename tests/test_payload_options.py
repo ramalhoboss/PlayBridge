@@ -9,6 +9,9 @@ HARNESS=r'''
 void*memcpy(void*d,const void*s,unsigned long long n){char*a=d;const char*b=s;while(n--)*a++=*b++;return d;}
 static void u32(unsigned char*p,int o,uint32_t v){memcpy(p+o,&v,4);}
 static void u64(unsigned char*p,int o,uint64_t v){memcpy(p+o,&v,8);}
+/* The console's error numbers for the game frame count. */
+#define ENOENT 2
+#define EINVAL 22
 #include "capture-options.h"
 #include "control-rules.h"
 __declspec(dllexport) int pb_valid(uint32_t r,uint32_t b,uint32_t c){return valid_target(r,b,c);}
@@ -18,9 +21,15 @@ __declspec(dllexport) size_t pb_delimiter(unsigned char*o,uint32_t c){return del
 __declspec(dllexport) int pb_title(const char*t,size_t n){return valid_title(t,n);}
 __declspec(dllexport) int pb_file(const char*p,size_t n){return allowed_file(p,n);}
 __declspec(dllexport) int pb_folder(const char*p,size_t n){return allowed_folder(p,n);}
+__declspec(dllexport) int pb_fan(int want,int own){return fan_target_allowed(want,own);}
+__declspec(dllexport) int pb_fan_note(const char*t,size_t n,int*own,int*set){return fan_note(t,n,own,set);}
+__declspec(dllexport) void pb_fan_follow(int now,int*own,int*set){fan_follow(now,own,set);}
+__declspec(dllexport) int pb_range(const char*b,size_t n,uint64_t*o,uint32_t*l){return range_request(b,n,o,l);}
 __declspec(dllexport) uint32_t pb_supported(uint32_t r,uint32_t m){return supported_resolution(r,m);}
 __declspec(dllexport) uint32_t pb_apply(unsigned char*p,uint32_t r,uint32_t f,uint32_t b){return apply_resolution(p,r,f,b);}
 __declspec(dllexport) int pb_reopen(uint32_t c){return read_needs_reopen(c);}
+__declspec(dllexport) int pb_temperature(int r,int v){return temperature_reading(r,v);}
+__declspec(dllexport) int pb_power(int r,const unsigned char*b,int*parts){return power_parts(r,b,parts);}
 /* Stand-ins for the console: each status check and each open takes the next scripted answer, the last one repeating. */
 static const unsigned char*fake_flags;static const uint32_t*fake_opens;static int fake_flag_count,fake_open_count,fake_checks,fake_open_calls,fake_waited,fake_status_result;static uint32_t fake_mode;
 static int fake_caps(uint32_t*m){*m=fake_mode;return 0;}
@@ -48,6 +57,22 @@ __declspec(dllexport) int pb_viewer(const int*accepts,int na,const int*answers,i
  counts[0]=fake_accept_calls;counts[1]=fake_option_calls;counts[2]=dropped;counts[3]=fake_drops;counts[4]=fake_last_dropped;counts[5]=invalid;
  for(int i=0;i<8;i++)counts[6+i]=fake_timeouts[i];
  return fd;
+}
+/* A stand-in display driver: each request takes the next scripted answer, the last one repeating; one that succeeds writes `written`
+   bytes, with the count at offset 8 when there is room for it. */
+static const int*fake_fps_answers;static int fake_fps_answer_count,fake_fps_calls,fake_fps_written;static uint64_t fake_fps_value,fake_fps_codes[4],fake_fps_args[3];
+static int fake_fps_request(uint64_t code,struct fps_request*arg){
+ int i=fake_fps_calls++;if(i<4)fake_fps_codes[i]=code;fake_fps_args[0]=arg->selector;fake_fps_args[1]=arg->mask;fake_fps_args[2]=arg->reserved[0]|arg->reserved[1]|arg->reserved[2];
+ int e=fake_fps_answers[i<fake_fps_answer_count?i:fake_fps_answer_count-1];
+ if(!e){unsigned char*out=(unsigned char*)(uintptr_t)arg->output;for(int k=0;k<fake_fps_written;k++)out[k]=(unsigned char)(k&0x7f);if(fake_fps_written>=16)memcpy(out+8,&fake_fps_value,8);}
+ return e;
+}
+__declspec(dllexport) int pb_fps(const int*answers,int n,int written,uint64_t value,unsigned char*block,uint64_t*out){
+ fake_fps_answers=answers;fake_fps_answer_count=n;fake_fps_calls=0;fake_fps_written=written;fake_fps_value=value;
+ for(int i=0;i<4;i++)fake_fps_codes[i]=0;
+ uint64_t count=0;int error=-1;int state=fps_read(fake_fps_request,block,&count,&error);
+ out[0]=count;out[1]=(uint64_t)(int64_t)error;out[2]=(uint64_t)fake_fps_calls;out[3]=fake_fps_codes[0];out[4]=fake_fps_codes[1];out[5]=fake_fps_args[0];out[6]=fake_fps_args[1];out[7]=fake_fps_args[2];
+ return state;
 }
 '''
 def compiler():
@@ -116,6 +141,48 @@ class PayloadOptionTests(unittest.TestCase):
    self.assertTrue(self.lib.pb_file(path,len(path)),path)
   for path in (b'/user/catalog_downloader/appmeta/PPSA01234/param.json',b'/user/catalog_downloader/PPSA01234/pic0.png',b'/user/catalog_downloader/appmeta/../PPSA01234/pic0.png',b'',b'/',b'/system_data/priv/mms/app.db-shm',b'/system_data/priv/mms/app.db\x00.txt',b'/system_data/priv/mms/',b'/user/appmeta/PPSA01234/param.json',b'/user/appmeta/PPSA01234/../../home/icon0.png',b'/user/appmeta/../PPSA01234/icon0.png',b'/user/appmeta/ppsa01234/icon0.png',b'/user/appmeta/PPSA01234/icon0.png/',b'/data/other.txt',b'/data/playbridge-pad.txt.bak',b'/user/home/PPSA01234/icon0.png',b'/user/app/PPSA01234/pic0.dds',b'/user/app/PPSA01234/eboot.bin',b'/user/app/PPSA01234/sce_sys/param.json',b'/user/app/PPSA01234/sce_sys/../eboot.bin',b'/user/app/PPSA01234/sce_sys',b'/user/appmeta/PPSA01234/sce_sys/pic0.dds',b'/user/app/ppsa01234/sce_sys/pic0.dds'):
    self.assertFalse(self.lib.pb_file(path,len(path)),path)
+ def test_each_games_trophy_files_can_be_read_and_nothing_beside_them(self):
+  for path in (b'/user/trophy2/nobackup/conf/NPWR12345_00/TROPHY.UCP',b'/user/home/1a2b3c4d/trophy2/nobackup/data/NPWR12345_00/TRPTITLE.DAT',b'/user/appmeta/PPSA01234/trophy2/npbind.dat',b'/user/app/CUSA00001/sce_sys/trophy2/npbind.dat',b'/mnt/ext0/user/app/PPSA01234/sce_sys/trophy2/npbind.dat'):
+   self.assertTrue(self.lib.pb_file(path,len(path)),path)
+  for path in (b'/user/trophy2/nobackup/conf/NPWR12345_00/trop0001.png',b'/user/trophy2/nobackup/conf/NPWR1234_000/TROPHY.UCP',b'/user/trophy2/nobackup/conf/npwr12345_00/TROPHY.UCP',b'/user/trophy2/nobackup/conf/NPWR12345_00/TROPHY.UCP/',b'/user/trophy2/nobackup/conf/../conf/NPWR12345_00/TROPHY.UCP',
+   b'/user/trophy2/nobackup/conf/NPWR12345_00',b'/user/home/1A2B3C4D/trophy2/nobackup/data/NPWR12345_00/TRPTITLE.DAT',b'/user/home/1a2b3c4/trophy2/nobackup/data/NPWR12345_00/TRPTITLE.DAT',b'/user/home/1a2b3c4d/trophy2/nobackup/data/NPWR12345_00/TRPTRANS.DAT',
+   b'/user/home/1a2b3c4d/savedata/NPWR12345_00/TRPTITLE.DAT',b'/user/home/1a2b3c4d/trophy2/nobackup/data/../../../../system_data/priv/mms/app.db',b'/user/appmeta/PPSA01234/trophy2/other.dat',b'/user/app/PPSA01234/trophy2/npbind.dat'):
+   self.assertFalse(self.lib.pb_file(path,len(path)),path)
+ def test_a_fan_target_is_never_warmer_than_the_consoles_own(self):
+  for want,own in ((0,0),(0,79),(74,79),(79,79),(50,79),(50,50)):self.assertTrue(self.lib.pb_fan(want,own),(want,own))
+  for want,own in ((80,79),(49,79),(91,79),(70,0),(70,92),(60,49),(-5,79)):self.assertFalse(self.lib.pb_fan(want,own),(want,own))
+ def test_a_reading_that_is_not_playbridges_is_the_consoles_own(self):
+  own,ours=ctypes.c_int(79),ctypes.c_int(74)
+  self.lib.pb_fan_follow(74,ctypes.byref(own),ctypes.byref(ours));self.assertEqual((own.value,ours.value),(79,74))
+  self.lib.pb_fan_follow(-5,ctypes.byref(own),ctypes.byref(ours));self.assertEqual((own.value,ours.value),(79,74))
+  # The console chose another one, as when a game starts.
+  self.lib.pb_fan_follow(82,ctypes.byref(own),ctypes.byref(ours));self.assertEqual((own.value,ours.value),(82,0))
+ def test_a_note_names_the_consoles_own_and_playbridges_target(self):
+  own,ours=ctypes.c_int(0),ctypes.c_int(0)
+  for text,expected in ((b'79 74\n',(79,74)),(b'79 50',(79,50)),(b'79 74\r\n',(79,74))):
+   self.assertTrue(self.lib.pb_fan_note(text,len(text),ctypes.byref(own),ctypes.byref(ours)),text);self.assertEqual((own.value,ours.value),expected)
+  for text in (b'',b'79',b'79 ',b'79 80',b'79 79',b'79 0',b'79 49',b'95 70',b'79 74 1',b'7a 70',b'1079 74',b' 79 74',b'79  74'):
+   self.assertFalse(self.lib.pb_fan_note(text,len(text),ctypes.byref(own),ctypes.byref(ours)),text)
+ def test_the_users_saves_can_be_listed_and_read_and_nothing_beside_them(self):
+  home=b'/user/home/1a2b3c4d'
+  for path in (home+b'/savedata_prospero',home+b'/savedata',home+b'/savedata_prospero/PPSA01234',home+b'/savedata/CUSA00001',home+b'/savedata_prospero/PPSA01234/inner'):
+   self.assertTrue(self.lib.pb_folder(path,len(path)),path)
+  for path in (home,home+b'/savedata_prospero/',home+b'/savedata_x',home+b'/savedatax/PPSA01234',home+b'/savedata_prospero/ppsa01234',home+b'/savedata_prospero/PPSA0123',home+b'/savedata_prospero/PPSA012345',
+   home+b'/savedata_prospero/..',home+b'/savedata_prospero/PPSA01234/../../trophy2',b'/user/home/1A2B3C4D/savedata',b'/user/home/1a2b3c4/savedata',home+b'/trophy2',b'/user/home/1a2b3c4d/savedata_prospero//PPSA01234'):
+   self.assertFalse(self.lib.pb_folder(path,len(path)),path)
+  for path in (home+b'/savedata_prospero/PPSA01234/sdimg_SAVEDATA00',home+b'/savedata/CUSA00001/SAVEDATA00.bin',home+b'/savedata_prospero/PPSA01234/inner/file'):
+   self.assertTrue(self.lib.pb_file(path,len(path)),path)
+  for path in (home+b'/savedata_prospero/PPSA01234',home+b'/savedata_prospero/PPSA01234/',home+b'/savedata_prospero/PPSA01234/.hidden',home+b'/savedata_prospero/file',home+b'/savedata_prospero/PPSA01234/../../../system_data/priv/mms/app.db',
+   home+b'/savedata_prospero/PPSA01234/a'+bytes([10])+b'b',home+b'/savedata_x/PPSA01234/file',b'/user/home/1a2b3c4d/other/PPSA01234/file'):
+   self.assertFalse(self.lib.pb_file(path,len(path)),path)
+ def test_part_of_a_file_names_where_how_much_and_an_allowed_path(self):
+  def ask(offset,length,path):
+   body=struct.pack('<QI',offset,length)+path;o=ctypes.c_uint64();n=ctypes.c_uint32()
+   ok=self.lib.pb_range(body,len(body),ctypes.byref(o),ctypes.byref(n));return ok,o.value,n.value
+  self.assertEqual(ask(0x60,6400,b'/user/trophy2/nobackup/conf/NPWR12345_00/TROPHY.UCP'),(1,0x60,6400))
+  self.assertEqual(ask(5,0x100000,b'/system_data/priv/mms/app.db')[0],1)
+  for offset,length,path in ((0,0,b'/system_data/priv/mms/app.db'),(0,0x100001,b'/system_data/priv/mms/app.db'),(0,10,b'/user/home/1a2b3c4d/other'),(0,10,b'')):
+   self.assertEqual(ask(offset,length,path)[0],0,(offset,length,path))
  def test_the_consoles_own_captures_can_be_listed_and_read_and_nothing_beside_them(self):
   for path in (b'/user/av_contents',b'/user/av_contents/content',b'/user/av_contents/content/Some Game',b'/mnt/ext0/user/av_contents',b'/mnt/ext1/user/av_contents/content'):
    self.assertTrue(self.lib.pb_folder(path,len(path)),path)
@@ -188,4 +255,40 @@ class PayloadOptionTests(unittest.TestCase):
   fd,seen,_=self.viewer([-1],[self.READ]);self.assertEqual((fd,seen['option_reads']),(self.NO_VIEWER,0))
   fd,seen,timeouts=self.viewer([7,8,9,10],[self.DROPPED],cost=25000)
   self.assertEqual((fd,seen['accepts'],seen['drops']),(self.NO_VIEWER,3,3));self.assertEqual(timeouts[:3],[60000,35000,10000])
+ OK,NO_GAME,NO_DEVICE,FAILED=0,1,2,3
+ def fps(self,answers,written=128,value=0):
+  a=(ctypes.c_int*len(answers))(*answers);block=(ctypes.c_ubyte*0x4000)();out=(ctypes.c_uint64*8)()
+  self.lib.pb_fps.argtypes=[ctypes.c_void_p,ctypes.c_int,ctypes.c_int,ctypes.c_uint64,ctypes.c_void_p,ctypes.c_void_p]
+  state=self.lib.pb_fps(a,len(answers),written,value,block,out)
+  return state,dict(zip(('count','error','calls','first','second','selector','mask','reserved'),out)),bytes(block)
+ def test_the_game_frame_count_is_read_from_offset_8_with_the_known_request(self):
+  state,s,block=self.fps([0],written=128,value=123456789)
+  self.assertEqual((state,s['count'],s['error'],s['calls']),(self.OK,123456789,0,1))
+  self.assertEqual((s['first'],s['selector'],s['mask'],s['reserved']),(0x80308217,0x10000000A,0x8000000000,0))
+  # The block was marked before the request: what the kernel did not write still carries the marker.
+  self.assertEqual(block[128:],b'\xa5'*(0x4000-128))
+ def test_no_game_is_an_answer_and_other_errors_are_failures(self):
+  state,s,_=self.fps([2]);self.assertEqual((state,s['error'],s['calls']),(self.NO_GAME,2,1))
+  state,s,_=self.fps([14]);self.assertEqual((state,s['error'],s['calls']),(self.FAILED,14,1))
+ def test_a_refused_request_is_tried_once_more_sign_extended(self):
+  state,s,_=self.fps([22,0],value=60);self.assertEqual((state,s['count'],s['calls'],s['first'],s['second']),(self.OK,60,2,0x80308217,0xFFFFFFFF80308217))
+  state,s,_=self.fps([22,22]);self.assertEqual((state,s['error'],s['calls']),(self.FAILED,22,2))
+ def test_a_kernel_that_wrote_too_little_gives_no_count(self):
+  state,s,_=self.fps([0],written=12,value=99);self.assertEqual((state,s['count']),(self.FAILED,0))
+  state,s,_=self.fps([0],written=0);self.assertEqual(state,self.FAILED)
+ def test_a_temperature_is_sent_only_when_the_console_read_its_sensor(self):
+  self.assertEqual(self.lib.pb_temperature(0,61),61);self.assertEqual(self.lib.pb_temperature(0,1),1);self.assertEqual(self.lib.pb_temperature(0,150),150)
+  # A getter that failed, and numbers no sensor gives, are no reading.
+  for result,value in ((-2147352574,61),(1,61),(0,0),(0,-1),(0,151),(0,994)):self.assertEqual(self.lib.pb_temperature(result,value),-1,(result,value))
+ def test_power_is_summed_by_part_only_when_every_rail_can_be_one(self):
+  def block(rails):
+   data=bytearray(0x70)
+   for i,mw in enumerate(rails):data[i*12:i*12+4]=struct.pack('<I',mw);data[i*12+4:i*12+8]=struct.pack('<I',950+i);data[i*12+8:i*12+12]=struct.pack('<I',4000+i)
+   return bytes(data)+bytes(0x90)
+  def parts(result,data):out=(ctypes.c_int*3)();ok=self.lib.pb_power(result,data,out);return ok,tuple(out)
+  # GPU from rails 0-1, CPU and the rest of the chip from 2-3, memory from 4-7; voltages and currents beside them are not power.
+  self.assertEqual(parts(0,block([80000,6000,20000,3000,2500,2500,2400,2600])),(1,(86000,23000,10000)))
+  for result,rails in ((0x80020016,[80000]*8),(0,[0]*8),(0,[200001]+[0]*7),(0,[200000,200000,200000]+[0]*5)):
+   self.assertEqual(parts(result,block(rails)),(0,(-1,-1,-1)),(result,rails))
+
 if __name__=='__main__':unittest.main()

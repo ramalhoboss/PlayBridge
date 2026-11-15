@@ -2,12 +2,13 @@
 from fractions import Fraction
 import av,numpy as np
 
-def packets(seconds=2,encoder='libx264'):
- v=av.CodecContext.create(encoder,'w');v.width=160;v.height=96;v.pix_fmt='yuv420p';v.time_base=Fraction(1,30);v.framerate=Fraction(30,1);v.options={'preset':'ultrafast','tune':'zerolatency','x264-params':'keyint=10:min-keyint=10:scenecut=0:repeat-headers=1'};v.open()
+def packets(seconds=2,encoder='libx264',size=(160,96)):
+ width,height=size
+ v=av.CodecContext.create(encoder,'w');v.width=width;v.height=height;v.pix_fmt='yuv420p';v.time_base=Fraction(1,30);v.framerate=Fraction(30,1);v.options={'preset':'ultrafast','tune':'zerolatency','x264-params':'keyint=10:min-keyint=10:scenecut=0:repeat-headers=1'};v.open()
  a=av.CodecContext.create('aac','w');a.sample_rate=48000;a.layout='stereo';a.format='fltp';a.bit_rate=128000;a.time_base=Fraction(1,48000);a.open()
  result=[]
  for i in range(seconds*30):
-  rgb=np.zeros((96,160,3),dtype=np.uint8);rgb[:]=[i%180,50,120]
+  rgb=np.zeros((height,width,3),dtype=np.uint8);rgb[:]=[i%180,50,120]
   f=av.VideoFrame.from_ndarray(rgb,format='rgb24').reformat(format='yuv420p');f.pts=i;f.time_base=Fraction(1,30)
   for p in v.encode(f):result.append((1,bytes(p),int(p.pts*p.time_base*90000),int(p.dts*p.time_base*90000)))
  for p in v.encode(None):result.append((1,bytes(p),int(p.pts*p.time_base*90000),int(p.dts*p.time_base*90000)))

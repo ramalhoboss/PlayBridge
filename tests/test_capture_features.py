@@ -118,4 +118,39 @@ class HevcPacketTests(unittest.TestCase):
   self.assertTrue(is_idr(self.idr,1));self.assertFalse(is_idr(self.trail,1));self.assertTrue(is_idr(b'\x00\x00\x00\x01\x65',0));self.assertFalse(is_idr(b'\x00\x00\x00\x01\x65',1))
  def test_headers_by_the_right_codec(self):
   self.assertEqual(codec_headers(self.sets+self.idr,1),self.sets);self.assertEqual(codec_headers(self.idr,1),b'');self.assertEqual(codec_headers(b'\x00\x00\x00\x01\x67\x00\x00\x00\x01\x68',0),b'\x00\x00\x00\x01\x67\x00\x00\x00\x01\x68')
+class PowerTests(unittest.TestCase):
+ """Rest, turn off and reboot say what the console answered: taken, refused with its code, or gone without a word."""
+ def asked(self,command,answer):
+  import console_control as control
+  told=[];asked=[]
+  class Link:
+   online=answer!='offline'
+   def work(self,job,done):
+    here,there=socket.socketpair()
+    with here,there:
+     if answer=='gone':there.close()
+     else:there.sendall(control.REPLY.pack(b'PBR1',answer,0))
+     done(job(here))
+     if answer!='gone':asked.append(control.REQUEST.unpack(there.recv(control.REQUEST.size))[1])
+    return True
+  player=argparse.Namespace(link=Link(),notify=told.append,sock=None,intentional_disconnect=False)
+  core.Player.console_power(player,command)
+  return told,asked,player.intentional_disconnect
+ def test_the_console_takes_it(self):
+  import console_control as control
+  told,asked,leaving=self.asked(control.REBOOT,0)
+  self.assertEqual(told,['Asking your PS5 to restart…','Your PS5 is restarting.']);self.assertEqual(asked,[control.REBOOT]);self.assertTrue(leaving)
+ def test_a_refusal_shows_the_consoles_code(self):
+  import console_control as control
+  told,_,leaving=self.asked(control.POWER_OFF,0x809f0001-(1<<32))
+  self.assertEqual(told[-1],'Your PS5 refused this (0x809f0001).');self.assertFalse(leaving,'the session stays: the console is still there')
+ def test_a_console_that_goes_quiet_is_on_its_way(self):
+  import console_control as control
+  told,_,leaving=self.asked(control.REST,'gone')
+  self.assertEqual(told[-1],'Your PS5 stopped answering as it was asked to rest.');self.assertTrue(leaving)
+ def test_nothing_is_asked_without_a_console(self):
+  import console_control as control
+  told,asked,leaving=self.asked(control.REBOOT,'offline')
+  self.assertEqual(told,['The PS5 is not connected.']);self.assertEqual(asked,[]);self.assertFalse(leaving)
+
 if __name__=='__main__':unittest.main(verbosity=2)

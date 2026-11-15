@@ -1,5 +1,5 @@
 """Direct3D 11 video output. A frame decoded on the GPU reaches the screen without visiting the CPU, and the GPU also converts its colour and scales it."""
-import collections,ctypes,struct,time,uuid
+import collections,ctypes,struct,threading,time,uuid
 from ctypes import POINTER,WINFUNCTYPE,Structure,byref,c_char_p,c_float,c_size_t,c_uint,c_ulong,c_void_p,sizeof
 from ctypes import wintypes
 import av
@@ -23,6 +23,7 @@ GetParent=com(6,HRESULT,c_char_p,OUT);GetAdapter=com(7,HRESULT,OUT);EnumAdapters
 Present=com(8,HRESULT,UINT,UINT);GetBuffer=com(9,HRESULT,UINT,c_char_p,OUT);ResizeBuffers=com(13,HRESULT,UINT,UINT,UINT,UINT,UINT);SetMaximumFrameLatency=com(31,HRESULT,UINT);GetMaximumFrameLatency=com(32,HRESULT,POINTER(UINT));GetFrameLatencyWaitableObject=com(33,wintypes.HANDLE)
 GetBlobPointer=com(3,c_void_p);GetBlobSize=com(4,c_size_t)
 CheckFeatureSupport=com(28,HRESULT,UINT,ANY,UINT)
+CreateBlendState=com(20,HRESULT,ANY,OUT);OMSetBlendState=com(35,None,ANY,ANY,UINT)
 
 class Texture2DDesc(Structure):_fields_=[('Width',UINT),('Height',UINT),('MipLevels',UINT),('ArraySize',UINT),('Format',UINT),('SampleCount',UINT),('SampleQuality',UINT),('Usage',UINT),('BindFlags',UINT),('CPUAccessFlags',UINT),('MiscFlags',UINT)]
 class SwapChainDesc1(Structure):_fields_=[('Width',UINT),('Height',UINT),('Format',UINT),('Stereo',wintypes.BOOL),('SampleCount',UINT),('SampleQuality',UINT),('BufferUsage',UINT),('BufferCount',UINT),('Scaling',UINT),('SwapEffect',UINT),('AlphaMode',UINT),('Flags',UINT)]
@@ -31,12 +32,18 @@ class BufferDesc(Structure):_fields_=[('ByteWidth',UINT),('Usage',UINT),('BindFl
 class SamplerDesc(Structure):_fields_=[('Filter',UINT),('AddressU',UINT),('AddressV',UINT),('AddressW',UINT),('MipLODBias',c_float),('MaxAnisotropy',UINT),('ComparisonFunc',UINT),('BorderColor',c_float*4),('MinLOD',c_float),('MaxLOD',c_float)]
 class OutputDesc(Structure):_fields_=[('DeviceName',ctypes.c_wchar*32),('DesktopCoordinates',wintypes.RECT),('AttachedToDesktop',wintypes.BOOL),('Rotation',UINT),('Monitor',c_void_p)]
 class Mapped(Structure):_fields_=[('Data',c_void_p),('RowPitch',UINT),('DepthPitch',UINT)]
+class BlendTarget(Structure):_fields_=[('BlendEnable',wintypes.BOOL),('SrcBlend',UINT),('DestBlend',UINT),('BlendOp',UINT),('SrcBlendAlpha',UINT),('DestBlendAlpha',UINT),('BlendOpAlpha',UINT),('RenderTargetWriteMask',UINT)]
+class BlendDesc(Structure):_fields_=[('AlphaToCoverageEnable',wintypes.BOOL),('IndependentBlendEnable',wintypes.BOOL),('RenderTarget',BlendTarget*8)]
 class Viewport(Structure):_fields_=[('X',c_float),('Y',c_float),('Width',c_float),('Height',c_float),('MinDepth',c_float),('MaxDepth',c_float)]
 
 BGRA8=87;R8=61;R8G8=49;NV12=103;P010=104;R16=56;R16G16=35;RGB10=24
 USAGE_DEFAULT=0;USAGE_DYNAMIC=2;USAGE_STAGING=3
 BIND_CONSTANT=4;BIND_SHADER=8;BIND_TARGET=0x20
 CPU_WRITE=0x10000;CPU_READ=0x20000;MAP_READ=1;MAP_DISCARD=4
+# The overlay is mixed over the picture by its own transparency: ONE and INV_SRC_ALPHA, added, every colour written.
+BLEND_ONE=2;BLEND_INV_SRC_ALPHA=6;BLEND_ADD=1;WRITE_ALL=15
+# The overlay's distance from the picture's corner, in pixels at 1080p.
+HUD_MARGIN=16
 TEXTURE2D_VIEW=4;TRIANGLES=4;FILTER_LINEAR=0x15;ADDRESS_CLAMP=3;LEVEL_SDK=7;DRIVER_UNKNOWN=0;DRIVER_HARDWARE=1;DEVICE_VIDEO=0x800
 FLIP_DISCARD=4;SCALING_STRETCH=0;ALPHA_IGNORE=3;TARGET_OUTPUT=0x20;FRAME_LATENCY_WAITABLE=64;NO_WINDOW_CHANGES=1
 # Variable refresh: a swap chain made with ALLOW_TEARING may present at once, and a screen with G-Sync, FreeSync or Adaptive-Sync then
@@ -89,6 +96,8 @@ float4 ps(Pixel p):SV_Target{
  else{u=blue.SampleLevel(smooth,cc/d,0).r;v=red.SampleLevel(smooth,cc/d,0).r;}
  float4 pixel=float4(y.r,u,v,1);return float4(dot(rows[0],pixel),dot(rows[1],pixel),dot(rows[2],pixel),1);
 }
+// The performance overlay, with its colours weighted by its transparency for the blend state.
+float4 hud(Pixel p):SV_Target{float4 c=luma.SampleLevel(smooth,p.uv,0);return float4(c.rgb*c.a,c.a);}
 // After AMD's contrast adaptive sharpening: least where neighbours already reach the limits, so edges do not ring.
 float4 sharpen(Pixel p):SV_Target{
  int3 at=int3(p.at.xy,0);float3 c=luma.Load(at).rgb,n=luma.Load(at,int2(0,-1)).rgb,s=luma.Load(at,int2(0,1)).rgb,w=luma.Load(at,int2(-1,0)).rgb,e=luma.Load(at,int2(1,0)).rgb;
@@ -201,7 +210,7 @@ def compiled():
  compiler=ctypes.WinDLL('d3dcompiler_47');compile_source=compiler.D3DCompile;compile_source.restype=ctypes.HRESULT
  compile_source.argtypes=[c_char_p,c_size_t,c_char_p,c_void_p,c_void_p,c_char_p,c_char_p,UINT,UINT,OUT,OUT]
  blobs={}
- for name,target in ((b'vs',b'vs_5_0'),(b'ps',b'ps_5_0'),(b'sharpen',b'ps_5_0'),(b'rgb',b'ps_5_0'),(b'easu',b'ps_5_0'),(b'rcas',b'ps_5_0')):
+ for name,target in ((b'vs',b'vs_5_0'),(b'ps',b'ps_5_0'),(b'sharpen',b'ps_5_0'),(b'rgb',b'ps_5_0'),(b'easu',b'ps_5_0'),(b'rcas',b'ps_5_0'),(b'hud',b'ps_5_0')):
   code=c_void_p();errors=c_void_p()
   try:compile_source(SHADERS,len(SHADERS),None,None,None,name,target,1<<15,0,byref(code),byref(errors))
   except OSError as error:raise RuntimeError(ctypes.string_at(GetBlobPointer(errors.value),GetBlobSize(errors.value)).decode(errors='replace') if errors.value else str(error)) from error
@@ -304,7 +313,8 @@ def screen_edid(hwnd):
  """The EDID Windows keeps for the screen the window is on, or None. Read only, from the screen's own registry entry."""
  import winreg
  try:
-  user32=ctypes.windll.user32;user32.GetMonitorInfoW.argtypes=[c_void_p,POINTER(MONITORINFOEXW)];user32.GetMonitorInfoW.restype=wintypes.BOOL
+  # Its own handle: the types set here must not change those other modules gave the same functions, as screen_rate does.
+  user32=ctypes.WinDLL('user32');user32.GetMonitorInfoW.argtypes=[c_void_p,POINTER(MONITORINFOEXW)];user32.GetMonitorInfoW.restype=wintypes.BOOL
   user32.EnumDisplayDevicesW.argtypes=[wintypes.LPCWSTR,wintypes.DWORD,POINTER(DISPLAY_DEVICEW),wintypes.DWORD];user32.EnumDisplayDevicesW.restype=wintypes.BOOL
   info=MONITORINFOEXW();info.cbSize=sizeof(info)
   if not user32.GetMonitorInfoW(window_monitor(hwnd),byref(info)):return None
@@ -335,8 +345,11 @@ def in_flight(cross,extra=0):
 
 class D3D11Presenter:
  """Draws on the thread of the refresh clock. Only resizing and hiding involve the window's own thread, which never waits for this one."""
- def __init__(self,window,sharpen=False,fsr=False,adapter=None,vrr=False):
+ def __init__(self,window,sharpen=False,fsr=False,adapter=None,vrr=False,smooth=False):
   self.hwnd=window.winfo_id();self.frame=None;self.failed=None;self.failures=0;self.sharpen=sharpen;self.fsr=fsr;self.wanted=(max(1,window.winfo_width()),max(1,window.winfo_height()));self.pending=False
+  # In-between pictures: wanted, and why they stopped for this session if they did. Their shaders are compiled the first time.
+  self.smooth=smooth;self.smooth_failed=None;self.motion_blobs=None;self.serials=0;self.compiling=None
+  if smooth:self.start_compiling()
   self.kernel=ctypes.WinDLL('kernel32');self.kernel.WaitForSingleObject.argtypes=[wintypes.HANDLE,wintypes.DWORD];self.kernel.WaitForSingleObject.restype=wintypes.DWORD
   # Both fail here, in the window's thread, where the app can still choose the other output.
   # Waits for the swap chain that ran out, and whether the last one drew on a card other than the screen's, for the stats.
@@ -345,8 +358,11 @@ class D3D11Presenter:
   # every present are as before. A screen whose EDID shows a fixed rate would tear, so the switch does nothing there.
   self.fixed_screen=bool(vrr) and screen_varies(self.hwnd) is False
   self.tearing=bool(vrr) and not self.fixed_screen and tearing_supported()
+  # The overlay the window wants shown, (BGRA bytes, width, height) or None, and the one on the graphics card now.
+  self.hud_wanted=None
   self.blobs=compiled();self.own=new_device(adapter);self.forget()
  def forget(self):
+  self.slots=[];self.motion=None;self.hud_texture=None;self.hud_view=None;self.hud_shown=None;self.hud_size=None;self.blend=None
   self.device=None;self.context=None;self.swap=None;self.flight=None;self.target=None;self.back=None;self.scaled=None;self.scaled_view=None;self.size=None;self.waitable=None;self.owned=[];self.surface=None;self.surface_shape=None;self.planes=None;self.plane_shape=None;self.views=None;self.arranged=None;self.viewport=None;self.converted=None;self.converted_shape=None;self.enlarging=False
  def keep(self,pointer):
   self.owned.append(pointer.value);return pointer.value
@@ -355,21 +371,25 @@ class D3D11Presenter:
   self.detach();self.device=device;context=c_void_p();GetImmediateContext(device,byref(context));self.context=context.value
   shader=c_void_p();CreateVertexShader(device,self.blobs[b'vs'],len(self.blobs[b'vs']),None,byref(shader));self.vertex_shader=self.keep(shader)
   self.shaders={}
-  for name in (b'ps',b'sharpen',b'rgb',b'easu',b'rcas'):shader=c_void_p();CreatePixelShader(device,self.blobs[name],len(self.blobs[name]),None,byref(shader));self.shaders[name]=self.keep(shader)
+  for name in (b'ps',b'sharpen',b'rgb',b'easu',b'rcas',b'hud'):shader=c_void_p();CreatePixelShader(device,self.blobs[name],len(self.blobs[name]),None,byref(shader));self.shaders[name]=self.keep(shader)
   sampler=c_void_p();CreateSamplerState(device,byref(SamplerDesc(Filter=FILTER_LINEAR,AddressU=ADDRESS_CLAMP,AddressV=ADDRESS_CLAMP,AddressW=ADDRESS_CLAMP,MaxLOD=1000)),byref(sampler));self.keep(sampler)
   buffers=[]
   for size in (96,80):buffer=c_void_p();CreateBuffer(device,byref(BufferDesc(ByteWidth=size,Usage=USAGE_DYNAMIC,BindFlags=BIND_CONSTANT,CPUAccessFlags=CPU_WRITE)),None,byref(buffer));buffers.append(self.keep(buffer))
   self.constants,self.scaler=buffers
+  target=BlendTarget(BlendEnable=1,SrcBlend=BLEND_ONE,DestBlend=BLEND_INV_SRC_ALPHA,BlendOp=BLEND_ADD,SrcBlendAlpha=BLEND_ONE,DestBlendAlpha=BLEND_INV_SRC_ALPHA,BlendOpAlpha=BLEND_ADD,RenderTargetWriteMask=WRITE_ALL)
+  blend=c_void_p();CreateBlendState(device,byref(BlendDesc(0,0,(BlendTarget*8)(target))),byref(blend));self.blend=self.keep(blend)
   VSSetShader(self.context,self.vertex_shader,None,0);PSSetSamplers(self.context,0,1,byref(sampler));PSSetConstantBuffers(self.context,0,2,(c_void_p*2)(*buffers));IASetPrimitiveTopology(self.context,TRIANGLES)
  def detach(self):
   """A window takes one flip swap chain at a time, and the old one goes only once its device has been cleared and flushed."""
   if self.context:
-   ClearState(self.context);self.release_target()
+   ClearState(self.context);self.release_target();self.release_hud()
    for pointer in reversed(self.owned):Release(pointer)
    if self.swap:Release(self.swap)
    if self.surface:self.release_surface()
    if self.planes:self.release_planes()
    if self.converted:self.release_converted()
+   self.release_slots()
+   if self.motion:self.motion.release();self.motion=None
    Flush(self.context);Release(self.context)
   if self.device and self.device!=self.own:Release(self.device)
   self.forget()
@@ -423,8 +443,51 @@ class D3D11Presenter:
    CreateTexture2D(self.device,byref(Texture2DDesc(Width=desc.Width,Height=desc.Height,MipLevels=1,ArraySize=1,Format=desc.Format,SampleCount=1,BindFlags=BIND_SHADER)),None,byref(copy))
    first,second=VIEWS[desc.Format]
    CreateShaderResourceView(self.device,copy.value,byref(ViewDesc(Format=first,ViewDimension=TEXTURE2D_VIEW,MipLevels=1)),byref(luma));CreateShaderResourceView(self.device,copy.value,byref(ViewDesc(Format=second,ViewDimension=TEXTURE2D_VIEW,MipLevels=1)),byref(chroma))
-   self.surface=(chroma.value,luma.value,copy.value);self.surface_shape=shape;self.views=(c_void_p*3)(luma.value,chroma.value,chroma.value);self.arranged=None
+   self.surface=(chroma.value,luma.value,copy.value);self.surface_shape=shape;self.surface_views=(c_void_p*3)(luma.value,chroma.value,chroma.value);self.arranged=None
   CopySubresourceRegion(self.context,self.surface[2],0,0,0,0,texture,index,None)
+  # Every time, as an in-between picture or a slot may have been shown since.
+  self.views=self.surface_views
+ def release_slots(self):
+  for slot in self.slots:
+   for pointer in slot['owned']:Release(pointer)
+  self.slots=[]
+ def slot_for(self,frame):
+  """The GPU copy of a decoded frame among the three that in-between pictures work from: the one made earlier for this frame, or a new
+  copy in the slot used longest ago. The slot keeps the frame, so its decoder surface cannot be reused while it is wanted."""
+  self.serials+=1
+  for slot in self.slots:
+   if slot['frame'] is frame:slot['used']=self.serials;return slot
+  texture,index=surface_of(frame);desc=Texture2DDesc();GetTextureDesc(texture,byref(desc));shape=(desc.Width,desc.Height,desc.Format)
+  if desc.Format not in VIEWS:raise RuntimeError('Unsupported surface format')
+  slot=min(self.slots,key=lambda slot:slot['used']) if len(self.slots)>=3 else None
+  if slot is None or slot['shape']!=shape:
+   if slot is not None:
+    for pointer in slot['owned']:Release(pointer)
+    self.slots.remove(slot)
+   copy=c_void_p();luma=c_void_p();chroma=c_void_p()
+   CreateTexture2D(self.device,byref(Texture2DDesc(Width=desc.Width,Height=desc.Height,MipLevels=1,ArraySize=1,Format=desc.Format,SampleCount=1,BindFlags=BIND_SHADER)),None,byref(copy))
+   first,second=VIEWS[desc.Format]
+   CreateShaderResourceView(self.device,copy.value,byref(ViewDesc(Format=first,ViewDimension=TEXTURE2D_VIEW,MipLevels=1)),byref(luma));CreateShaderResourceView(self.device,copy.value,byref(ViewDesc(Format=second,ViewDimension=TEXTURE2D_VIEW,MipLevels=1)),byref(chroma))
+   slot=dict(owned=(chroma.value,luma.value,copy.value),copy=copy.value,luma=luma.value,chroma=chroma.value,shape=shape,views=(c_void_p*3)(luma.value,chroma.value,chroma.value));self.slots.append(slot)
+  CopySubresourceRegion(self.context,slot['copy'],0,0,0,0,texture,index,None)
+  slot.update(frame=frame,serial=self.serials,used=self.serials)
+  # Only the two newest slots keep their frames, which the pacer and the screen hold anyway, so no decoder surface stays taken for this.
+  for old in sorted(self.slots,key=lambda slot:slot['used'])[:-2]:old['frame']=None
+  return slot
+ def start_compiling(self):
+  """The in-between shaders take about a quarter of a second to compile. That happens on a thread of its own, so no frame waits for it:
+  until they are ready the refreshes between frames show the last frame, as without smooth motion."""
+  if self.motion_blobs is not None or self.compiling is not None:return
+  def run():
+   try:
+    from in_between import compiled
+    self.motion_blobs=compiled()
+   except Exception as error:self.smooth_failed=f'{type(error).__name__}: {str(error)[:120]}'
+  self.compiling=threading.Thread(target=run,name='PlayBridge in-between shaders',daemon=True);self.compiling.start()
+ def motion_work(self):
+  from in_between import InBetween
+  if self.motion is None:self.motion=InBetween(self.device,self.context,self.motion_blobs)
+  return self.motion
  def upload(self,frame):
   # Software decoding: the planes go up as they are, and the rest of the work is still the GPU's.
   name=frame.format.name
@@ -435,7 +498,8 @@ class D3D11Presenter:
    made=[];views=[]
    for layout,shrink in PLANES[name]:
     texture=c_void_p();view=c_void_p();CreateTexture2D(self.device,byref(Texture2DDesc(Width=(frame.width+shrink-1)//shrink,Height=(frame.height+shrink-1)//shrink,MipLevels=1,ArraySize=1,Format=layout,SampleCount=1,Usage=USAGE_DYNAMIC,BindFlags=BIND_SHADER,CPUAccessFlags=CPU_WRITE)),None,byref(texture));CreateShaderResourceView(self.device,texture.value,None,byref(view));made+=[texture.value,view.value];views.append(view.value)
-   self.planes=made;self.plane_shape=shape;self.views=(c_void_p*3)(views[0],views[1],views[-1]);self.arranged=None
+   self.planes=made;self.plane_shape=shape;self.plane_views=(c_void_p*3)(views[0],views[1],views[-1]);self.arranged=None
+  self.views=self.plane_views
   for number,(layout,shrink) in enumerate(PLANES[name]):
    source=frame.planes[number];texture=self.planes[number*2];mapped=Mapped();rows=(frame.height+shrink-1)//shrink;Map(self.context,texture,0,MAP_DISCARD,0,byref(mapped))
    if mapped.RowPitch==source.line_size:ctypes.memmove(mapped.Data,source.buffer_ptr,rows*source.line_size)
@@ -475,9 +539,40 @@ class D3D11Presenter:
   if not self.fit():self.pending=True;return False
   if self.kernel.WaitForSingleObject(self.waitable,WAIT_MS):self.pending=True;self.missed();return False
   self.pending=False
-  if on_gpu:self.copy_surface(texture,index)
+  # While in-between pictures are wanted, frames from the GPU go to the ring of copies they are made from.
+  if on_gpu and self.smooth and self.smooth_failed is None:self.views=self.slot_for(frame)['views']
+  elif on_gpu:self.copy_surface(texture,index)
   else:self.upload(frame)
   self.arrange(frame,on_gpu or frame.format.name=='nv12')
+  self.compose();return True
+ def between(self,a,b,t):
+  """The in-between picture at t from frame a (0) to frame b (1), both decoded on this device's GPU at the same size. True once it is
+  on its way to the screen; False leaves the screen as it is. A fault here stops in-between pictures for the session, not the video."""
+  if not self.smooth or self.smooth_failed is not None or self.device is None:return False
+  if self.motion_blobs is None:self.start_compiling();return False
+  try:
+   if a.format.name!='d3d11' or b.format.name!='d3d11' or (a.width,a.height)!=(b.width,b.height):return False
+   for frame in (a,b):
+    device=c_void_p();GetDeviceOfChild(surface_of(frame)[0],byref(device));same=device.value==self.device;Release(device.value)
+    # A frame from a new decoder waits for its first real frame, which moves the output to the new device.
+    if not same:return False
+   if not self.fit():return False
+   if self.kernel.WaitForSingleObject(self.waitable,WAIT_MS):self.missed();return False
+   first=self.slot_for(a);second=self.slot_for(b)
+   if first['shape']!=second['shape']:return False
+   from in_between import Frame
+   size=(a.width,a.height);width,height,_=first['shape'];planes=((width,height),(width//2,height//2))
+   luma,chroma=self.motion_work().render(Frame(first['serial'],first['luma'],first['chroma'],size,*planes),Frame(second['serial'],second['luma'],second['chroma'],size,*planes),t)
+   # A frame that could not show before is behind this picture now, so it is not shown again after it.
+   self.views=(c_void_p*3)(luma,chroma,chroma);self.arrange(a,True);self.compose();self.pending=False;return True
+  except Exception as error:
+   self.smooth_failed=f'{type(error).__name__}: {str(error)[:120]}'
+   try:
+    if self.motion:self.motion.release()
+   except Exception:pass
+   self.motion=None;return False
+ def compose(self):
+  """Draws the picture in self.views into the window, scaled, enlarged and sharpened as asked, and presents it."""
   context=self.context;first=c_void_p(self.scaled if self.sharpen else self.target);empty=c_void_p()
   if self.enlarging:
    # FSR works on RGB, so the colours are worked out first at the picture's own size, then enlarged.
@@ -489,7 +584,39 @@ class D3D11Presenter:
   if self.sharpen:
    last=c_void_p(self.target);view=c_void_p(self.scaled_view)
    OMSetRenderTargets(context,1,byref(last),None);RSSetViewports(context,1,byref(self.whole));PSSetShader(context,self.shaders[b'rcas' if self.enlarging else b'sharpen'],None,0);PSSetShaderResources(context,0,1,byref(view));Draw(context,3,0);PSSetShaderResources(context,0,1,byref(empty))
-  self.present();return True
+  self.draw_hud()
+  self.present()
+ def set_overlay(self,image):
+  """The overlay to draw over the picture from the next frame on: (BGRA bytes, width, height), or None for none. From any thread:
+  the graphics card only gets it on the thread that draws."""
+  self.hud_wanted=image
+ def release_hud(self):
+  for pointer in (self.hud_view,self.hud_texture):
+   if pointer:Release(pointer)
+  self.hud_view=self.hud_texture=None;self.hud_shown=None;self.hud_size=None
+ def upload_hud(self,image):
+  data,width,height=image
+  if self.hud_size!=(width,height):
+   self.release_hud();texture=c_void_p();view=c_void_p()
+   CreateTexture2D(self.device,byref(Texture2DDesc(Width=width,Height=height,MipLevels=1,ArraySize=1,Format=BGRA8,SampleCount=1,Usage=USAGE_DYNAMIC,BindFlags=BIND_SHADER,CPUAccessFlags=CPU_WRITE)),None,byref(texture))
+   CreateShaderResourceView(self.device,texture.value,None,byref(view));self.hud_texture=texture.value;self.hud_view=view.value;self.hud_size=(width,height)
+  mapped=Mapped();Map(self.context,self.hud_texture,0,MAP_DISCARD,0,byref(mapped));row=width*4
+  try:
+   for y in range(height):ctypes.memmove(mapped.Data+y*mapped.RowPitch,data[y*row:(y+1)*row],row)
+  finally:Unmap(self.context,self.hud_texture,0)
+  self.hud_shown=image
+ def draw_hud(self):
+  """The overlay in the picture's top left corner, over everything else, when it is wanted and fits."""
+  wanted=self.hud_wanted
+  if wanted is None:return
+  if wanted is not self.hud_shown:self.upload_hud(wanted)
+  width,height=self.hud_size;margin=round(HUD_MARGIN*max(1,self.size[1]/1080));x=self.viewport.X+margin;y=self.viewport.Y+margin
+  if x+width>self.size[0] or y+height>self.size[1]:return
+  context=self.context;target=c_void_p(self.target);view=c_void_p(self.hud_view);empty=c_void_p()
+  OMSetRenderTargets(context,1,byref(target),None);RSSetViewports(context,1,byref(Viewport(x,y,width,height,0,1)));OMSetBlendState(context,self.blend,None,0xffffffff)
+  PSSetShader(context,self.shaders[b'hud'],None,0);PSSetShaderResources(context,0,1,byref(view));Draw(context,3,0)
+  # The in-between pictures and the next frame draw without blending.
+  OMSetBlendState(context,None,None,0xffffffff);PSSetShaderResources(context,0,1,byref(empty))
  def swap_flags(self):return FRAME_LATENCY_WAITABLE|(ALLOW_TEARING if self.tearing else 0)
  def present(self):
   # With variable refresh the frame goes now, at its own time; otherwise it waits for the screen's next refresh.

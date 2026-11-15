@@ -13,8 +13,8 @@ class CaptureItem:
 def capture_items(folder, kind='All', limit=120):
     root = Path(folder).resolve()
     def records():
-        # Photos and clips copied from the PS5 come as JPEG, WebP or WebM as well.
-        for name, suffixes, label in (('Screenshots', ('.png', '.jpg', '.jpeg', '.webp'), 'Photos'), ('Recordings', ('.mp4', '.webm'), 'Videos')):
+        # Photos and clips copied from the PS5 come as JPEG, WebP or WebM as well. GIFs made in the clip editor sit beside the recordings and show with the photos.
+        for name, suffixes, label in (('Screenshots', ('.png', '.jpg', '.jpeg', '.webp'), 'Photos'), ('Recordings', ('.gif',), 'Photos'), ('Recordings', ('.mp4', '.webm'), 'Videos')):
             if kind not in ('All', label):
                 continue
             directory = root / name

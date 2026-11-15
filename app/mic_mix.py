@@ -4,6 +4,7 @@ While it is off nothing here runs, and the console's sound is copied untouched a
 import collections,threading
 from fractions import Fraction
 import numpy as np
+import console_mic
 
 RATE=48000;FRAME=1024
 # The microphone runs on its own clock, so its buffer drifts against the console's. Above HIGH the oldest sound is dropped down to TARGET,
@@ -83,13 +84,21 @@ class MicMix:
   return out
 
 class Microphone:
- """The microphone that feeds a MicMix while it is on. Opening it is what turns the mix on, and closing it turns the mix off."""
- def __init__(self,mix,sd=None):
-  self.mix=mix;self.sd=sd;self.stream=None;self.name='';self.error=''
+ """The microphone that feeds a MicMix while it is on. Opening it is what turns the mix on, and closing it turns the mix off.
+ console(): the PS5's address, for the DualSense's microphone through it. notify(text): tells the window how that one stands."""
+ def __init__(self,mix,sd=None,console=None):
+  self.mix=mix;self.sd=sd;self.console=console;self.notify=lambda text:None;self.stream=None;self.name='';self.error=''
  @property
  def on(self):return self.stream is not None
+ def state(self):
+  """How the DualSense's microphone stands while it is the one on, else ''."""
+  return self.stream.state if isinstance(self.stream,console_mic.ConsoleMic) else ''
  def open(self,wanted=''):
   """Opens the chosen microphone, or Windows' default one. Returns True when it is open; otherwise error says why."""
+  if wanted==console_mic.NAME:
+   self.close();self.error=''
+   if self.console is None:self.error='No PS5 to hear the DualSense through';return False
+   self.stream=console_mic.ConsoleMic(self.console,self.mix.voice,self.notify);self.name=console_mic.NAME;return True
   sd=self.sd
   if sd is None:import sounddevice as sd;self.sd=sd
   self.close();self.error=''

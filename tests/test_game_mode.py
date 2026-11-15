@@ -17,6 +17,12 @@ class ShelfTests(unittest.TestCase):
   self.assertEqual(names('ps5'),['Zeta']);self.assertEqual(names('ps4'),['alpha','Beta Zone'])
  def test_search_works_inside_a_shelf_and_ignores_case(self):
   self.assertEqual(names('all','ZE'),['Zeta']);self.assertEqual(names('ps4','z'),['Beta Zone']);self.assertEqual(names('ps5','nothing'),[])
+ def test_apps_stay_off_the_game_shelves_and_out_of_the_totals(self):
+  app={'title':'TOOL00001','name':'Zeta Tool','played':1,'seconds':7200,'size':10**9,'app':True}
+  self.assertEqual([game['name'] for game in shelf_games(GAMES+[app],'all','zeta')],['Zeta'])
+  self.assertEqual([game['name'] for game in shelf_games(GAMES+[app],'apps')],['Zeta Tool'])
+  self.assertEqual([game['name'] for game in shelf_games(GAMES+[app],'hidden','',{'TOOL00001'})],['Zeta Tool'])
+  self.assertEqual(total_cards(GAMES+[app]),total_cards(GAMES));self.assertIn('Homebrew app',repr(game_cards(app)))
  def test_every_shelf_has_a_name_and_works(self):
   for key,label in SHELVES:self.assertTrue(label);self.assertIsInstance(shelf_games(GAMES,key),list)
  def test_the_line_under_a_name_says_what_is_happening(self):

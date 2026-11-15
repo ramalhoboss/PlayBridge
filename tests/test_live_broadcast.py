@@ -4,7 +4,9 @@ if os.environ.get('PLAYBRIDGE_DEPS'):sys.path.insert(0,os.environ['PLAYBRIDGE_DE
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'app'))
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 import av
+import numpy as np
 import live_broadcast as live
+import video_encoders
 from media_fixture import packets
 # FFmpeg reads AV1 with dav1d where it has it.
 AV1=('av1','libdav1d')
@@ -32,6 +34,14 @@ class DestinationTests(unittest.TestCase):
   self.assertEqual(live.destination('custom','key1','rtmp://example.test/live/'),('rtmp://example.test/live/key1','flv'))
   self.assertEqual(live.destination('custom','','rtmps://example.test/live/key2'),('rtmps://example.test/live/key2','flv'))
   with self.assertRaisesRegex(ValueError,'rtmp://'):live.destination('custom','key','http://example.test/live')
+ def test_tiktok_takes_its_server_and_a_key_with_its_expiry(self):
+  key='stream-7300000000000000000?expire=1800000000&sign=0a1b2c'
+  self.assertEqual(live.destination('tiktok',key,'rtmp://push-rtmp.example.test/game/'),('rtmp://push-rtmp.example.test/game/'+key,'flv'))
+  with self.assertRaisesRegex(ValueError,'stream key TikTok gave'):live.destination('tiktok','','rtmp://push-rtmp.example.test/game/')
+  with self.assertRaisesRegex(ValueError,'rtmp://'):live.destination('tiktok',key,'')
+  with self.assertRaisesRegex(ValueError,'never has'):live.destination('tiktok','stream 1','rtmp://push-rtmp.example.test/game/')
+  with self.assertRaisesRegex(ValueError,'never has'):live.destination('twitch',key)
+  self.assertNotIn('tiktok',live.COMPRESSIBLE);self.assertEqual(live.SERVICES['tiktok'],'TikTok')
  def test_obs_gets_mpeg_ts_on_this_pc_only(self):
   address,container=live.destination('obs','ignored')
   self.assertTrue(address.startswith('udp://127.0.0.1:'));self.assertEqual(container,'mpegts')
@@ -69,6 +79,24 @@ class BroadcastTests(unittest.TestCase):
     self.assertIn(result.streams.video[0].codec_context.name,AV1);self.assertEqual(result.streams.audio[0].codec_context.name,'aac')
     frames=sum(1 for _ in result.decode(video=0))
    self.assertGreaterEqual(frames,50)
+ def overlay_reaches_the_viewers(self,encoder,packets):
+  # An opaque green panel, as hud.render gives it, drawn into the stream's top left corner while the video is made again.
+  with tempfile.TemporaryDirectory() as folder:
+   path=str(Path(folder)/'live.flv');b=live.LiveBroadcast();b.overlay_image=(bytes((0,255,0,255))*40*20,40,20)
+   self.assertTrue(b.start(path,'flv','Test',encoder=encoder))
+   for packet in packets:b.feed(*packet)
+   drain(b,30);b.stop(wait=True)
+   with av.open(path) as result:pictures=[frame.to_ndarray(format='rgb24') for frame in result.decode(video=0)]
+  self.assertGreaterEqual(len(pictures),50)
+  for picture in pictures[5:]:
+   inside=picture[16+10,16+20];outside=picture[60,100]
+   self.assertTrue(inside[1]>180 and inside[0]<90 and inside[2]<90,inside.tolist());self.assertLess(int(outside[1]),110,outside.tolist())
+ def test_the_overlay_reaches_the_viewers(self):self.overlay_reaches_the_viewers('libsvtav1',self.packets)
+ def test_the_overlay_reaches_the_viewers_through_this_pcs_card(self):
+  encoder=video_encoders.for_live_h264()
+  if not encoder:self.skipTest('no graphics card H.264 encoder on this PC')
+  # A graphics card's encoder takes no picture as small as the other tests' one; the PS5's is 720p at the least.
+  self.overlay_reaches_the_viewers(encoder,packets(2,size=(640,368)))
  def test_hevc_from_the_ps5_may_go_over_rtmp_once_it_is_made_again(self):
   b=live.LiveBroadcast();b.codec=live.HEVC
   with tempfile.TemporaryDirectory() as folder:

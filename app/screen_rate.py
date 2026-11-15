@@ -22,6 +22,26 @@ def best(modes,current,fps=STREAM_FPS):
  if current is None or steady(current[3],fps):return None
  rates=[mode[3] for mode in modes if mode[:3]==current[:3] and steady(mode[3],fps)]
  return max(rates) if rates else None
+def fast(hz,fps=STREAM_FPS):
+ """True when a screen at this rate has room for in-between pictures: at least half again as fast as the stream."""
+ return bool(hz) and hz+1>=1.5*fps
+def doubled(hz,fps=STREAM_FPS):
+ """True for a steady rate of two refreshes or more a frame, such as 120 Hz for 60 fps: every frame and every in-between picture then
+ stays up the same time."""
+ return bool(hz) and steady(hz,fps) and round(hz/fps)>=2
+def fastest(modes,current,fps=STREAM_FPS):
+ """For in-between pictures: the rate to switch to, or None to leave the screen as it is. Two refreshes a frame first (120 Hz for 60 fps),
+ then a steady rate with more of them, then the fastest rate half again as fast as the stream. None where the screen already runs at the
+ first kind, or at the last kind and offers none of the first two."""
+ if current is None or doubled(current[3],fps):return None
+ rates=sorted({mode[3] for mode in modes if mode[:3]==current[:3]})
+ two=[hz for hz in rates if doubled(hz,fps) and round(hz/fps)==2]
+ more=[hz for hz in rates if doubled(hz,fps)]
+ if two:return max(two)
+ if more:return min(more)
+ if fast(current[3],fps):return None
+ quick=[hz for hz in rates if fast(hz,fps)]
+ return max(quick) if quick else None
 
 class DEVMODE(ctypes.Structure):
  _fields_=[('dmDeviceName',c_wchar*32),('dmSpecVersion',wintypes.WORD),('dmDriverVersion',wintypes.WORD),('dmSize',wintypes.WORD),('dmDriverExtra',wintypes.WORD),
@@ -36,7 +56,8 @@ class MONITORINFOEX(ctypes.Structure):
 class Windows:
  """The few display calls this needs."""
  def __init__(self):
-  user32=ctypes.windll.user32;self.user32=user32
+  # Its own handle, so types another module sets on the same functions cannot break these calls.
+  user32=ctypes.WinDLL('user32');self.user32=user32
   user32.MonitorFromWindow.argtypes=[wintypes.HWND,wintypes.DWORD];user32.MonitorFromWindow.restype=c_void_p
   user32.GetMonitorInfoW.argtypes=[c_void_p,c_void_p];user32.GetMonitorInfoW.restype=wintypes.BOOL
   user32.EnumDisplaySettingsExW.argtypes=[wintypes.LPCWSTR,wintypes.DWORD,c_void_p,wintypes.DWORD];user32.EnumDisplaySettingsExW.restype=wintypes.BOOL
@@ -72,24 +93,36 @@ class ScreenRate:
   self.system=system if system is not None else (Windows() if sys.platform=='win32' else None)
   # What it found the last time it looked, for the stats: a PC we cannot see then tells why its screen was or was not switched.
   self.changed=None;self.tried=set();self.note=None
- def want(self,on,hwnd):
-  """Returns (from Hz, to Hz) when it switches the screen, otherwise None."""
+ def want(self,on,hwnd,faster=False,match=True):
+  """Returns (from Hz, to Hz) when it switches the screen, otherwise None. faster: in-between pictures are wanted, so a screen that
+  can go to 120 Hz or so does, even from 60. match: a rate that does not fit 60 fps gets one that does, as before."""
   if self.system is None:return None
   try:
    if not on:
     if self.changed:self.system.restore(self.changed[0]);self.changed=None
     return None
-   if self.changed:return None
+   if self.changed:
+    device,was,now,for_pictures=self.changed
+    if for_pictures==faster:return None
+    # In-between pictures stopped or started while the screen was switched. A rate that still fits stays; any other goes back.
+    if (faster and doubled(now)) or (not faster and steady(now)):self.changed=(device,was,now,faster);return None
+    self.system.restore(device);self.changed=None
    device=self.system.screen(hwnd)
    # A screen that refused once is not asked again, so a failing driver cannot make the picture flash every quarter second.
-   if not device or device in self.tried:return None
-   self.tried.add(device);current=self.system.current(device);hz=best(self.system.modes(device),current)
-   if current is None:self.note='Windows did not give the screen mode'
-   elif steady(current[3]):self.note=f'{current[3]} Hz already fits 60 fps'
-   elif not hz:self.note=f'{current[3]} Hz, and no rate that fits 60 fps at {current[0]}x{current[1]}'
-   elif self.system.switch(device,hz):
-    self.changed=(device,current[3],hz);self.tried.discard(device);self.note=f'{current[3]} -> {hz} Hz';return current[3],hz
-   else:self.note=f'Windows refused {hz} Hz'
+   if not device or (device,faster) in self.tried:return None
+   self.tried.add((device,faster));current=self.system.current(device);modes=self.system.modes(device)
+   if current is None:self.note='Windows did not give the screen mode';return None
+   hz=fastest(modes,current) if faster else None
+   if faster and hz is None:
+    if fast(current[3]):self.note=f'{current[3]} Hz already has room for in-between pictures';return None
+    if not match:self.note=f'{current[3]} Hz, and no rate fast enough for in-between pictures at {current[0]}x{current[1]}';return None
+   if hz is None:
+    hz=best(modes,current)
+    if steady(current[3]):self.note=f'{current[3]} Hz already fits 60 fps';return None
+    if not hz:self.note=f'{current[3]} Hz, and no rate that fits 60 fps at {current[0]}x{current[1]}';return None
+   if self.system.switch(device,hz):
+    self.changed=(device,current[3],hz,faster);self.tried.discard((device,faster));self.note=f'{current[3]} -> {hz} Hz';return current[3],hz
+   self.note=f'Windows refused {hz} Hz'
   except Exception as error:self.note=f'Could not read the screen: {error}'
   return None
  def label(self):

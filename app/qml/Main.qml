@@ -4,8 +4,8 @@ import QtQuick.Effects
 import QtQuick.Controls.Basic
 
 // PlayBridge's window in Qt Quick. Python (qt_shell.py) owns everything that happens; this file draws it:
-// the picture behind the pages, with parallax, blurred once for every glass panel, the pages with their transitions,
-// the top bar, the menus and dialogs, and the keys and the controller's moves on Settings and Media.
+// the picture behind the pages, blurred once for every glass panel, the pages with their transitions, the top bar, the menus
+// and dialogs, and the keys and the controller's moves on Settings and Media. The Games page draws its own picture, bar and menus.
 Window {
     id: root
     // Placed once by qt_shell.py when it opens, then left to Windows: a position bound to the size would push a maximized or
@@ -17,6 +17,10 @@ Window {
     visible: false
     color: "black"
     title: "PlayBridge"
+    // No title bar: the pages reach the top of the window, Windows 11 rounds its corners and gives it its shadow, and Qt draws the
+    // minimize, maximize and close buttons over the top right corner. The title stays for the taskbar and Alt+Tab. A press at the top
+    // that nothing in the page takes becomes Windows' own title bar: it drags the window, snaps it, and a double click fills the screen.
+    flags: Qt.Window | Qt.ExpandedClientAreaHint | Qt.NoTitleBarBackgroundHint | Qt.CustomizeWindowHint | Qt.WindowMinMaxButtonsHint | Qt.WindowCloseButtonHint
 
     readonly property real u: Math.max(0.6, Math.min(width / 1920, height / 1080))
     readonly property string page: shell.page
@@ -26,58 +30,18 @@ Window {
     Binding { target: Theme; property: "motion"; value: !!shell.look.animations }
     Binding { target: Theme; property: "icons"; value: shell.look.icons || "" }
 
-    // The picture behind every page but the live view: the focused game's art on Games, PlayBridge's own elsewhere.
+    // The picture behind Media and Settings: PlayBridge's own. The live view has the video and Games draws its own page.
     Item {
         id: backdrop
         anchors.fill: parent
-        visible: root.page !== "live"
+        visible: root.page !== "live" && root.page !== "games"
         // A texture of its own, which the frost below reads without hiding the picture.
         layer.enabled: true
-        readonly property bool games: root.page === "games"
-        readonly property real px: shell.parallax.x !== 0 ? shell.parallax.x : gamesPage.pointer.x
-        readonly property real py: shell.parallax.y !== 0 ? shell.parallax.y : gamesPage.pointer.y
         Rectangle { anchors.fill: parent; color: "#06070A" }
         Image {
             anchors.fill: parent
             source: shell.look.backdrop || ""
             fillMode: Image.PreserveAspectCrop
-            opacity: backdrop.games ? 0 : 1
-            Behavior on opacity { NumberAnimation { duration: Theme.ms(500) } }
-        }
-        Item {
-            id: hero
-            anchors.fill: parent
-            opacity: backdrop.games ? 1 : 0
-            Behavior on opacity { NumberAnimation { duration: Theme.ms(500) } }
-            readonly property string wanted: shell.shelf.art || shell.shelf.cover || ""
-            readonly property bool soft: !shell.shelf.art
-            // Two pictures: the new one loads behind and fades in over the old once it is ready.
-            property int front: 0
-            onWantedChanged: {
-                var back = front === 0 ? heroB : heroA
-                if (back.source.toString() === wanted && back.status === Image.Ready) { front = front === 0 ? 1 : 0; return }
-                back.soft = soft
-                back.source = wanted
-            }
-            // Bigger than the window, so it can lean with the pointer or the right stick without showing an edge.
-            Item {
-                id: lean
-                width: parent.width * 1.1
-                height: parent.height * 1.1
-                x: -parent.width * 0.05 - backdrop.px * parent.width * 0.035
-                y: -parent.height * 0.05 - backdrop.py * parent.height * 0.03
-                Behavior on x { enabled: Theme.motion; SmoothedAnimation { velocity: 220 } }
-                Behavior on y { enabled: Theme.motion; SmoothedAnimation { velocity: 180 } }
-                // A slow drift, as if the camera breathed.
-                SequentialAnimation on scale {
-                    running: Theme.motion && backdrop.games && backdrop.visible
-                    loops: Animation.Infinite
-                    NumberAnimation { from: 1.0; to: 1.05; duration: 24000; easing.type: Easing.InOutSine }
-                    NumberAnimation { from: 1.05; to: 1.0; duration: 24000; easing.type: Easing.InOutSine }
-                }
-                HeroPicture { id: heroA; shown: hero.front === 0; onArrived: if (source.toString() === hero.wanted) hero.front = 0 }
-                HeroPicture { id: heroB; shown: hero.front === 1; onArrived: if (source.toString() === hero.wanted) hero.front = 1 }
-            }
         }
     }
     // The same picture, blurred, for the glass. Drawn under the picture itself, so only the glass panels show it.
@@ -133,6 +97,50 @@ Window {
             }
         }
         PageHolder {
+            name: "friends"
+            FriendsPage {
+                id: friendsPage
+                anchors.fill: parent
+                u: root.u
+                topInset: root.topInset
+                frost: frostLayer
+                Keys.onPressed: function(event) { root.keyMove(event) }
+            }
+        }
+        PageHolder {
+            name: "stats"
+            StatsPage {
+                id: statsPage
+                anchors.fill: parent
+                u: root.u
+                topInset: root.topInset
+                frost: frostLayer
+                Keys.onPressed: function(event) { root.keyMove(event) }
+            }
+        }
+        PageHolder {
+            name: "trophies"
+            TrophiesPage {
+                id: trophiesPage
+                anchors.fill: parent
+                u: root.u
+                topInset: root.topInset
+                frost: frostLayer
+                Keys.onPressed: function(event) { root.keyMove(event) }
+            }
+        }
+        PageHolder {
+            name: "files"
+            FilesPage {
+                id: filesPage
+                anchors.fill: parent
+                u: root.u
+                topInset: root.topInset
+                frost: frostLayer
+                Keys.onPressed: function(event) { root.keyMove(event) }
+            }
+        }
+        PageHolder {
             name: "settings"
             SettingsPage {
                 id: settingsPage
@@ -156,7 +164,12 @@ Window {
                 u: root.u
                 topInset: root.topInset
                 settled: liveHolder.opacity === 1
-                Keys.onPressed: function(event) { root.keyMove(event) }
+                Keys.onPressed: function(event) {
+                    // With "Play on your PS5" on, the controller's keys go to the PS5; Escape, the F keys and Ctrl shortcuts stay PlayBridge's.
+                    if (root.padKey(event, true)) return
+                    root.keyMove(event)
+                }
+                Keys.onReleased: function(event) { root.padKey(event, false) }
             }
         }
     }
@@ -166,7 +179,8 @@ Window {
         anchors.left: parent.left
         anchors.right: parent.right
         u: Math.max(0.75, root.u)
-        visible: !root.bare
+        // Games has the 1.5.x bar of its own.
+        visible: !root.bare && root.page !== "games"
     }
     // The line at the bottom on Media and Settings, as on the live view.
     Text {
@@ -186,10 +200,11 @@ Window {
     // The power menu and the game's menu. Python keeps which row is chosen, so the keys, the controller and the mouse agree.
     GlassMenu {
         id: menu
-        readonly property var shelfMenu: root.page === "games" ? (shell.shelf.menu || null) : null
-        readonly property var active: (shell.popup && shell.popup.items) ? shell.popup : shelfMenu
+        // The Games page draws its own menus, as in 1.5.x.
+        readonly property var active: (shell.popup && shell.popup.items && root.page !== "games") ? shell.popup : null
         readonly property bool fromMore: !!active && active.kind === "more"
-        parent: fromMore ? gamesPage.moreButton : topBar.powerButton
+        // The PSN menu opens under the player's picture, the power menu under its button.
+        parent: fromMore ? gamesPage.moreButton : (active && active.kind === "psn" ? topBar.psnButton : topBar.powerButton)
         x: fromMore ? 0 : (parent ? parent.width - width : 0)
         y: parent ? parent.height + 10 : 0
         menuWidth: 300
@@ -198,7 +213,9 @@ Window {
         onActiveChanged: if (active) open(); else close()
         onChosen: function(index) { shell.act("menu_choose", index) }
         onKeyed: function(event) { shell.act("nav", event) }
-        onClosed: if (active) shell.act("menu_close", null)
+        // Python runs a chosen row only once the menu has gone: a dialog opened while it fades out would close with it.
+        onOpened: shell.act("menu_shown", null)
+        onClosed: shell.act("menu_closed", null)
     }
     ConfirmDialog { id: dialog }
     ConsoleCaptures {
@@ -220,6 +237,9 @@ Window {
     Shortcut { sequence: "Ctrl+G"; onActivated: shell.act("key", "gaming") }
     Shortcut { sequence: "Ctrl+M"; onActivated: shell.act("key", "mini") }
     Shortcut { sequence: "Ctrl+B"; onActivated: shell.act("key", "live") }
+    Shortcut { sequence: "F12"; onActivated: shell.act("key", "overlay") }
+    Shortcut { sequence: "Ctrl+T"; onActivated: shell.act("key", "timer") }
+    Shortcut { sequence: "Ctrl+Shift+T"; onActivated: shell.act("key", "timer_stop") }
     Shortcut {
         sequence: "Escape"
         onActivated: {
@@ -230,7 +250,7 @@ Window {
         }
     }
 
-    function pageItem() { return page === "games" ? gamesPage : page === "media" ? mediaPage : page === "settings" ? settingsPage : livePage }
+    function pageItem() { return page === "games" ? gamesPage : page === "media" ? mediaPage : page === "friends" ? friendsPage : page === "stats" ? statsPage : page === "trophies" ? trophiesPage : page === "files" ? filesPage : page === "settings" ? settingsPage : livePage }
     onPageChanged: {
         settingsRail = false; settingsPage.railFocus = ""
         Qt.callLater(function() { root.pageItem().forceActiveFocus() })
@@ -327,6 +347,15 @@ Window {
             settingsRail = true; settingsPage.railFocus = shell.settings.section; root.pageItem().forceActiveFocus()
         }
     }
+    function padKey(event, down) {
+        var keys = (shell.keyPad || {}).keys || []
+        if (keys.indexOf(event.key) < 0 || (event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))) return false
+        if (!event.isAutoRepeat) shell.act("pad_key", { key: event.key, down: down })
+        event.accepted = true
+        return true
+    }
+    // A key let go in another window is never reported, so nothing may stay held when this one loses the keyboard.
+    onActiveChanged: if (!active) shell.act("pad_keys_clear", null)
     function keyMove(event) {
         var names = {}
         names[Qt.Key_Up] = "up"; names[Qt.Key_Down] = "down"; names[Qt.Key_Left] = "left"; names[Qt.Key_Right] = "right"

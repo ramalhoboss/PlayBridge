@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#05060d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>PlayBridge</title>
+<style>
+:root{--bg:#05060d;--panel:rgba(18,22,40,.86);--ink:#eef1ff;--muted:#9aa3c7;--gold:#e8c46a;--blue:#5b7cff;--bad:#ff9d97;--key:rgba(255,255,255,.13);--key-on:rgba(232,196,106,.55);--rim:rgba(255,255,255,.22)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden;overscroll-behavior:none}
+button{font:inherit;color:inherit}
+.screen{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:16px}
+.card{width:min(420px,100%);background:var(--panel);border:1px solid var(--rim);border-radius:20px;padding:24px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.card h1{font-size:22px;font-weight:600;margin:0 0 8px}
+.card p{color:var(--muted);margin:0 0 18px}
+.code{width:100%;font-size:32px;letter-spacing:10px;text-align:center;padding:12px;border-radius:14px;border:1px solid var(--rim);background:rgba(0,0,0,.35);color:var(--ink)}
+.code:focus-visible,.primary:focus-visible,.chip:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.primary{margin-top:14px;width:100%;min-height:48px;border:0;border-radius:999px;background:linear-gradient(90deg,#4a63e0,#7b5cff);font-weight:600;cursor:pointer}
+.primary:disabled{opacity:.5}
+.note{margin-top:12px;min-height:1.4em;color:var(--muted)}
+.note.bad{color:var(--bad)}
+[hidden]{display:none!important}
+#stage{position:fixed;inset:0;background:#000}
+video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
+.bar{position:absolute;top:max(8px,env(safe-area-inset-top));left:max(8px,env(safe-area-inset-left));right:max(8px,env(safe-area-inset-right));display:flex;gap:8px;align-items:center;justify-content:space-between;pointer-events:none;z-index:3}
+.chips{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.chip{pointer-events:auto;min-height:36px;padding:6px 12px;border-radius:999px;border:1px solid var(--rim);background:rgba(10,12,24,.65);color:var(--ink);font-size:14px;cursor:pointer}
+.chip.status{cursor:default;color:var(--muted)}
+.chip.status.good{color:var(--gold)}
+.chip.status.bad{color:var(--bad)}
+#overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:4;background:rgba(0,0,0,.45)}
+#pad{position:absolute;inset:0;z-index:2;touch-action:none;user-select:none;-webkit-user-select:none}
+.zone{position:absolute;bottom:0;width:42%;height:62%;touch-action:none}
+.zone.left{left:0}.zone.right{right:0}
+.stick{position:absolute;width:24vmin;height:24vmin;margin:-12vmin 0 0 -12vmin;border-radius:50%;border:2px solid var(--rim);background:var(--key);pointer-events:none;transition:opacity .15s}
+.stick.rest{opacity:.85}
+.stick i{position:absolute;left:50%;top:50%;width:11vmin;height:11vmin;margin:-5.5vmin 0 0 -5.5vmin;border-radius:50%;background:rgba(255,255,255,.28)}
+.btn{position:absolute;display:flex;align-items:center;justify-content:center;border-radius:50%;border:1.5px solid var(--rim);background:var(--key);font-weight:600;touch-action:none;color:var(--ink);padding:0}
+.btn.on{background:var(--key-on)}
+.face{width:12vmin;height:12vmin;font-size:6vmin}
+.dpad{width:10.5vmin;height:10.5vmin;border-radius:22%;font-size:5vmin}
+.shoulder{width:17vmin;height:9vmin;border-radius:12px;font-size:4vmin}
+.small{width:10vmin;height:7vmin;border-radius:10px;font-size:3.2vmin}
+.hint{color:var(--muted);font-size:13px;margin-top:10px}
+#safeArea{position:fixed;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)}
+.alert{position:absolute;left:50%;top:calc(max(8px,env(safe-area-inset-top)) + 48px);transform:translateX(-50%);z-index:5;width:max-content;max-width:min(520px,calc(100% - 32px));box-sizing:border-box;padding:10px 16px;border-radius:14px;border:1px solid var(--gold);background:var(--panel);box-shadow:0 10px 30px rgba(0,0,0,.5);pointer-events:none;overflow-wrap:anywhere}
+.alert strong{display:block;color:var(--gold);font-size:15px}
+.alert span{display:block;color:var(--ink);font-size:14px}
+@media (max-height:380px),(max-width:380px){.chip{min-height:32px;padding:5px 10px;font-size:13px}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<section class="screen" id="pairing" hidden>
+ <form class="card" id="pairForm" autocomplete="off">
+  <h1>Pair this phone</h1>
+  <p>On the PC, open PlayBridge › Settings › Phone and select <b>Pair a phone</b>. Enter the code it shows.</p>
+  <label for="code" class="hint" style="display:block;margin:0 0 6px">Six-digit code</label>
+  <input class="code" id="code" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required>
+  <button class="primary" id="pairButton" type="submit">Pair</button>
+  <div class="note" id="pairNote" role="status" aria-live="polite"></div>
+ </form>
+</section>
+
+<section id="stage" hidden>
+ <video id="video" playsinline muted disableremoteplayback></video>
+ <div id="pad" aria-hidden="true"></div>
+ <div id="safeArea" aria-hidden="true"></div>
+ <div class="bar">
+  <div class="chips">
+   <span class="chip status" id="linkChip" role="status" aria-live="polite">Connecting…</span>
+   <span class="chip status" id="padChip" role="status" aria-live="polite" hidden></span>
+  </div>
+  <div class="chips">
+   <button class="chip" id="controlsButton" type="button" aria-pressed="true">Controls</button>
+   <button class="chip" id="fullButton" type="button">Full screen</button>
+   <button class="chip" id="leaveButton" type="button">Disconnect</button>
+  </div>
+ </div>
+ <div class="alert" id="alertBox" role="alert" hidden><strong id="alertTitle"></strong><span id="alertText"></span></div>
+ <div id="overlay">
+  <div class="card">
+   <h1 id="overlayTitle">Ready</h1>
+   <p id="overlayText">Tap to start the picture and sound from your PS5.</p>
+   <button class="primary" id="startButton" type="button">Start</button>
+   <button class="primary" id="againButton" type="button" hidden>Connect again</button>
+  </div>
+ </div>
+</section>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const store = {
+  get(){ try { return localStorage.getItem("pb_token") || ""; } catch (e) { return ""; } },
+  set(v){ try { v ? localStorage.setItem("pb_token", v) : localStorage.removeItem("pb_token"); } catch (e) {} }
+};
+let token = store.get();
+
+// ---- Pairing
+function showPairing(message, bad){
+  $("stage").hidden = true; $("pairing").hidden = false;
+  $("pairNote").textContent = message || ""; $("pairNote").className = "note" + (bad ? " bad" : "");
+  setTimeout(() => $("code").focus(), 50);
+}
+$("pairForm").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const code = $("code").value.trim();
+  if (!/^\d{6}$/.test(code)) { $("pairNote").textContent = "Enter the six digits shown on the PC."; $("pairNote").className = "note bad"; return; }
+  $("pairButton").disabled = true; $("pairNote").textContent = "Pairing…"; $("pairNote").className = "note";
+  try {
+    const r = await fetch("/api/pair", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }) });
+    const body = await r.json().catch(() => ({}));
+    if (r.ok && body.token) { token = body.token; store.set(token); $("code").value = ""; showStage(); return; }
+    if (r.status === 403) showPairing(`That code is not right. ${body.left} ${body.left === 1 ? "try" : "tries"} left.`, true);
+    else if (r.status === 429) showPairing("Too many wrong codes. Select Pair a phone on the PC for a new one.", true);
+    else if (r.status === 410) showPairing("No code is showing on the PC, or it ran out. Select Pair a phone there.", true);
+    else showPairing("The PC did not take that. Try again.", true);
+  } catch (e) { showPairing("The PC did not answer. Check that this phone is on the same Wi-Fi.", true); }
+  finally { $("pairButton").disabled = false; }
+});
+
+// ---- The picture: fragmented MP4 into Media Source (Managed Media Source on an iPhone), without sound
+const video = $("video");
+const Source = window.ManagedMediaSource || window.MediaSource;
+let media = null, buffer = null, queue = [], expectInit = false, mime = "", started = false;
+function resetMedia(type){
+  mime = type; queue = []; buffer = null;
+  if (!Source) { fail("This browser cannot play the stream. Try Chrome on Android or Safari on iPhone (iOS 17.1 or later)."); return; }
+  if (!Source.isTypeSupported(type)) { fail("This browser cannot play this stream (" + type + ")."); return; }
+  media = new Source();
+  video.disableRemotePlayback = true;
+  video.src = URL.createObjectURL(media);
+  media.addEventListener("sourceopen", () => {
+    try { buffer = media.addSourceBuffer(mime); buffer.mode = "segments"; buffer.addEventListener("updateend", pump); pump(); }
+    catch (e) { fail("The stream could not start in this browser."); }
+  }, { once: true });
+}
+function pump(){
+  if (!buffer || buffer.updating || !queue.length) return;
+  try { buffer.appendBuffer(queue.shift()); }
+  catch (e) {
+    // A full buffer: keep only the last seconds and carry on.
+    if (e.name === "QuotaExceededError" && video.currentTime > 2) { try { buffer.remove(0, video.currentTime - 1); } catch (x) {} }
+  }
+}
+
+// ---- The sound: plain samples from the PC, played a small store ahead on the phone's own clock
+// Given the sound too, the browser's player waited longer each time the stream came late before it played on (0.6, then 1.2, then
+// 2.5 s, measured here), and the picture stopped with it. Here each sound frame (21 ms) is played right after the one before, on whole
+// samples: pieces that met half a sample apart, or were converted to the phone's rate one by one, clicked at every edge, and the
+// PS5's own small time wobbles are not gaps (only more than 30 ms off is). A frame that comes too late is left out (a short silence;
+// the picture carries on) and the store grows by 0.04 s, up to 0.4 s. It starts at 0.08 s; after 4 s with more in store than needed,
+// one frame is left out to take back the extra: a quiet one when there is one within 3 s, else with the sound faded out and back in
+// over 4 ms around it (playing faster for a moment changed the sound's pitch). Far more than needed all through a second (0.15 s
+// over) is taken back at once the same way, a short skip rather than a delay that stays. After any silence it fades in, so there is
+// no click.
+const SAFE_LEAST = 0.05, SAFE_MOST = 0.4, SAFE_GROW = 0.04, SAFE_SHRINK = 0.01, SAFE_CALM = 10000, JOIN = 0.03, FADE = 0.004, QUIET = 100,
+  FAR_EXTRA = 0.15;
+let soundContext = null, snd = newSound();
+function newSound(){
+  const now = performance.now();
+  return { offset: null, clockAt: null, next: null, gap: true, margin: 0.08, lateRun: false, lastLate: 0, minLead: Infinity, windowStart: now,
+    shortLead: Infinity, shortStart: now, frame: 0.02, takeBack: 0, takeSince: 0, dropLeft: 0, lates: 0, lostMs: 0, trims: 0, resyncs: 0 };
+}
+// The sound needs a tap before a browser plays it. At the stream's own rate (the PS5's 48 kHz), so the phone converts the whole sound
+// once rather than each piece; "balanced" gives a busy phone's sound a little more room than the smallest setting.
+function startSound(){
+  const Context = window.AudioContext || window.webkitAudioContext; if (!Context) return;
+  if (!soundContext) {
+    for (const options of [{ sampleRate: 48000, latencyHint: "balanced" }, { latencyHint: "balanced" }, null]) {
+      try { soundContext = options ? new Context(options) : new Context(); break; } catch (e) { soundContext = null; }
+    }
+  }
+  if (soundContext) soundContext.resume().catch(() => {});
+}
+// The stream's time now heard from the speaker, or null while there is no sound.
+function heardNow(){
+  const c = soundContext;
+  if (!c || snd.offset === null || c.state !== "running") return null;
+  let t = c.currentTime - (c.outputLatency || c.baseLatency || 0);
+  if (c.getOutputTimestamp) { const o = c.getOutputTimestamp(); if (o.contextTime > 0 && o.performanceTime > 0) t = o.contextTime + (performance.now() - o.performanceTime) / 1000; }
+  return t - snd.offset;
+}
+// One message from the PC: "PBAU", its time (double), the sample rate (uint32), the channels (uint16), then 16-bit samples.
+function isSound(data){ const b = new Uint8Array(data, 0, Math.min(4, data.byteLength)); return b.length === 4 && b[0] === 80 && b[1] === 66 && b[2] === 65 && b[3] === 85; }
+function playSound(data){
+  const c = soundContext; if (!c || c.state !== "running" || data.byteLength < 18) return;
+  const head = new DataView(data), at = head.getFloat64(4, true), rate = head.getUint32(12, true), channels = head.getUint16(16, true);
+  if (!rate || !channels) return;
+  const samples = new Int16Array(data, 18, (data.byteLength - 18) >> 1), n = Math.floor(samples.length / channels);
+  if (!n) return;
+  const fs = c.sampleRate, length = n / rate, now = c.currentTime, s = snd;
+  if (s.offset === null) {
+    // Only once the phone's sound clock runs: while its output starts (a quarter of a second measured here) the clock stands still,
+    // and all the sound sent meanwhile stayed as extra delay.
+    if (s.clockAt === null || now === s.clockAt) { s.clockAt = now; return; }
+    s.offset = now + s.margin - at; s.gap = true;
+  }
+  let when = at + s.offset;
+  if (s.next !== null && !s.gap) {
+    const drift = when - s.next;
+    // Already played (the PS5 sent this stretch twice): left out. A little off: right after the last one. Far off: a real gap.
+    if (drift < -JOIN) { s.resyncs++; return; }
+    if (drift <= JOIN) { when = s.next; s.offset = when - at; } else { s.resyncs++; s.gap = true; }
+  }
+  when = Math.round(when * fs) / fs;
+  let lead = when - now;
+  // Far ahead: the stream's clock started again; play from here.
+  if (lead > s.margin + 1) { s.offset = now + s.margin - at; when = Math.round((at + s.offset) * fs) / fs; lead = when - now; s.gap = true; s.resyncs++; }
+  if (lead < 0.004) {
+    // Too late to play: left out, and once for each hiccup the store grows (a short silence more now, fewer later).
+    if (!s.lateRun) { s.lateRun = true; s.lates++; s.margin = Math.min(SAFE_MOST, s.margin + SAFE_GROW); s.offset += SAFE_GROW; }
+    s.lostMs += length * 1000; s.lastLate = performance.now(); s.gap = true; return;
+  }
+  s.lateRun = false; s.minLead = Math.min(s.minLead, lead); s.shortLead = Math.min(s.shortLead, lead); s.frame = length;
+  // Taking back extra store: the frames after one that faded out are left out (the next fades in), or one quiet frame at a time.
+  let loudest = 0; for (let i = 0; i < samples.length; i++) { const v = samples[i] < 0 ? -samples[i] : samples[i]; if (v > loudest) loudest = v; }
+  if (s.dropLeft > 0) { s.dropLeft--; s.offset -= length; s.trims++; s.gap = true; return; }
+  if (s.takeBack > 0 && loudest < QUIET) { s.takeBack--; s.offset -= length; s.trims++; return; }
+  // No quiet frame within 3 s, or much to take back: this one fades out over its last 4 ms and the rest is left out after it.
+  const fadeOut = s.takeBack > 0 && !s.gap && (s.takeBack > 1 || performance.now() - s.takeSince > 3000);
+  const out = c.createBuffer(channels, n, rate);
+  for (let k = 0; k < channels; k++) { const plane = out.getChannelData(k); for (let i = 0; i < n; i++) plane[i] = samples[i * channels + k] / 32768; }
+  const source = c.createBufferSource(); source.buffer = out;
+  if (s.gap || fadeOut) {
+    const fade = c.createGain();
+    if (s.gap) { fade.gain.setValueAtTime(0, when); fade.gain.linearRampToValueAtTime(1, when + FADE); } else fade.gain.setValueAtTime(1, when);
+    if (fadeOut) { fade.gain.setValueAtTime(1, when + length - FADE); fade.gain.linearRampToValueAtTime(0, when + length); s.dropLeft = s.takeBack; s.takeBack = 0; }
+    source.connect(fade); fade.connect(c.destination); s.gap = false;
+  } else source.connect(c.destination);
+  source.start(when); s.next = when + length;
+}
+setInterval(() => {
+  const s = snd, now = performance.now();
+  if (s.offset === null) return;
+  // Far more in store than needed all through the last second: all but a frame of the extra is taken back at once.
+  if (now - s.shortStart >= 1000) {
+    const extra = s.shortLead - s.margin;
+    if (s.shortLead !== Infinity && extra > FAR_EXTRA && now - s.lastLate > 1000 && !s.takeBack && !s.dropLeft) {
+      s.takeBack = Math.floor((extra - 0.02) / s.frame); s.takeSince = now; s.minLead = Infinity; s.windowStart = now;
+    }
+    s.shortLead = Infinity; s.shortStart = now;
+  }
+  if (now - s.windowStart < 4000) return;
+  if (now - s.lastLate > SAFE_CALM) s.margin = Math.max(SAFE_LEAST, s.margin - SAFE_SHRINK);
+  // More in store than the store needs all through these 4 s (by over a frame and a half): one frame is taken back.
+  if (s.minLead !== Infinity && now - s.lastLate > 4000 && s.minLead - s.margin > 0.035 && !s.takeBack && !s.dropLeft) { s.takeBack = 1; s.takeSince = now; }
+  s.minLead = Infinity; s.windowStart = now;
+}, 500);
+// What the phone's sound output says of itself, for the phone log: its rate, its delay, and (where the browser counts them) the times
+// it ran out of sound to play.
+function soundOutput(){
+  const c = soundContext; if (!c) return { rate: 0, out_ms: 0, underruns: -1 };
+  const stats = c.playbackStats, underruns = stats && typeof stats.underrunEvents === "number" ? stats.underrunEvents : -1;
+  return { rate: c.sampleRate, out_ms: Math.round((c.outputLatency || c.baseLatency || 0) * 1000), underruns };
+}
+
+// ---- The picture: as soon as it plays smoothly. A game answers the controller on the screen, so the picture no longer waits for
+// the sound (that kept it 0.13-0.24 s behind on a phone): each has its own small store, as game streaming apps do, and the sound
+// comes a few hundredths of a second after the picture. The picture's store starts at 0.06 s behind the newest picture. Every 2 s,
+// what was in hand at the worst moment shows how much of it was needed: half of what was spare goes back, and a store that ran
+// nearly dry grows by what it lacked. A stall longer than 25 ms adds what it lasted (0.02-0.1 s) and the store stays above the level
+// it stalled at for a while (some phones hold a few pictures back in their decoder, so a store can stall before it runs dry). Behind,
+// the picture catches up by playing 10% faster (25% when over 0.2 s behind); ahead, it waits by playing 10% slower; only more than a
+// second off (back from another app, say) it jumps.
+const PIC_START = 0.06, PIC_LEAST = 0.035, PIC_MOST = 0.35, PIC_SPARE = 0.015, PIC_FLOOR_DROP = 0.002, NEAR = 0.03, CLOSE = 0.01, FAR = 0.2, OFF = 1;
+let fast = 0, pic = newPicture();
+function newPicture(){
+  const now = performance.now();
+  return { aim: PIC_START, floor: PIC_LEAST, minAhead: Infinity, windowStart: now, stalledIn: false };
+}
+function pictureStalled(ms){
+  if (ms < 25) return;
+  pic.floor = Math.min(PIC_MOST, Math.max(pic.floor, pic.aim + 0.01));
+  pic.aim = Math.min(PIC_MOST, Math.max(pic.floor, pic.aim + Math.min(0.1, Math.max(0.02, ms / 1000)))); pic.stalledIn = true;
+}
+setInterval(() => {
+  if (!buffer || !buffer.buffered.length || buffer.updating) return;
+  const last = buffer.buffered.length - 1, end = buffer.buffered.end(last), start = buffer.buffered.start(last), now = performance.now();
+  if (started && !video.paused) pic.minAhead = Math.min(pic.minAhead, end - video.currentTime);
+  if (now - pic.windowStart >= 2000) {
+    if (pic.minAhead !== Infinity) {
+      const spare = pic.minAhead - PIC_SPARE;
+      if (spare < 0) pic.aim = Math.min(PIC_MOST, pic.aim - spare);
+      else if (!pic.stalledIn) pic.aim = Math.max(pic.floor, pic.aim - spare / 2);
+    }
+    if (!pic.stalledIn) pic.floor = Math.max(PIC_LEAST, pic.floor - PIC_FLOOR_DROP);
+    pic.minAhead = Infinity; pic.windowStart = now; pic.stalledIn = false;
+  }
+  const target = Math.max(start, end - pic.aim), behind = target - video.currentTime;
+  if (video.currentTime < start || Math.abs(behind) > OFF) { video.currentTime = target; fast = 0; }
+  else if (behind > FAR) fast = 2;
+  else if (fast === 2 && behind < FAR / 2) fast = 1;
+  else if (fast <= 0 && behind > NEAR) fast = 1;
+  else if (fast >= 0 && behind < -NEAR) fast = -1;
+  else if ((fast > 0 && behind < CLOSE) || (fast === -1 && behind > -CLOSE)) fast = 0;
+  const rate = fast === 2 ? 1.25 : fast === 1 ? 1.1 : fast === -1 ? 0.9 : 1;
+  if (video.playbackRate !== rate) video.playbackRate = rate;
+  if (started && !leaving && video.paused) video.play().catch(() => {});
+  if (video.currentTime - buffer.buffered.start(0) > 30) { try { buffer.remove(0, video.currentTime - 10); } catch (e) {} }
+}, 50);
+
+// ---- The link to the PC
+let socket = null, retry = null, leaving = false;
+// Disconnected, by this phone or from the PC: no picture, no controller on the PS5, and no new try until asked.
+function showLeft(text){
+  leaving = true; clearTimeout(retry); video.pause(); queue = []; $("pad").hidden = true; $("padChip").hidden = true; $("leaveButton").hidden = true; setLink("Disconnected");
+  $("overlayTitle").textContent = "Disconnected"; $("overlayText").textContent = text;
+  $("startButton").hidden = true; $("againButton").hidden = false; $("overlay").hidden = false;
+  setTimeout(() => $("againButton").focus(), 50);
+}
+function leave(){
+  leaving = true;
+  if (socket && socket.readyState <= 1) socket.close(1000);
+  showLeft("This phone left PlayBridge. Its controller is off your PS5.");
+}
+function connectAgain(){
+  leaving = false; $("againButton").hidden = true; $("startButton").hidden = false; $("leaveButton").hidden = false;
+  $("overlayTitle").textContent = "Ready"; $("overlayText").textContent = "Tap to start the picture and sound from your PS5.";
+  $("overlay").hidden = started;
+  if (started) { startSound(); video.play().catch(() => {}); } else setTimeout(() => $("startButton").focus(), 50);
+  connect();
+}
+function setLink(text, tone){ const c = $("linkChip"); c.textContent = text; c.className = "chip status" + (tone ? " " + tone : ""); layout(); }
+function connect(){
+  clearTimeout(retry);
+  socket = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
+  socket.binaryType = "arraybuffer";
+  setLink("Connecting…");
+  socket.onopen = () => { socket.send(JSON.stringify({ token })); setLink("Waiting for the picture…"); };
+  socket.onmessage = ev => {
+    if (typeof ev.data === "string") {
+      let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+      if (m.type === "init") { expectInit = true; mime = m.mime; }
+      else if (m.type === "hello" || m.type === "pad") showPad(m);
+      else if (m.type === "alert") showAlert(m);
+      return;
+    }
+    if (isSound(ev.data)) { if (!expectInit) playSound(ev.data); return; }
+    if (expectInit) { expectInit = false; setLink("Live", "good"); snd = newSound(); pic = newPicture(); fast = 0; resetMedia(mime); }
+    queue.push(ev.data); pump();
+  };
+  socket.onclose = ev => {
+    if (leaving) return;
+    if (ev.code === 4401) { token = ""; store.set(""); showPairing("This phone is no longer paired. Enter a new code from the PC."); return; }
+    if (ev.code === 4410) { showLeft("PlayBridge on the PC disconnected this phone. Its controller is off your PS5."); return; }
+    if (ev.code === 4429) setLink("Four phones are already watching", "bad");
+    else setLink("Connection lost. Trying again…", "bad");
+    retry = setTimeout(connect, 2000);
+  };
+}
+function fail(text){ setLink(text, "bad"); }
+// Alert me when, from the PC: shown over the game for a few seconds, with the phone vibrating where it can.
+let alertTimer = null;
+function showAlert(m){
+  $("alertTitle").textContent = String(m.title || ""); $("alertText").textContent = String(m.text || ""); $("alertBox").hidden = false;
+  try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch (e) {}
+  clearTimeout(alertTimer); alertTimer = setTimeout(() => { $("alertBox").hidden = true; }, 8000);
+}
+// Every 2 s while it plays, how it plays, for the phone log on the PC: the picture's stalls and how long they lasted, its jumps, how
+// many pieces its buffer is in, how far behind the newest picture it is and its store, the pictures it dropped, and the sound's: frames left out as
+// too late, frames taken back from the store, times it started again apart from the last frame, its store, and its output.
+let waits = 0, stallMs = 0, stalledAt = 0, seeks = 0;
+video.addEventListener("waiting", () => { if (started && !leaving && !stalledAt) { waits++; stalledAt = performance.now(); } });
+video.addEventListener("playing", () => { if (stalledAt) { const ms = performance.now() - stalledAt; stallMs += ms; stalledAt = 0; pictureStalled(ms); } });
+video.addEventListener("seeking", () => { if (started) seeks++; });
+setInterval(() => {
+  if (!started || leaving || !socket || socket.readyState !== 1 || !buffer) return;
+  try {
+    const q = video.getVideoPlaybackQuality ? video.getVideoPlaybackQuality() : null, held = buffer.buffered;
+    const out = soundOutput(), behind = held.length ? held.end(held.length - 1) - video.currentTime : 0;
+    socket.send(JSON.stringify({ type: "stats", player: "split", waits, stall_ms: Math.round(stallMs + (stalledAt ? performance.now() - stalledAt : 0)), seeks,
+      ranges: held.length, dropped: q ? q.droppedVideoFrames : 0, frames: q ? q.totalVideoFrames : 0, sound_late: snd.lates, sound_lost_ms: Math.round(snd.lostMs), sound_trims: snd.trims, sound_resyncs: snd.resyncs,
+      sound_rate: out.rate, sound_out_ms: out.out_ms, sound_underruns: out.underruns,
+      behind, picture_aim: pic.aim, aim: snd.margin }));
+  } catch (e) {}
+}, 2000);
+
+// ---- The controller: touch, and a controller paired with the phone where the browser offers it
+const B = { L3:0x2, R3:0x4, OPTIONS:0x8, UP:0x10, RIGHT:0x20, DOWN:0x40, LEFT:0x80, L2:0x100, R2:0x200, L1:0x400, R1:0x800, TRIANGLE:0x1000, CIRCLE:0x2000, CROSS:0x4000, SQUARE:0x8000, PS:0x10000, TOUCHPAD:0x100000 };
+let touchButtons = 0, sticks = [128,128,128,128], lastSent = "", lastAt = 0, mayPlay = false;
+function showPad(m){
+  mayPlay = !!m.play;
+  const chip = $("padChip"); chip.hidden = false;
+  if (!m.play) { chip.textContent = "View only: Play is off on the PC"; chip.className = "chip status"; }
+  // The phone's controller joins the PS5 with its first press and leaves after two minutes with nothing pressed.
+  else if (!m.joined) { chip.textContent = "Press a button to play"; chip.className = "chip status"; }
+  else if (m.state === 1 && m.player) { chip.textContent = "Player " + m.player; chip.className = "chip status good"; }
+  else if (m.state === 2 && m.error === 0x50420005) { chip.textContent = "Four controllers are in use"; chip.className = "chip status bad"; }
+  else if (m.state === 2) { chip.textContent = "Controller could not start"; chip.className = "chip status bad"; }
+  else { chip.textContent = "Controller starting…"; chip.className = "chip status"; }
+  $("pad").hidden = !mayPlay || !controlsShown; layout();
+}
+function gamepadState(){
+  const pads = navigator.getGamepads ? Array.from(navigator.getGamepads()).filter(Boolean) : [];
+  const g = pads.find(p => p.mapping === "standard"); if (!g) return null;
+  const on = i => g.buttons[i] && g.buttons[i].pressed, val = i => g.buttons[i] ? Math.round(g.buttons[i].value * 255) : 0;
+  const order = [B.CROSS,B.CIRCLE,B.SQUARE,B.TRIANGLE,B.L1,B.R1,B.L2,B.R2,0,B.OPTIONS,B.L3,B.R3,B.UP,B.DOWN,B.LEFT,B.RIGHT,B.PS,B.TOUCHPAD];
+  let b = 0; order.forEach((bit, i) => { if (bit && on(i)) b |= bit; });
+  const axis = i => Math.max(0, Math.min(255, Math.round(((g.axes[i] || 0) + 1) * 127.5)));
+  return { b, s: [axis(0), axis(1), axis(2), axis(3), val(6), val(7)] };
+}
+function send(force){
+  if (!socket || socket.readyState !== 1) return;
+  let b = touchButtons, s = [sticks[0], sticks[1], sticks[2], sticks[3], touchButtons & B.L2 ? 255 : 0, touchButtons & B.R2 ? 255 : 0];
+  const g = mayPlay ? gamepadState() : null;
+  if (g) { b |= g.b; for (let i = 0; i < 4; i++) if (s[i] === 128) s[i] = g.s[i]; s[4] = Math.max(s[4], g.s[4]); s[5] = Math.max(s[5], g.s[5]); }
+  const state = b + ":" + s.join(","), now = performance.now();
+  // Every change at once, and the same state ten times a second, which also tells the PC this phone is still here. Each carries the
+  // phone's own clock (t, in ms), so the phone log shows how much later than usual the states reach the PC.
+  if (force || state !== lastSent || now - lastAt > 100) { socket.send(JSON.stringify({ b, s, t: Math.round(now) })); lastSent = state; lastAt = now; }
+}
+// A controller paired with the phone is read every 8 ms (a DualSense reports every 4 ms); touch sends each change as it happens.
+setInterval(() => send(false), 8);
+
+const keys = {}, zones = {};
+// Where each stick rests, in the page (set by layout), and which ones a thumb holds now.
+const homes = {}, rings = {}, held = new Set();
+function button(name, label, bit, cls, aria){
+  const el = document.createElement("button"); el.type = "button"; el.className = "btn " + cls; el.textContent = label;
+  el.setAttribute("aria-label", aria || label); el.tabIndex = -1; keys[name] = el;
+  const down = ev => { ev.preventDefault(); el.setPointerCapture && el.setPointerCapture(ev.pointerId); touchButtons |= bit; el.classList.add("on"); send(true); if (navigator.vibrate) navigator.vibrate(8); };
+  const up = ev => { ev.preventDefault(); touchButtons &= ~bit; el.classList.remove("on"); send(true); };
+  el.addEventListener("pointerdown", down); el.addEventListener("pointerup", up); el.addEventListener("pointercancel", up); el.addEventListener("lostpointercapture", up);
+  $("pad").appendChild(el);
+}
+function stickRadius(){ return Math.min(innerWidth, innerHeight) * 0.12; }
+// Each stick shows where it rests, as on a controller. A thumb put on it moves it from its own centre, as a real stick; put anywhere else
+// on that side of the screen, the stick comes to the thumb.
+function stick(side, first){
+  const zone = document.createElement("div"); zone.className = "zone " + side; $("pad").appendChild(zone); zones[side] = zone;
+  const ring = document.createElement("div"); ring.className = "stick rest"; ring.hidden = true; ring.innerHTML = "<i></i>"; zone.appendChild(ring); rings[side] = ring;
+  let id = null, ox = 0, oy = 0;
+  const radius = stickRadius;
+  zone.addEventListener("pointerdown", ev => {
+    if (id !== null) return; id = ev.pointerId; zone.setPointerCapture(ev.pointerId); held.add(side);
+    const r = zone.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top, home = homes[side];
+    if (home && Math.hypot(x - (home.x - r.left), y - (home.y - r.top)) <= radius() * 1.2) { ox = home.x - r.left; oy = home.y - r.top; }
+    else { ox = x; oy = y; }
+    ring.style.left = ox + "px"; ring.style.top = oy + "px"; ring.hidden = false; ring.classList.remove("rest"); move(ev);
+  });
+  const move = ev => {
+    if (ev.pointerId !== id) return;
+    const r = zone.getBoundingClientRect(), rad = radius();
+    let dx = ev.clientX - r.left - ox, dy = ev.clientY - r.top - oy; const d = Math.hypot(dx, dy);
+    if (d > rad) { dx *= rad / d; dy *= rad / d; }
+    ring.firstChild.style.transform = `translate(${dx}px,${dy}px)`;
+    sticks[first] = Math.round(128 + dx / rad * 127); sticks[first + 1] = Math.round(128 + dy / rad * 127); send(true);
+  };
+  const end = ev => { if (ev.pointerId !== id) return; id = null; held.delete(side); ring.firstChild.style.transform = ""; rest(side); sticks[first] = sticks[first + 1] = 128; send(true); };
+  zone.addEventListener("pointermove", move); zone.addEventListener("pointerup", end); zone.addEventListener("pointercancel", end);
+}
+// A stick nobody holds goes back to where it rests.
+function rest(side){
+  const ring = rings[side], home = homes[side], zone = zones[side];
+  if (!ring) return;
+  ring.classList.add("rest");
+  if (!home) { ring.hidden = true; return; }
+  const r = zone.getBoundingClientRect(); ring.style.left = (home.x - r.left) + "px"; ring.style.top = (home.y - r.top) + "px"; ring.hidden = false;
+}
+function buildPad(){
+  stick("left", 0); stick("right", 2);
+  button("L2", "L2", B.L2, "shoulder"); button("L1", "L1", B.L1, "shoulder"); button("R2", "R2", B.R2, "shoulder"); button("R1", "R1", B.R1, "shoulder");
+  button("UP", "▲", B.UP, "dpad", "Up"); button("DOWN", "▼", B.DOWN, "dpad", "Down"); button("LEFT", "◀", B.LEFT, "dpad", "Left"); button("RIGHT", "▶", B.RIGHT, "dpad", "Right");
+  button("TRIANGLE", "△", B.TRIANGLE, "face", "Triangle"); button("CROSS", "✕", B.CROSS, "face", "Cross"); button("SQUARE", "□", B.SQUARE, "face", "Square"); button("CIRCLE", "○", B.CIRCLE, "face", "Circle");
+  button("L3", "L3", B.L3, "small"); button("PAD", "Pad", B.TOUCHPAD, "small", "Touch pad"); button("PS", "PS", B.PS, "small", "PS button"); button("OPTIONS", "Options", B.OPTIONS, "small"); button("R3", "R3", B.R3, "small");
+}
+// Every control gets its own place, worked out from the space the browser really gives (its bars and a notch take some), so no button
+// lies on another or on the text at the top. Sideways: the shoulder buttons in the top corners with the status and buttons between them,
+// the d-pad and the face buttons under them (smaller when the screen is short) with a stick beside each, toward the middle, as on a
+// controller, and L3, the touch pad, PS, Options and R3 in one row at the bottom. Upright: the picture at the top and the controls under it,
+// in the same order, the sticks under the d-pad and the face buttons.
+function safe(side){ return parseFloat(getComputedStyle($("safeArea"))["padding" + side[0].toUpperCase() + side.slice(1)]) || 0; }
+function put(el, x, y, w, h){
+  el.style.left = Math.round(x) + "px"; el.style.top = Math.round(y) + "px"; el.style.width = Math.round(w) + "px"; el.style.height = Math.round(h) + "px";
+  el.style.fontSize = Math.round(Math.min(w, h) * (el.classList.contains("small") || el.classList.contains("shoulder") ? .42 : .5)) + "px";
+}
+function area(el, x, y, w, h){ el.style.left = Math.round(x) + "px"; el.style.top = Math.round(y) + "px"; el.style.width = Math.round(w) + "px"; el.style.height = Math.round(h) + "px"; el.style.bottom = "auto"; }
+function cross(names, cx, cy, size, gap){
+  const [up, down, left, right] = names.map(n => keys[n]), step = size + gap;
+  put(up, cx - size / 2, cy - size / 2 - step, size, size); put(down, cx - size / 2, cy - size / 2 + step, size, size);
+  put(left, cx - size / 2 - step, cy - size / 2, size, size); put(right, cx - size / 2 + step, cy - size / 2, size, size);
+}
+function layout(){
+  const W = innerWidth, H = innerHeight, bar = document.querySelector(".bar");
+  if (!W || !H || $("stage").hidden) return;
+  const M = 8, left = M + safe("left"), right = W - M - safe("right"), top = M + safe("top"), bottom = H - M - safe("bottom");
+  const portrait = H > W, padOn = !$("pad").hidden, R = stickRadius();
+  const u = portrait ? Math.min(W / 100, H / 190) : Math.min(H / 100, W / 190), gap = Math.max(6, 1.5 * u);
+  const sw = Math.max(52, 17 * u), sh = Math.max(32, 9 * u), smallW = Math.max(44, 10 * u), smallH = Math.max(32, 7 * u);
+  // The top: between the shoulder buttons when sideways with the controls on, else across.
+  const sideways = !portrait && padOn;
+  bar.style.top = top + "px"; bar.style.left = (sideways ? left + sw + gap : left) + "px"; bar.style.right = (sideways ? W - right + sw + gap : W - right) + "px";
+  const barBottom = bar.getBoundingClientRect().bottom;
+  let shouldersEnd, controlsTop = 0;
+  if (portrait) {
+    // The picture under the top and as wide as the screen; the controls below it.
+    const videoTop = barBottom + gap, videoHeight = Math.min(W * 9 / 16, H * .42);
+    area(video, 0, videoTop, W, videoHeight);
+    controlsTop = videoTop + videoHeight + 2 * gap;
+    shouldersEnd = controlsTop + sh;
+    area(zones.left, 0, controlsTop, W / 2, H - controlsTop); area(zones.right, W / 2, controlsTop, W / 2, H - controlsTop);
+  } else {
+    video.style.cssText = "";
+    put(keys.L2, left, top, sw, sh); put(keys.L1, left, top + sh + gap, sw, sh);
+    put(keys.R2, right - sw, top, sw, sh); put(keys.R1, right - sw, top + sh + gap, sw, sh);
+    shouldersEnd = Math.max(top + 2 * sh + gap, barBottom);
+    area(zones.left, 0, H * .3, W * .45, H * .7); area(zones.right, W * .55, H * .3, W * .45, H * .7);
+  }
+  // L3, the touch pad, PS, Options and R3 in one row at the bottom, from the middle; the longer names get wider buttons.
+  const row = [["L3", 1], ["PAD", 1.2], ["PS", 1], ["OPTIONS", 1.7], ["R3", 1]], rowY = bottom - smallH;
+  const rowWidth = row.reduce((sum, [, wide]) => sum + wide * smallW, 0) + (row.length - 1) * gap;
+  let x = W / 2 - rowWidth / 2;
+  for (const [n, wide] of row) { put(keys[n], x, rowY, wide * smallW, smallH); x += wide * smallW + gap; }
+  // The d-pad and the face buttons between the shoulder buttons and the bottom row; smaller where the screen is short or narrow.
+  const room = rowY - gap - (shouldersEnd + gap) - (portrait ? gap + 2 * R : 0), across = (right - left - gap) / 2;
+  const k = Math.min(Math.max(36, 10.5 * u), room / 3.2, across / 3.2), f = Math.min(Math.max(40, 12 * u), room / 3.2, across / 3.2);
+  const kGap = Math.max(3, k * .1), fGap = Math.max(3, f * .08), dSize = 3 * k + 2 * kGap, fSize = 3 * f + 2 * fGap, tallest = Math.max(dSize, fSize);
+  let cy;
+  if (portrait) {
+    // The shoulder buttons with the d-pad and face buttons under them, as one group in the lower part, where the thumbs are.
+    const group = sh + 2 * gap + tallest + gap + 2 * R, groupTop = controlsTop + Math.max(0, rowY - gap - controlsTop - group) * .6;
+    put(keys.L2, left, groupTop, sw, sh); put(keys.L1, left + sw + gap, groupTop, sw, sh);
+    put(keys.R2, right - sw, groupTop, sw, sh); put(keys.R1, right - 2 * sw - gap, groupTop, sw, sh);
+    cy = groupTop + sh + 2 * gap + tallest / 2;
+  } else cy = Math.min(Math.max(shouldersEnd + gap + tallest / 2, H * .5), rowY - gap - tallest / 2);
+  cross(["UP", "DOWN", "LEFT", "RIGHT"], left + dSize / 2, cy, k, kGap);
+  cross(["TRIANGLE", "CROSS", "SQUARE", "CIRCLE"], right - fSize / 2, cy, f, fGap);
+  // The sticks: sideways beside the d-pad and the face buttons and a little lower, upright under them; never on the bottom row.
+  if (portrait) {
+    const y = Math.min(cy + tallest / 2 + gap + R, rowY - gap - R);
+    homes.left = { x: Math.min(left + dSize / 2 + R * .5, W / 2 - gap / 2 - R), y };
+    homes.right = { x: Math.max(right - fSize / 2 - R * .5, W / 2 + gap / 2 + R), y };
+  } else {
+    const y = Math.min(cy + R, rowY - gap - R);
+    homes.left = { x: left + dSize + gap + R, y }; homes.right = { x: right - fSize - gap - R, y };
+  }
+  for (const side of ["left", "right"]) if (!held.has(side)) rest(side);
+}
+addEventListener("resize", layout);
+addEventListener("orientationchange", () => setTimeout(layout, 200));
+document.addEventListener("fullscreenchange", () => setTimeout(layout, 100));
+let controlsShown = true;
+$("controlsButton").addEventListener("click", () => { controlsShown = !controlsShown; $("controlsButton").setAttribute("aria-pressed", String(controlsShown)); $("pad").hidden = !mayPlay || !controlsShown; layout(); });
+$("fullButton").addEventListener("click", async () => {
+  const el = document.documentElement;
+  try {
+    if (document.fullscreenElement) await document.exitFullscreen();
+    else if (el.requestFullscreen) { await el.requestFullscreen({ navigationUI: "hide" }); if (screen.orientation && screen.orientation.lock) screen.orientation.lock("landscape").catch(() => {}); }
+    else if (video.webkitEnterFullscreen) video.webkitEnterFullscreen();
+  } catch (e) {}
+});
+$("leaveButton").addEventListener("click", leave);
+$("againButton").addEventListener("click", connectAgain);
+// The sound needs a tap before a browser plays it.
+$("startButton").addEventListener("click", () => {
+  // Unmuted after the tap, as before, so the browser keeps the screen on while it plays (the picture has no sound of its own).
+  started = true; $("overlay").hidden = true; video.muted = false; startSound(); video.play().catch(() => {});
+});
+function showStage(){
+  $("pairing").hidden = true; $("stage").hidden = false; $("pad").hidden = true; layout();
+  if (!socket || socket.readyState > 1) connect();
+  setTimeout(() => $("startButton").focus(), 50);
+}
+buildPad();
+if (token) showStage(); else showPairing("");
+</script>
+</body>
+</html>

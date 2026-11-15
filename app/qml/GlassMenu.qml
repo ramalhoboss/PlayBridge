@@ -3,7 +3,8 @@ import QtQuick.Controls.Basic
 import QtQuick.Effects
 
 // A short list in a window of its own, so it can lie over the video. Frosted dark glass, the chosen row lit, gold at its edge.
-// items: [{label}] or plain strings. It answers the mouse here; keys and the controller come through current/accepted.
+// items: [{label, value}] or plain strings; value, when there is one, shows dim on the right (how that row stands now).
+// It answers the mouse here; keys and the controller come through current/accepted.
 Popup {
     id: menu
     property var items: []
@@ -58,9 +59,18 @@ Popup {
             width: list.width
             height: menu.rowHeight
             Text {
+                id: rowValue
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.right: parent.right; anchors.rightMargin: 16
+                text: typeof modelData === "string" ? "" : (modelData.value || "")
+                color: Theme.dim
+                font.family: Theme.face
+                font.pixelSize: 13
+            }
+            Text {
                 anchors.verticalCenter: parent.verticalCenter
                 x: 22
-                width: parent.width - 30
+                width: parent.width - 30 - (rowValue.text !== "" ? rowValue.implicitWidth + 16 : 0)
                 elide: Text.ElideRight
                 text: menu.label(modelData)
                 color: index === menu.current ? Theme.text : Theme.muted

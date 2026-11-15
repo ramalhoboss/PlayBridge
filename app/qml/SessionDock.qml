@@ -129,6 +129,34 @@ Rectangle {
                 spacing: 3
                 Repeater { model: dock.d.details || []; delegate: Text { required property string modelData; text: modelData; color: Theme.muted; font.family: Theme.face; font.pixelSize: 12 } }
             }
+            Column {
+                // The last game that ran a minute or more: its frame rate, temperatures and power, as the PS5 measured them.
+                visible: (dock.d.lastGame || []).length > 0
+                width: parent.width
+                spacing: 3
+                Text { text: "Last game"; color: Theme.text; font.family: Theme.face; font.pixelSize: 13 }
+                Repeater { model: dock.d.lastGame || []; delegate: Text { required property string modelData; width: parent.width; text: modelData; color: Theme.muted; font.family: Theme.face; font.pixelSize: 12; wrapMode: Text.WordWrap } }
+            }
+            Rectangle {
+                // Alert me when: each one is used once, and turns off when it has told you.
+                width: parent.width; height: alertColumn.height + 24; radius: 16
+                color: Theme.card; border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.07)
+                Column {
+                    id: alertColumn
+                    x: 12; y: 12; width: parent.width - 24; spacing: 2
+                    Text { text: "Alert me when"; color: Theme.text; font.family: Theme.face; font.pixelSize: 15; bottomPadding: 4 }
+                    Toggle { width: parent.width; fontSize: 13; text: "The picture moves again"; checked: !!dock.d.alertMoves; onToggled: function(on) { shell.act("alert", ["moves", on]) } }
+                    Text { visible: text !== ""; width: parent.width; text: dock.d.alertMovesState || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: 11; wrapMode: Text.WordWrap }
+                    Toggle { width: parent.width; fontSize: 13; text: "The game slows down"; checked: !!dock.d.alertSlow; onToggled: function(on) { shell.act("alert", ["slow", on]) } }
+                    Text { visible: text !== ""; width: parent.width; text: dock.d.alertSlowState || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: 11; wrapMode: Text.WordWrap }
+                    Toggle { width: parent.width; fontSize: 13; text: "The CPU reaches " + (dock.d.hotAt || ""); checked: !!dock.d.alertHot; onToggled: function(on) { shell.act("alert", ["hot", on]) } }
+                    Choice { width: parent.width; height: 38; fontSize: 13; model: ["70 °C", "80 °C", "90 °C"]; value: dock.d.hotAt || ""; onPicked: function(v) { shell.act("alert_hot", v) } }
+                    Text { visible: text !== ""; width: parent.width; text: dock.d.alertHotState || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: 11; wrapMode: Text.WordWrap }
+                    Toggle { width: parent.width; fontSize: 13; text: "A trophy unlocks"; checked: !!dock.d.alertTrophy; onToggled: function(on) { shell.act("alert", ["trophy", on]) } }
+                    Text { visible: text !== ""; width: parent.width; text: dock.d.alertTrophyState || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: 11; wrapMode: Text.WordWrap }
+                    Text { width: parent.width; topPadding: 4; text: "A Windows notification tells you, even with PlayBridge out of sight, and its taskbar button flashes."; color: Theme.muted; font.family: Theme.face; font.pixelSize: 11; wrapMode: Text.WordWrap }
+                }
+            }
             PillButton { width: parent.width; height: 38; fontSize: 13; text: "Export diagnostics"; onClicked: exportDialog.open() }
         }
     }

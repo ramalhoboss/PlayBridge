@@ -1,10 +1,15 @@
 """Direct PS5 AV receiver: WASAPI audio and refresh-paced video."""
-import argparse,array,collections,json,os,queue,socket,struct,sys,threading,time,traceback
+import argparse,array,collections,json,os,queue,re,socket,struct,sys,threading,time,traceback
 from fractions import Fraction
 from pathlib import Path
 HERE=Path(__file__).resolve().parent
 BUNDLE=Path(getattr(sys,'_MEIPASS',HERE))
 PAYLOAD_FILE=next((p for p in (BUNDLE/'PlayBridge.elf',HERE/'PlayBridge.elf',HERE.parent/'PlayBridge.elf') if p.is_file()),BUNDLE/'PlayBridge.elf')
+# The controller companion, sent only when "Play on your PS5" is on: a process of its own on the PS5, apart from the video payload.
+COMPANION_FILE=next((p for p in (BUNDLE/'PlayBridge-Controller.elf',HERE/'PlayBridge-Controller.elf',HERE.parent/'PlayBridge-Controller.elf') if p.is_file()),BUNDLE/'PlayBridge-Controller.elf')
+def companion_bytes():
+ try:return COMPANION_FILE.read_bytes()
+ except OSError:return None
 STATE=Path(os.environ.get('LOCALAPPDATA',str(Path.home())))/'PlayBridge'
 STATE.mkdir(parents=True,exist_ok=True)
 def config():
@@ -17,10 +22,16 @@ if not getattr(sys,'frozen',False) and DEPS is not None and DEPS.is_dir():sys.pa
 import av,sounddevice as sd
 from video_convert import reformat_for_display
 from frame_pacing import FramePacer
+from repeat_frames import RepeatFrames
+from watch_alerts import MotionMeter
 from media_capture import CaptureRecorder,ReplayBuffer,is_idr,save_clip
-from live_broadcast import LiveBroadcast
-from compact_video import Compactor
-from console_control import ConsoleLink,POWER_OFF,REBOOT,REST
+from live_broadcast import LiveBroadcast,seal,unseal
+from phone_link import PhoneFeed
+from compact_video import Compactor,recycle
+from save_backup import SaveBackup
+from fan_target import FanProfiles
+from console_control import ConsoleLink,POWER_OFF,REBOOT,REST,call as console_call,running_title
+import discord_link,twitch_chat
 from console_discovery import SUPPORTED_FIRMWARE,firmware_name,locate,supported
 from stream_metrics import StreamMetrics,export_diagnostics
 import graphics_card,network_link,updater
@@ -29,6 +40,14 @@ from mic_mix import LEVEL_MAX,MicMix,Microphone
 from av.codec.hwaccel import HWAccel
 import numpy as np
 HDR=struct.Struct('<4sBBHIQQI')
+# Which captures go to a Discord channel, the setting that chooses each, and whether it is on before anything is chosen.
+DISCORD_KINDS=(('Screenshot','discord_shots',True),('Trophy clip','discord_trophies',True),('Replay','discord_clips',False),('Recording','discord_clips',False))
+# How long the profile keeps the game while the console link comes back, as it does around a game's close screen.
+PRESENCE_GRACE=60.0
+def share_encoders():
+ """H.264 encoders for a clip's Discord copy: a graphics card's first, so the processor stays free, then the processor's."""
+ import video_encoders
+ return [name for name in video_encoders.found() if name in video_encoders.SAME_CODEC]+['libx264','h264_mf']
 PROFILES={'data_saver':{'name':'Data saver · 4 Mbps · 30 fps playback','fps':60,'bitrate':4000000,'playback_fps':30},'balanced':{'name':'Balanced · 1080p60 · 8 Mbps','fps':60,'bitrate':8000000},'high':{'name':'High quality · 1080p60 · 12 Mbps','fps':60,'bitrate':12000000},'very_high':{'name':'Very high · 1080p60 · 16 Mbps','fps':60,'bitrate':16000000},'ultra':{'name':'Ultra · 1080p60 · 20 Mbps','fps':60,'bitrate':20000000},'maximum':{'name':'Maximum · 1080p60 · 30 Mbps','fps':60,'bitrate':30000000},'qhd_balanced':{'name':'1440p60 · 20 Mbps','fps':60,'bitrate':20000000,'resolution':5},'qhd_high':{'name':'1440p60 · 30 Mbps','fps':60,'bitrate':30000000,'resolution':5},'qhd_maximum':{'name':'1440p60 · 50 Mbps','fps':60,'bitrate':50000000,'resolution':5},'uhd_balanced':{'name':'4K60 · 40 Mbps','fps':60,'bitrate':40000000,'resolution':6},'uhd_high':{'name':'4K60 · 60 Mbps','fps':60,'bitrate':60000000,'resolution':6},'uhd_maximum':{'name':'4K60 · 80 Mbps','fps':60,'bitrate':80000000,'resolution':6}}
 RESOLUTION_NAMES={4:'1080p',5:'1440p',6:'4K'}
 VIDEO_QUEUE_PACKETS=12
@@ -76,6 +95,9 @@ GPU_PATIENCE=30
 EXTRA_SURFACES=4
 # Slow decoding spreads out a burst from the network, but a picture that stays on the GPU arrives with the whole burst, and the decoder can finish it before the next thread wakes up.
 GPU_DECODED_FRAMES=9
+# A trophy clip: the seconds before the moment the trophy was earned and after it, and how far apart the console's clock and this PC's
+# may be for the console's time of it to count.
+CLIP_BEFORE=30;CLIP_AFTER=5;CLOCK_SLACK=3
 def gpu_decoder(codec=0,on_gpu=False,adapter=None):
  # Measured on a 4K recording: 12 ms from packet to picture with the same pixels, against 33 ms on frame threads, and 3.7 ms when the picture stays on the GPU. Returns None where the GPU cannot decode.
  # FFmpeg names the card by its place in Windows' list; without one it takes the default, which on a laptop with two cards is the processor's.
@@ -110,16 +132,30 @@ class Timings:
   return result
 class Player:
  def __init__(self,args):
-  self.metrics=StreamMetrics();self.metrics_lock=threading.Lock();self.recorder=CaptureRecorder();self.broadcast=LiveBroadcast();self.last_native_frame=None;self.capture_info=None;self.notice='';self.notice_until=0;self.screenshot_thread=None;self.retry_at=0;self.intentional_disconnect=False;self.follow=config().get('host_auto',True);self.elsewhere=None;self.renderer=(('gdi' if args.headless or not config().get('direct_video',True) else 'd3d11') if sys.platform=='win32' else 'tk') if args.renderer=='auto' else args.renderer;self.timings=Timings();self.args=args;self.stop=threading.Event();self.session_done=threading.Event();self.render_size=(1280,720);self.volume=1.0;self.muted=False;self.save_at=0;self.connection_state='Connecting…';self.lock=threading.Lock();self.pcm=bytearray();self.frames=collections.deque();self.last_drawn=None;self.audio=None;self.sock=None;self.error='';self.stats=collections.Counter();self.peak=0;self.output_name='';self.first_video=None;self.first_audio=None;self.first_arrival=None;self.latest_pts={};self.events=collections.deque(maxlen=60);self.arrival_origin=None;self.transport_growth_ms=0;self.decode_failure=None;self.started=time.perf_counter();self.pacer=FramePacer(self.stats);self.decoder_name='software';self.decoder_on_gpu=False;self.codec=0;self.console=None;self.video_hidden=False;self.sound_hidden=False;self.replay=ReplayBuffer(config().get('replay_seconds',60));self.replay_thread=None;self.link=ConsoleLink(STATE/'library',self.notify);self.gaps=collections.deque(maxlen=30)
+  self.metrics=StreamMetrics();self.metrics_lock=threading.Lock();self.recorder=CaptureRecorder();self.broadcast=LiveBroadcast();self.phone_feed=PhoneFeed();self.last_native_frame=None;self.capture_info=None;self.notice='';self.notice_until=0;self.screenshot_thread=None;self.retry_at=0;self.intentional_disconnect=False;self.follow=config().get('host_auto',True);self.elsewhere=None;self.renderer=(('gdi' if args.headless or not config().get('direct_video',True) else 'd3d11') if sys.platform=='win32' else 'tk') if args.renderer=='auto' else args.renderer;self.timings=Timings();self.args=args;self.stop=threading.Event();self.session_done=threading.Event();self.render_size=(1280,720);self.volume=1.0;self.muted=False;self.save_at=0;self.connection_state='Connecting…';self.lock=threading.Lock();self.pcm=bytearray();self.frames=collections.deque();self.last_drawn=None;self.audio=None;self.sock=None;self.error='';self.stats=collections.Counter();self.peak=0;self.output_name='';self.first_video=None;self.first_audio=None;self.first_arrival=None;self.latest_pts={};self.events=collections.deque(maxlen=60);self.arrival_origin=None;self.transport_growth_ms=0;self.decode_failure=None;self.started=time.perf_counter();self.pacer=FramePacer(self.stats);self.repeats=RepeatFrames(self.stats);self.motion=MotionMeter();self.decoder_name='software';self.decoder_on_gpu=False;self.codec=0;self.console=None;self.video_hidden=False;self.sound_hidden=False;self.replay=ReplayBuffer(config().get('replay_seconds',60));self.replay_thread=None;self.link=ConsoleLink(STATE/'library',self.notify);self.link.on_trophy=self.trophy_unlocked;self.trophy_events=queue.SimpleQueue();self.gaps=collections.deque(maxlen=30)
   self.update_state='idle';self.updates=updater.Updater(STATE/'update',automatic=bool(config().get('update_auto',True)),on_change=self.update_changed);self.restart_after_update=False
   # The payload's logs from this run, for finding out why a stream ended. They stay on this PC and the next start clears them.
   self.link.log_folder=STATE/'ps5-logs'
+  # Each game's saves, copied to the PC when it closes: read only, from the console's own files.
+  self.link.saves=SaveBackup(lambda:self.capture_folder()/'PS5 saves',self.link.game_name,self.notify,recycle,streaming=lambda:self.connection_state=='Connected')
+  self.link.saves.auto=bool(config().get('save_backup',True))
+  # Each game's fan level: the PS5's own unless chosen in Settings.
+  self.link.fans=FanProfiles(STATE/'library'/'fans.json')
   # Your voice in what is saved or sent, only while the microphone is on.
-  self.mic_mix=MicMix(av);self.microphone=Microphone(self.mic_mix,sd)
+  self.mic_mix=MicMix(av);self.microphone=Microphone(self.mic_mix,sd,console=lambda:self.args.host);self.microphone.notify=self.notify
   try:self.mic_mix.level=min(LEVEL_MAX,max(0.0,float(config().get('mic_level',1.0))))
   except (TypeError,ValueError):pass
-  # Recordings made smaller after they are saved, only while no stream plays. Off unless chosen in Settings.
-  self.compactor=Compactor(lambda:self.connection_state=='Connected');self.compact_saved=None
+  # Discord: the game on your profile, and your captures in a channel of yours. Both stay off until set in Settings.
+  saved=config();self.discord=dict(app=str(saved.get('discord_app','') or '').strip(),url=unseal(saved.get('discord_webhook','')) if isinstance(saved.get('discord_webhook'),str) else '',
+   kinds={kind:bool(saved.get(key,on)) for kind,key,on in DISCORD_KINDS})
+  self.presence=discord_link.Presence(lambda:self.discord['app']);self.presence_title=None;self.presence_started=0.0;self.presence_seen=0.0
+  self.discord_hook=discord_link.Webhook(lambda:self.discord['url'],lambda kind:self.discord['kinds'].get(kind,False),self.playing_name,self.notify,STATE/'discord',
+   busy=lambda:self.connection_state=='Connected',encoders=share_encoders)
+  # Your Twitch chat for the overlay, read as an anonymous viewer. Off until a channel is set in Settings.
+  self.chat_channel=twitch_chat.channel_name(str(saved.get('twitch_chat','') or ''));self.chat=twitch_chat.Chat(lambda:self.chat_channel)
+  # Recordings made smaller after they are saved, only while no stream plays. Off unless chosen in Settings. A file waits too while its
+  # Discord copy is made, so it is not replaced under it.
+  self.compactor=Compactor(lambda:self.connection_state=='Connected' or self.discord_hook.working());self.compact_saved=None
   if config().get('compact_recordings',False):self.compactor.resume(config().get('compact_waiting',[]))
   # The graphics card that decodes and draws, the same one for both. Read once: changing it applies the next time the app opens.
   try:self.adapter=graphics_card.choose(config().get('graphics_card',graphics_card.AUTOMATIC)) if sys.platform=='win32' else None
@@ -211,17 +247,18 @@ class Player:
   except Exception:return None
  def decode_video(self,packets,done):
   # Beside the socket reader, so a slow decoder cannot stall audio or the console's 1 s send timeout.
-  video=None;waiting_idr=False;unanswered=0;arrivals={}
+  # sizes: each packet's bytes and whether it is a keyframe, by its timestamp, for telling a game's repeated frames apart.
+  video=None;waiting_idr=False;unanswered=0;arrivals={};sizes={}
   try:
    while not done.is_set():
     try:payload,pts,dts,arrived=packets.get(timeout=.1)
     except queue.Empty:continue
     # Its output stopped working, so frames have to come back to memory, and this decoder's references stay with it.
-    if video is not None and self.decoder_on_gpu and self.renderer!='d3d11':video=None;waiting_idr=True;arrivals.clear();unanswered=0
+    if video is not None and self.decoder_on_gpu and self.renderer!='d3d11':video=None;waiting_idr=True;arrivals.clear();sizes.clear();unanswered=0
     if waiting_idr and not is_idr(payload,self.codec):self.stats['video_packets_dropped']+=1;continue
     waiting_idr=False
     if video is None:video=self.video_decoder()
-    p=av.Packet(payload);p.pts=pts;p.dts=dts;p.time_base=Fraction(1,90000);arrivals[pts]=arrived
+    p=av.Packet(payload);p.pts=pts;p.dts=dts;p.time_base=Fraction(1,90000);arrivals[pts]=arrived;key=is_idr(payload,self.codec);sizes[pts]=(len(payload),key);self.motion.add(len(payload),key)
     decode_at=time.perf_counter()
     try:decoded=video.decode(p)
     except av.error.FFmpegError:
@@ -231,11 +268,15 @@ class Player:
     unanswered=0 if decoded else unanswered+1
     if self.decoder_name=='gpu' and unanswered>=GPU_PATIENCE:
      # The reference frames stay with the GPU decoder, so software starts at the next keyframe.
-     video=self.video_decoder(software=True);waiting_idr=True;unanswered=0;arrivals.clear()
+     video=self.video_decoder(software=True);waiting_idr=True;unanswered=0;arrivals.clear();sizes.clear()
     for f in decoded:
      # Frame threads return a picture some packets after its own, and its delay counts from its own.
-     arrived=arrivals.pop(f.pts,arrived)
+     arrived=arrivals.pop(f.pts,arrived);packet=sizes.pop(f.pts,None)
      with self.metrics_lock:self.metrics.frame(f)
+     # A copy of the frame before it, from a game slower than the stream, goes no further while in-between pictures can be made.
+     if packet is not None and self.repeats.skip(f.pts,packet[0],packet[1],self.link.game_fps):
+      with self.lock:self.last_native_frame=f;self.stats['video_decoded']+=1
+      continue
      with self.lock:
       if len(self.frames)>=(GPU_DECODED_FRAMES if self.decoder_on_gpu else DECODED_FRAMES):self.frames.popleft();self.stats['video_replaced']+=1
       self.last_native_frame=f;self.frames.append((f,arrived,time.perf_counter()));self.stats['video_decoded']+=1
@@ -292,7 +333,7 @@ class Player:
       if size>4096:raise ValueError('Invalid capture acknowledgement')
       info=json.loads(payload.decode('utf8'))
       if not isinstance(info,dict) or info.get('protocol')!=2:raise ValueError('Unsupported capture acknowledgement')
-      self.capture_info=info;self.codec=self.recorder.codec=self.broadcast.codec=1 if info.get('codec')==1 else 0
+      self.capture_info=info;self.codec=self.recorder.codec=self.broadcast.codec=self.phone_feed.codec=1 if info.get('codec')==1 else 0
       # A payload that says nothing about it has no control port to look for.
       if info.get('control') and self.link.session is None:self.link.begin(self.args.host)
       continue
@@ -300,7 +341,7 @@ class Player:
      self.connection_state='Connected';self.error=''
      if self.capture_info is None:self.capture_info={'protocol':1,'confirmed':False}
      if kind==2 and self.microphone.on:self.feed_mixed(payload,pts)
-     else:self.recorder.feed(kind,payload,pts,dts);self.replay.feed(kind,payload,pts,dts);self.broadcast.feed(kind,payload,pts,dts)
+     else:self.recorder.feed(kind,payload,pts,dts);self.replay.feed(kind,payload,pts,dts);self.broadcast.feed(kind,payload,pts,dts);self.phone_feed.feed(kind,payload,pts,dts)
      self.latest_pts[kind]=pts;self.stats['received_bytes']+=size
      with self.metrics_lock:self.metrics.packet(size,kind==1)
      if kind==1:
@@ -355,7 +396,7 @@ class Player:
   try:
    while not self.stop.is_set() and not self.intentional_disconnect:
     self.sock=None;self.first_video=None;self.first_audio=None;self.first_arrival=None;self.capture_info=None;self.transport_growth_ms=0;self.latest_pts={}
-    self.recorder.reset_session();self.replay.reset();self.broadcast.reset_session();self.mic_mix.reset();self.codec=0
+    self.recorder.reset_session();self.replay.reset();self.broadcast.reset_session();self.phone_feed.reset_session();self.mic_mix.reset();self.codec=0
     with self.metrics_lock:self.metrics.reset()
     with self.lock:self.pcm.clear();self.frames.clear();self.pacer.clear();self.last_native_frame=None
     streamed=self.stats['sessions_connected'];self.network_session();self.recorder.stop(wait=True)
@@ -376,7 +417,7 @@ class Player:
   except Exception as problem:
    # The console's own sound carries on and the microphone goes off with a reason, rather than a recording without sound.
    self.microphone.close();self.notify('Microphone off: '+str(problem));self.notice_until=time.perf_counter()+15;mixed=[(payload,pts)]
-  for data,stamp in mixed:self.recorder.feed(2,data,stamp,stamp);self.replay.feed(2,data,stamp,stamp);self.broadcast.feed(2,data,stamp,stamp)
+  for data,stamp in mixed:self.recorder.feed(2,data,stamp,stamp);self.replay.feed(2,data,stamp,stamp);self.broadcast.feed(2,data,stamp,stamp);self.phone_feed.feed(2,data,stamp,stamp)
  def capture_folder(self):
   path=Path(config().get('capture_folder',str(Path.home()/'Videos'/'PlayBridge')));path.mkdir(parents=True,exist_ok=True);return path
  def capture_path(self,folder,suffix):
@@ -394,7 +435,7 @@ class Player:
      from d3d11_presenter import to_system
      picture=to_system(frame)
     image=reformat_for_display(picture,picture.width,picture.height,'rgb24').to_image();image.save(path)
-    self.stats['screenshots_saved']+=1;self.notify('Screenshot saved: '+str(path))
+    self.stats['screenshots_saved']+=1;self.notify('Screenshot saved: '+str(path));self.discord_hook.share('Screenshot',path)
    except Exception:self.notify('Unable to save screenshot. Check the capture folder.')
   self.screenshot_thread=threading.Thread(target=save,name='PlayBridge screenshot',daemon=True);self.screenshot_thread.start()
  def toggle_recording(self):
@@ -412,20 +453,53 @@ class Player:
   except OSError:self.notify('Unable to save the replay. Check the capture folder.');return
   self.notify('Saving replay…')
   self.replay_thread=threading.Thread(target=save_clip,args=(packets,path,self.recorder.events,self.codec,self.recorder.headers),name='PlayBridge replay',daemon=True);self.replay_thread.start()
+ def trophy_unlocked(self,title,earned,since):
+  """Trophies that just appeared in the running game's record, from the console link's thread. The window hears of them, and a clip of
+  the moment is kept from the instant replay already in memory. The console says when each was earned; that time is used when it
+  falls between the two reads that found it, as it does when the two clocks agree, and otherwise the clip ends at the second read."""
+  now=time.time();at=max(trophy['at'] for trophy in earned);moment=at if since-CLOCK_SLACK<=at<=now+CLOCK_SLACK else now
+  self.trophy_events.put((title,earned))
+  if not config().get('trophy_clips',True):return
+  if not self.replay.seconds:self.notify('Trophy earned. Turn on instant replay in Settings to keep a clip of the moment.');return
+  timer=threading.Timer(max(0,moment+CLIP_AFTER-now),self.save_trophy_clip,args=(earned,moment));timer.daemon=True;timer.start()
+ def save_trophy_clip(self,earned,moment):
+  """CLIP_BEFORE seconds before the moment and CLIP_AFTER after it. The newest packet in memory arrived about now, and the stream's
+  clock runs at 90 kHz, so the moment is that many ticks before it."""
+  packets=self.replay.take();video=[packet for packet in packets if packet[0]==1]
+  if not video:return
+  end=max(packet[2] for packet in video)-round((time.time()-(moment+CLIP_AFTER))*90000);start=end-(CLIP_BEFORE+CLIP_AFTER)*90000
+  chosen=[packet for packet in packets if start<=packet[2]<=end]
+  if not any(packet[0]==1 and is_idr(packet[1],self.codec) for packet in chosen):self.notify('Trophy earned, but the instant replay does not reach back to it.');return
+  named=next((trophy['name'] for trophy in earned if trophy['name']),'')
+  try:path=self.capture_path('Recordings','.mp4')
+  except OSError:self.notify('Unable to save the trophy clip. Check the capture folder.');return
+  label=re.sub(r'[^A-Za-z0-9 ._-]+','',named).strip()[:48]
+  path=path.with_name(path.name.replace('PlayBridge-','PlayBridge-Trophy-'+(label+'-' if label else ''),1))
+  save_clip(chosen,path,self.recorder.events,self.codec,self.recorder.headers,'Trophy clip')
  def console_power(self,command):
-  # The console answers before it goes, and the session must not try to come back after that.
+  """Rest, turn off or reboot. The payload answers once the console has taken the request, with the console's own result; a console
+  that stops answering right after it was asked is on its way. Either way the session must not try to come back after that."""
+  def ask(sock):
+   try:result,_=console_call(sock,command)
+   except (OSError,ValueError):return None
+   return result
   def done(result):
-   if result:self.notify(f'The PS5 refused this ({result:#010x}).');return
-   self.intentional_disconnect=True;self.notify({REST:'Your PS5 is going to rest.',REBOOT:'Your PS5 is restarting.'}.get(command,'Your PS5 is turning off.'))
+   if result:self.notify(f'Your PS5 refused this ({result&0xffffffff:#010x}).');return
+   self.intentional_disconnect=True
+   self.notify({REST:'Your PS5 is going to rest.',REBOOT:'Your PS5 is restarting.'}.get(command,'Your PS5 is turning off.') if result==0 else 'Your PS5 stopped answering as it was asked to '+{REST:'rest.',REBOOT:'restart.'}.get(command,'turn off.'))
    if self.sock:
     try:self.sock.shutdown(socket.SHUT_RDWR)
     except OSError:pass
-  if not self.link.send(command,b'',done):self.notify('The PS5 is not connected.')
+  if not self.link.online:self.notify('The PS5 is not connected.');return
+  self.notify({REST:'Asking your PS5 to rest…',REBOOT:'Asking your PS5 to restart…'}.get(command,'Asking your PS5 to turn off…'))
+  if not self.link.work(ask,done):self.notify('The PS5 is not connected.')
  def poll_capture_events(self):
   while True:
    try:kind,message,path=self.recorder.events.get_nowait()
    except queue.Empty:break
    self.notify(message+(': '+path if path else ''))
+   # Discord hears first, so a file that is also made smaller waits for its copy to be made.
+   if kind=='saved' and path:self.discord_hook.share(message.rsplit(' saved',1)[0],path)
    if kind=='saved' and path and config().get('compact_recordings',False):self.compactor.add(path)
   while True:
    try:_,message,_=self.compactor.events.get_nowait()
@@ -440,6 +514,35 @@ class Player:
    try:_,message=self.broadcast.events.get_nowait()
    except queue.Empty:break
    self.notify(message)
+  self.show_presence()
+ def playing_name(self):
+  """The name of the game running on the PS5, or ''."""
+  title=running_title(self.link.status) if self.link.online else None
+  return self.link.game_name(title) if title else ''
+ def show_presence(self):
+  """Your Discord profile follows the game on the PS5, with the time since it opened, and says so when you are live."""
+  now=time.time();title=running_title(self.link.status) if self.link.online else None
+  if title:self.presence_seen=now
+  elif not self.link.online and self.presence_title and now-self.presence_seen<PRESENCE_GRACE:title=self.presence_title
+  if title!=self.presence_title:self.presence_title=title;self.presence_started=now
+  if not title or not self.discord['app']:self.presence.show(None);return
+  live=self.broadcast.name if self.broadcast.state=='live' else ''
+  self.presence.show(discord_link.activity(self.link.game_name(title),self.presence_started,live))
+ def set_discord(self,app_id=None,url=None,kind=None,on=None):
+  """Keeps a Discord setting the moment it changes: the application's ID, the webhook (sealed for this Windows user, like the stream
+  key) or whether a kind of capture goes to the channel. Returns what is wrong with what was typed, or ''."""
+  if app_id is not None:
+   app_id=str(app_id).strip();self.discord['app']=app_id;save_config(discord_app=app_id);self.presence.poke()
+   if app_id and not discord_link.APP_ID.match(app_id):return 'An application ID is the long number on the application\'s General Information page.'
+  if url is not None:
+   url=str(url).strip();problem=discord_link.webhook_problem(url)
+   if problem:return problem
+   self.discord['url']=url;save_config(discord_webhook=seal(url) if url else '')
+  if kind is not None:
+   for name,key,_ in DISCORD_KINDS:
+    if key==kind:self.discord['kinds'][name]=bool(on)
+   save_config(**{kind:bool(on)})
+  return ''
  def go_live(self,service,key,server=''):
   """Starts sending the stream on. Returns what stopped it, in words, or ''."""
   from live_broadcast import COMPRESSIBLE,SERVICES,destination
@@ -449,10 +552,14 @@ class Player:
   if self.connection_state!='Connected':return 'Connect to your PS5 before going live.'
   # Smaller stream: only where the service takes HEVC and AV1 over RTMP, and only on a graphics card's encoder.
   encoder=None
+  import video_encoders
   if config().get('live_compress',False) and service in COMPRESSIBLE:
-   import video_encoders
    encoder=video_encoders.for_live()
    if encoder is None:self.notify('This PC\'s graphics card makes neither HEVC nor AV1, so the stream goes as the PS5 sent it.')
+  # The overlay and the chat can only be drawn into a video made again, so without Smaller stream the graphics card makes it again as H.264.
+  if (config().get('live_overlay',False) or (config().get('chat_stream',False) and self.chat_channel)) and encoder is None:
+   encoder=video_encoders.for_live_h264()
+   if encoder is None:self.notify('This PC\'s graphics card cannot make the video again, so the live stream goes without the overlay.')
   try:self.broadcast.start(address,container,SERVICES[service],encoder=encoder)
   except ValueError as problem:return str(problem)
   self.notify(f'Going live on {SERVICES[service]} at the next keyframe…');return ''
@@ -489,7 +596,7 @@ class Player:
   if self.sock:
    try:self.sock.shutdown(socket.SHUT_RDWR)
    except OSError:pass
-  self.compactor.stop();self.link.end();self.worker.join(timeout=6);self.converter.join(timeout=2);self.recorder.stop(wait=True);self.broadcast.stop(wait=True)
+  self.compactor.stop();self.discord_hook.stop();self.presence.stop();self.chat.stop();self.link.end();self.link.performance.end();self.worker.join(timeout=6);self.converter.join(timeout=2);self.recorder.stop(wait=True);self.broadcast.stop(wait=True)
   if self.screenshot_thread is not None:self.screenshot_thread.join(timeout=3)
   if self.replay_thread is not None:self.replay_thread.join(timeout=30)
   if self.audio:self.audio.stop();self.audio.close()

@@ -17,6 +17,11 @@ def read_payload(path):
  if size>LIMIT:raise PayloadError('That file is larger than 64 MB, too large for a payload.')
  try:data=path.read_bytes()
  except OSError:raise PayloadError('That file cannot be read.') from None
+ return check_payload(data)
+
+def check_payload(data):
+ """The bytes again, once they look like a PS5 payload; a PayloadError says what is wrong with them."""
+ if len(data)>LIMIT:raise PayloadError('That file is larger than 64 MB, too large for a payload.')
  if data[:4]!=b'\x7fELF':raise PayloadError('That file is not an ELF payload.')
  if len(data)<20 or data[4]!=2 or data[5]!=1 or int.from_bytes(data[18:20],'little')!=0x3E:raise PayloadError('That ELF is not built for the PS5, which needs 64-bit x86.')
  return data

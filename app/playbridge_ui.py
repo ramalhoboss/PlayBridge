@@ -7,14 +7,15 @@ from luxury_theme import AmbientScene, Bezel, LuxButton, apply_theme, dark_title
 from gaming_hub import PerformanceDock, CaptureLibrary
 from game_mode import ConfirmDialog, GameShelf, PopMenu, TopStrip, power_items, status_text
 from sound_board import SoundBoard
-from console_control import CLOSE, GameFlow, POWER_OFF, REBOOT, REST, console_line, menu_in_front, running_title
-from pad_input import CONSOLE_PAD_READY, PadBridge
+from console_control import CLOSE, GameFlow, POWER_OFF, REBOOT, REST, console_line, degrees as console_degrees, menu_in_front, running_title
+from pad_input import PadBridge
 from settings_look import GlassPage
 from focus_ring import FocusWalker
 import graphics_card,payload_sender,live_broadcast,mic_mix,video_encoders
 from hang_watch import HangWatch
 from keep_awake import BatteryHint,KeepAwake,on_battery
 from screen_rate import ScreenRate
+from smooth_motion import NOTE as SMOOTH_NOTE
 from desktop_features import CursorHider, saved_consoles, remember_console
 from PIL import Image,ImageTk
 import sounddevice as sd
@@ -105,7 +106,7 @@ def run_ui(app):
   nonlocal settings_page
   page=GlassPage(workspace);settings_page=page
   sections={}
-  for key,label,icon_name,subtitle in (('console','Console','controller','Address, favourites, connection and power'),('picture','Picture','fullscreen','Quality, graphics card, video output and upscaling'),('captures','Captures','camera','Instant replay, files and diagnostics'),('sound','Sound','speaker','Music and sounds on the Games page'),('live','Streaming','live','Twitch, YouTube, any RTMP server, or OBS on this PC'),('look','Appearance','games','Gaming Mode, motion and the look of PlayBridge'),('updates','Updates','replay','New versions of PlayBridge from GitHub')):
+  for key,label,icon_name,subtitle in (('console','Console','controller','Address, favourites, connection and power'),('picture','Picture','fullscreen','Quality, graphics card, video output and upscaling'),('captures','Captures','camera','Instant replay, files and diagnostics'),('sound','Sound','speaker','Music and sounds on the Games page'),('live','Streaming','live','Twitch, YouTube, TikTok, any RTMP server, or OBS on this PC'),('look','Appearance','games','Gaming Mode, motion and the look of PlayBridge'),('updates','Updates','replay','New versions of PlayBridge from GitHub')):
    sections[key]=page.section(key,label,Image.open(core.HERE/'assets'/(icon_name+'.png')).convert('RGBA'),subtitle)
   foot=page.footer
   def open_section(key):
@@ -275,6 +276,11 @@ def run_ui(app):
     presenter.fsr=fsr_on.get();core.save_config(fsr=fsr_on.get())
    switch(place,'FSR 1 upscaling',fsr_on,change_fsr)
    note(place,'When the screen is larger than the picture, such as 1080p on a 1440p or 4K monitor, AMD FidelityFX Super Resolution 1 enlarges it, and Sharpen picture uses its sharpening. Works on any graphics card.')
+   smooth_on=ctk.BooleanVar(value=smooth.on)
+   def change_smooth():
+    smooth.turn(presenter,smooth_on.get());core.save_config(smooth_motion=smooth_on.get())
+   switch(place,'Smooth motion',smooth_on,change_smooth)
+   note(place,SMOOTH_NOTE)
    from d3d11_presenter import screen_varies,tearing_supported
    # Only where the screen can follow it: a screen with a fixed rate would tear, so the switch would do nothing there.
    if tearing_supported() and screen_varies(presenter.hwnd) is not False:
@@ -351,7 +357,7 @@ def run_ui(app):
    if app.broadcast.active:return
    kind=services.get(service.get(),'twitch');key=key_field.get().strip();server=server_field.get().strip()
    try:
-    if key or (kind=='custom' and len(server)>=10):live_broadcast.destination(kind,key or 'k',server)
+    if key or (kind in live_broadcast.WITH_SERVER and len(server)>=10):live_broadcast.destination(kind,key or 'k',server)
    except ValueError as problem:live_status.configure(text=str(problem),text_color=ALERT);return
    live_status.configure(text=hints[kind],text_color=MUTED)
   key_field.bind('<KeyRelease>',check_live,add='+');server_field.bind('<KeyRelease>',check_live,add='+')
@@ -364,11 +370,11 @@ def run_ui(app):
   def show_live_encoder(encoder):
    if encoder is None:compress_note.configure(text='This PC\'s graphics card makes neither HEVC nor AV1, so the stream always goes as the PS5 sent it.');return
    compress_note.configure(text=f'{video_encoders.NAMES.get(encoder,encoder)} makes the video again at about a quarter of the PS5\'s bitrate (4K at about {video_encoders.bitrate(encoder,2160,live=True)//1_000_000} Mbps), for a slower upload. It uses the graphics card\'s encoder, not the processor.')
-  hints={'twitch':'Twitch recommends at most 6 Mbps, so the Data saver profile suits it best. Higher profiles work on many channels.','youtube':'YouTube takes every 1080p profile. The key travels over an encrypted connection.','custom':'Enter the server address and, if your service gives it separately, the stream key.','obs':f'In OBS, add a Media Source, untick Local File, and enter udp://127.0.0.1:{live_broadcast.OBS_PORT} as the input, with mpegts as its format. Then go live here.'}
+  hints={'twitch':'Twitch recommends at most 6 Mbps, so the Data saver profile suits it best. Higher profiles work on many channels.','youtube':'YouTube takes every 1080p profile. The key travels over an encrypted connection.','tiktok':'TikTok gives a new server address and stream key each time you go live, in LIVE Center on its website, once your account has LIVE access with a stream key. Paste both here. It takes H.264, about 2.5 to 6 Mbps: the Data saver profile suits it. A landscape stream shows with bars or cropped on phones.','custom':'Enter the server address and, if your service gives it separately, the stream key.','obs':f'In OBS, add a Media Source, untick Local File, and enter udp://127.0.0.1:{live_broadcast.OBS_PORT} as the input, with mpegts as its format. Then go live here.'}
   def arrange(*_):
    kind=services.get(service.get(),'twitch')
    for widget in (server_label,server_rim,key_label,key_row,smaller,live_go,live_status):widget.pack_forget()
-   if kind=='custom':server_label.pack(anchor='w');server_rim.pack(fill='x',pady=(4,10))
+   if kind in live_broadcast.WITH_SERVER:server_label.pack(anchor='w');server_rim.pack(fill='x',pady=(4,10))
    if kind!='obs':key_label.pack(anchor='w');key_row.pack(fill='x',pady=(4,10))
    if kind in live_broadcast.COMPRESSIBLE:smaller.pack(fill='x')
    live_go.pack(fill='x',pady=(4,10));live_status.pack(anchor='w',pady=(2,10));live_status.configure(text=hints[kind],text_color=MUTED)
@@ -614,7 +620,7 @@ def run_ui(app):
   elif key=='fullscreen' and page=='live':full()
   else:page_actions[key]()
  strip=TopStrip(win,top_pressed);strip.grid(row=0,column=0,sticky='ew')
- pad=PadBridge(lambda:app.args.host,app.stop)
+ pad=PadBridge(lambda:app.args.host,app.stop,companion=core.companion_bytes,send_elf=payload_sender.send_payload);console_pad=bool(core.config().get('console_pad',False))
  Tooltip(session_button,'Session performance · Ctrl+I');Tooltip(screenshot_button,'Screenshot · F8');Tooltip(record_button,'Start / stop recording · F9');Tooltip(replay_button,'Save the last moments · F10');Tooltip(captures_button,'Your captures · Ctrl+L');Tooltip(mini_button,'Small window on top · Ctrl+M');Tooltip(live_button,'Go live · Ctrl+B')
  Tooltip(mute_button,'Mute / unmute');Tooltip(output,'Audio output');Tooltip(volume,'Volume')
  bottom=tk.Frame(win,bg=BG);bottom.grid(row=3,column=0,sticky='ew',padx=20,pady=(0,6));bottom.grid_columnconfigure(0,weight=1)
@@ -635,19 +641,22 @@ def run_ui(app):
   surface=tk.Frame(stage,bg='',width=1,height=1)
   try:
    from d3d11_presenter import D3D11Presenter
-   presenter=D3D11Presenter(surface,core.config().get('sharpen',False),core.config().get('fsr',False),app.adapter,core.config().get('vrr',False));direct=True
+   presenter=D3D11Presenter(surface,core.config().get('sharpen',False),core.config().get('fsr',False),app.adapter,core.config().get('vrr',False),core.config().get('smooth_motion',True));direct=True
   except Exception:surface.destroy();surface=None;app.use_gdi()
  if app.renderer=='gdi':
   from gdi_presenter import GdiPresenter
   presenter=GdiPresenter(canvas)
  from frame_pacing import CAPTURE_FRAME,FrameTimer,HitchWatch,RefreshClock
+ from smooth_motion import SmoothMotion
  refresh=RefreshClock(app.stop)
+ # In-between pictures, on by default: they start by themselves once the screen is fast enough for them.
+ smooth=SmoothMotion(app.stats,app.timings,core.config().get('smooth_motion',True))
  # Variable refresh, when it is on and the driver offers it: each frame goes to the screen at its own time, from a timer that follows
  # the stream, and the screen starts its refresh then. Otherwise the paint follows the screen's refreshes as before.
  vrr_on=direct and presenter.tearing
  vrr_state='on' if vrr_on else 'fixed screen' if getattr(presenter,'fixed_screen',False) else 'unsupported' if core.config().get('vrr',False) else 'off'
  def next_due():
-  with app.lock:return app.pacer.due()
+  with app.lock:return app.pacer.due(middle=smooth.active)
  # Never two frames closer than one refresh, and never so far apart that 60 fps could not keep up.
  clock=FrameTimer(app.stop,next_due,spacing=lambda:min(refresh.period,.75*CAPTURE_FRAME)) if vrr_on else refresh
  seen_presented=0;shown_at=[None];hitches=HitchWatch();paint_took=[0]
@@ -659,10 +668,20 @@ def run_ui(app):
  def paint(output=presenter):
   # On the refresh clock's thread, so nothing in the Tk loop can delay a frame.
   try:
-   now=time.perf_counter();seconds=clock.elapsed(now)
-   with app.lock:missing=app.pacer.missing;item=app.pacer.advance(seconds,now) if seconds else None;missing=app.pacer.missing!=missing
+   now=time.perf_counter();seconds=clock.elapsed(now);period=refresh.period;pick=None
+   with app.lock:
+    missing=app.pacer.missing;ahead=smooth.ahead(output,period,app.pacer.spacing,vrr_on)
+    item=app.pacer.advance(seconds,now,ahead) if seconds else None;missing=app.pacer.missing!=missing
+    # A refresh between two frames shows a picture made from both, where the screen is fast enough for one.
+    if item is None and ahead and seconds:pick=app.pacer.between(period,vrr_on)
    hitches.refresh(round(seconds/clock.period),missing,paint_took[0]>clock.period)
-   if item is None:output.refresh();return
+   if item is None:
+    if pick is not None and smooth.show(output,pick):
+     # A new picture too: with a game's copies left out, the screen moves on at every refresh only through these.
+     shown=time.perf_counter();hitches.shown(shown,refresh.period,shown-app.started)
+     if vrr_on:clock.last=shown
+    else:output.refresh()
+    return
    image,arrived,prepared=item;paint_at=time.perf_counter();app.timings.add('prepared_slot_wait_ms',(paint_at-prepared)*1000)
    if output.draw(image):
     done=time.perf_counter();note_shown(done);app.timings.add('presenter_upload_ms',(done-paint_at)*1000);app.timings.add('receive_to_present_ms',(done-arrived)*1000);app.stats['video_presented']+=1;app.stats['last_frame_to_ui_ms']=round((done-arrived)*1000,1)
@@ -710,7 +729,7 @@ def run_ui(app):
  def toggle_live():
   if app.broadcast.active:app.end_live();return
   saved=core.config();kind=saved.get('live_service');key=live_broadcast.unseal(saved.get('live_key',''));server=saved.get('live_server','')
-  ready=kind=='obs' or kind in ('twitch','youtube') and key or kind=='custom' and server
+  ready=kind=='obs' or kind in ('twitch','youtube') and key or kind=='custom' and server or kind=='tiktok' and server and key
   if not ready:
    show_page('settings');settings_page.open_section('live');say('Choose where to go live, then select Go live.');return
   problem=app.go_live(kind,key,server)
@@ -832,8 +851,7 @@ def run_ui(app):
  def library_info(active,linked,health):
   """What the top bar and the library's live cards say."""
   shown=bool(health['decoded_width']) and linked;status=app.link.status
-  def degrees(name):
-   return status[name] if isinstance(status.get(name),int) and status[name]>0 else None
+  def degrees(name):return console_degrees(status,name)
   return dict(name=(app.console or {}).get('name') or 'PS5',state='online' if app.link.online else 'connecting' if active else 'offline',pad=bool(pad.name),fps=decoded_rate if shown else None,picture=f"{health['decoded_width']}×{health['decoded_height']}" if shown else '',bitrate=f"{health['received_mbps']:.0f} Mbps" if linked and health['received_mbps'] is not None else '',cpu=degrees('cpu_c'),soc=degrees('soc_c'))
  def tick():
   nonlocal photo,photo_size,rate_at,rate_frames,fps,last_info,has_video,recording_at,seen_status,info_at,decoded_mark,decoded_rate,top_info,seen_presented
@@ -888,6 +906,8 @@ def run_ui(app):
    app.stats['refresh_hz']=round(1/refresh.period,1);app.stats['vrr']=vrr_state;app.stats['hitches']=dict(hitches.counts);app.stats['hitch_log']=list(hitches.log)
    if direct:app.stats['present_timeouts']=presenter.timeouts;app.stats['cross_card']=presenter.cross;app.stats['frames_in_flight']=presenter.flight
    app.stats['screen_rate']=rate.label();app.stats['screen_rate_check']=rate.note;app.stats['controller_link']=pad.link(time.monotonic())
+   app.stats['smooth_motion']=smooth.second(presenter,presenter.timeouts if direct else 0)
+   app.repeats.wanted=direct and smooth.can_run(presenter);app.stats['repeat_frames']=app.repeats.state()
    # What the app cannot fix itself, it says, once a session and only when frames are really being lost.
    wanted_fps=core.PROFILES[app.args.profile].get('playback_fps') or (app.capture_info or {}).get('fps_target') or 60
    streaming=app.connection_state=='Connected' and app.worker.is_alive()
@@ -901,8 +921,12 @@ def run_ui(app):
    awake.want(linked and win.state()!='iconic')
    # A screen whose rate does not fit 60 fps gets one that does, but only while the game fills it.
    # From the first time the picture shows until the stream ends, so moving between pages does not make the screen flash each time.
-   switched=rate.want(match_on.get() and not vrr_on and linked and win.state()!='iconic' and (page=='live' or rate.changed is not None),win.winfo_id())
-   if switched:app.notify(f'Screen set from {switched[0]} to {switched[1]} Hz while the game streams, so every frame shows for the same time.')
+   # With smooth motion a screen that can go faster, as from 60 to 120 Hz, does, so there is a refresh between every two frames.
+   shown_frame=getattr(presenter,'frame',None)
+   faster=bool(direct and smooth.on and smooth.stopped is None and getattr(presenter,'smooth_failed',None) is None and shown_frame is not None and shown_frame.format.name=='d3d11')
+   switched=rate.want((match_on.get() or faster) and not vrr_on and linked and win.state()!='iconic' and (page=='live' or rate.changed is not None),win.winfo_id(),faster=faster,match=match_on.get())
+   if switched and switched[1]>switched[0]:app.notify(f'Screen set from {switched[0]} to {switched[1]} Hz while the game streams, so PlayBridge can show a smooth picture between every two frames.')
+   elif switched:app.notify(f'Screen set from {switched[0]} to {switched[1]} Hz while the game streams, so every frame shows for the same time.')
    with app.metrics_lock:health=app.metrics.summary()
    if app.recorder.active and app.recorder.state=='recording':
     if recording_at is None:recording_at=now
@@ -915,7 +939,7 @@ def run_ui(app):
     else:host_label.grid()
    session_button.restyle(selected=dock_visible)
    sounds.want_music(games_shown and not (flow.waiting or flow.after_close))
-   pad.sending=CONSOLE_PAD_READY and app.link.online and page=='live'
+   pad.attached=console_pad and app.link.online;pad.sending=pad.attached and page=='live'
    host_text=app.console_label()
    if host_label.cget('text')!=host_text:host_label.configure(text=host_text)
    playing=running_title(app.link.status)
@@ -931,6 +955,8 @@ def run_ui(app):
    info=app.error or (dimensions+'  ·  Stereo' if linked else app.connection_state if active else 'Ready to connect')
    if linked:
     confirmed=app.capture_info and app.capture_info.get('confirmed');info+='  ·  '+(str(app.capture_info.get('fps_target'))+' fps target / '+str(app.capture_info.get('bitrate_target',0)//1000000)+' Mbps' if confirmed else 'Legacy payload: quality profile not confirmed')
+    game=getattr(getattr(app,'link',None),'game_fps',None)
+    if game is not None:info+=f'  ·  Game {game:.0f} fps'
    notice=core.resolution_notice(app.capture_info)
    if linked and notice:info+='  ·  '+notice
    if linked and health['received_mbps'] is not None:info+=f"  ·  {health['received_mbps']:.1f} Mbps received"
@@ -943,6 +969,7 @@ def run_ui(app):
     link=pad.link(time.monotonic())
     if not pad.name:info+='  ·  No controller on this PC'
     elif link in ('waiting','starting'):info+='  ·  Controller starting…'
+    elif link=='full':info+='  ·  Four controllers are in use on your PS5'
     elif link=='failed':info+=f'  ·  Controller could not start ({pad.answer[1]&0xffffffff:08x})'
     elif link=='refused':info+=f'  ·  Controller input refused ({pad.answer[1]&0xffffffff:08x})'
     elif link=='unavailable':info+='  ·  Controller unavailable'

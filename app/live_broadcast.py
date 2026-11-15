@@ -1,4 +1,4 @@
-"""Going live: the console's own H.264 and AAC, copied as they arrive to Twitch, YouTube, any RTMP server, or OBS on this PC.
+"""Going live: the console's own H.264 and AAC, copied as they arrive to Twitch, YouTube, TikTok, any RTMP server, or OBS on this PC.
 Nothing is encoded again, so it costs this PC almost nothing, and the stream is exactly what the PS5 sent. Only when Smaller stream is on,
 for YouTube or another RTMP server, the graphics card makes the video again as AV1 or HEVC (enhanced RTMP) at a fraction of the bitrate.
 The stream key is a password: it is never put in a message, a log or the diagnostics, and it is kept encrypted for this Windows user."""
@@ -7,10 +7,13 @@ from fractions import Fraction
 import av
 from av.codec.hwaccel import HWAccel
 from media_capture import HEVC,codec_headers,is_idr,strip_adts
+from frame_overlay import FrameOverlay
 import video_encoders
 
 OBS_PORT=9100
-SERVICES={'twitch':'Twitch','youtube':'YouTube','custom':'Other RTMP server','obs':'OBS on this PC'}
+SERVICES={'twitch':'Twitch','youtube':'YouTube','tiktok':'TikTok','custom':'Other RTMP server','obs':'OBS on this PC'}
+# The services whose server address changes and is pasted with the key: TikTok gives a new one for each live stream.
+WITH_SERVER=('tiktok','custom')
 # The services that take HEVC and AV1 over RTMP. Twitch only does in its Enhanced Broadcasting beta, through OBS, and OBS gets the
 # stream on this PC, where a new encode would only cost.
 COMPRESSIBLE=('youtube','custom')
@@ -23,13 +26,15 @@ def destination(service,key='',server=''):
  key=key.strip()
  # The usual slip: the whole address pasted where only its last part, the key, belongs.
  if key.lower().startswith(('rtmp://','rtmps://')):raise ValueError('That is a server address. Paste only the stream key here, the part after the last /.')
- if key and any(c in key for c in '/?#& \t'):raise ValueError('That stream key has characters a stream key never has.')
+ # TikTok's keys carry their expiry and signature after a ?, so those characters are its own.
+ if key and any(c in key for c in ('/#  \t' if service=='tiktok' else '/?#& \t')):raise ValueError('That stream key has characters a stream key never has.')
  if service in INGEST:
   if not key:raise ValueError('Enter your stream key.')
   return INGEST[service]+key,'flv'
- if service!='custom':raise ValueError('Choose where to go live.')
+ if service not in WITH_SERVER:raise ValueError('Choose where to go live.')
  server=server.strip()
  if not server.lower().startswith(('rtmp://','rtmps://')) or len(server)<10:raise ValueError('Enter a server address that starts with rtmp:// or rtmps://.')
+ if service=='tiktok' and not key:raise ValueError('Enter the stream key TikTok gave with the server address.')
  return (server.rstrip('/')+'/'+key if key else server),'flv'
 
 def seal(text):
@@ -60,9 +65,10 @@ def unseal(text):
 class Remaker:
  """Makes the video again with the decoder on a thread of its own, so the graphics card decodes the next frame while it encodes this
  one. One after the other, a 4K60 stream ran at 52 fps on an RX 6600 and fell behind; side by side it ran at 90.
- Only the live thread encodes and writes, so the sound and the video still go out through one writer."""
- def __init__(self,decoder,stream):
-  self.decoder=decoder;self.stream=stream;self.inbox=queue.Queue(16);self.outbox=queue.Queue(16)
+ Only the live thread encodes and writes, so the sound and the video still go out through one writer. on_frame, when given, is called
+ from the decoder's thread each time frames are ready, for a writer that should not wait for its next packet to take them."""
+ def __init__(self,decoder,stream,on_frame=None,overlay=None):
+  self.decoder=decoder;self.stream=stream;self.overlay=overlay;self.inbox=queue.Queue(16);self.outbox=queue.Queue(16);self.on_frame=on_frame
   self.thread=threading.Thread(target=self._decode,name='PlayBridge live decode',daemon=True);self.thread.start()
  def _decode(self):
   while True:
@@ -71,10 +77,15 @@ class Remaker:
    try:frames=self.decoder.decode(packet)
    except Exception:frames=[]
    for frame in frames:self.outbox.put(frame)
+   if frames and self.on_frame:self.on_frame()
    if packet is None:self.outbox.put(None);return
  def _encode(self,frame):
   if frame.pts is None:return []
-  if frame.format.name!=self.stream.pix_fmt:frame=frame.reformat(format=self.stream.pix_fmt)
+  # A frame of this code's own is one made here in the encoder's format, or NV12, which only a graphics card's decoder gives and hands
+  # over as a copy. A frame of the processor's decoder is also the picture its next frames are built on, so the overlay copies it first.
+  own=frame.format.name=='nv12'
+  if frame.format.name!=self.stream.pix_fmt:frame=frame.reformat(format=self.stream.pix_fmt);own=True
+  if self.overlay:frame=self.overlay(frame,own)
   frame.time_base=Fraction(1,90000);return self.stream.encode(frame)
  def ready(self):
   """The new packets for every frame decoded so far."""
@@ -120,6 +131,8 @@ class LiveBroadcast:
  def __init__(self):
   self.lock=threading.Lock();self.events=queue.SimpleQueue();self.thread=None;self.state='idle';self.codec=0;self.headers=b'';self.name='';self.since=None;self.sent_bytes=0;self.encoder=None
   self.max_queue=600;self.max_bytes=48*1024*1024;self.queued_bytes=0;self.ending=threading.Event();self.queue=queue.Queue(1)
+  # The overlay drawn into the stream while the video is made again: set by the window, (BGRA bytes, width, height) or None.
+  self.overlay_image=None;self.frame_overlay=FrameOverlay()
  @property
  def active(self):return self.thread is not None and self.thread.is_alive()
  def elapsed(self):return time.monotonic()-self.since if self.since is not None and self.state=='live' else 0
@@ -168,7 +181,7 @@ class LiveBroadcast:
   stream.bit_rate=video_encoders.bitrate(self.encoder,height,live=True);stream.time_base=Fraction(1,90000);stream.codec_context.time_base=Fraction(1,90000)
   # A keyframe every two seconds, which is what YouTube asks for.
   stream.codec_context.gop_size=120;stream.options=video_encoders.options(self.encoder,live=True)
-  return Remaker(decoder,stream),stream
+  return Remaker(decoder,stream,overlay=lambda frame,own:self.frame_overlay.draw(frame,self.overlay_image,own)),stream
  def _run(self,address,container,opener):
   out=None;templates=[];base=None;pending=[];video_first=audio_first=None;vs=aus=None;sent=0;reason='';decoder=None
   try:

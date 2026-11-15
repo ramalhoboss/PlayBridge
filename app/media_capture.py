@@ -122,9 +122,9 @@ class ReplayBuffer:
    while self.packets and (self.packets[0][2]<oldest or self.bytes>self.max_bytes):self.bytes-=len(self.packets.popleft()[1])
  def take(self):
   with self.lock:return list(self.packets)
-def save_clip(packets,path,events,codec=0,headers=b''):
+def save_clip(packets,path,events,codec=0,headers=b'',name='Replay'):
  """Writes packets from memory to an MP4 behind the stream's back: the writer gets them a few at a time, so the receiver and the screen keep their turns."""
- clip=CaptureRecorder('Replay','Saving replay');clip.events=events;clip.codec=codec;clip.headers=headers;clip.max_queue=64;clip.max_bytes=float('inf')
+ clip=CaptureRecorder(name,'Saving '+name.lower());clip.events=events;clip.codec=codec;clip.headers=headers;clip.max_queue=64;clip.max_bytes=float('inf')
  clip.start(path)
  for index,packet in enumerate(packets):
   while clip.active and clip.queue.qsize()>=48:time.sleep(.005)

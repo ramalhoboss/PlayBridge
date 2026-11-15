@@ -10,7 +10,9 @@ from gdi_presenter import GdiPresenter
 from luxury_theme import Bezel,LuxButton,dark_title_bar,heading,BG,CARD,TEXT
 import scene
 
-SHELVES=(('all','All games'),('played','Most played'),('name','A to Z'),('ps5','PS5 games'),('ps4','PS4 games'))
+SHELVES=(('all','All games'),('played','Most played'),('name','A to Z'),('ps5','PS5 games'),('ps4','PS4 games'),('apps','Apps'))
+# Only there while the player has hidden a game.
+HIDDEN_SHELF=('hidden','Hidden games')
 KEY_HINTS=(('←  →','Move'),('Enter','{action}'),('F6','Live view'),('Type','Search'))
 PAD_HINTS=(('cross','{action}'),('circle','Back'),('square','Refresh'),('L1','Previous tab'),('R1','Next tab'))
 def load_icon(path,side=None):
@@ -26,10 +28,12 @@ def load_picture(path,fit):
   with Image.open(path) as source:
    source.draft('RGB',fit);return source.convert('RGB')
  except (OSError,ValueError):return None
-def shelf_games(games,shelf='all',text=''):
- """The games on one shelf whose names hold the text. The console's own order is last played first."""
+def shelf_games(games,shelf='all',text='',hidden=()):
+ """The games on one shelf whose names hold the text. The console's own order is last played first. A hidden game is only on the hidden shelf;
+ homebrew apps are only on the Apps shelf (and the hidden one), never among the games."""
  text=text.strip().lower();prefix={'ps5':'PPSA','ps4':'CUSA'}.get(shelf,'')
- found=[game for game in games if game['title'].startswith(prefix) and text in game['name'].lower()]
+ found=[game for game in games if game['title'].startswith(prefix) and text in game['name'].lower() and (game['title'] in hidden)==(shelf=='hidden')
+  and (shelf=='hidden' or bool(game.get('app'))==(shelf=='apps'))]
  if shelf=='name':return sorted(found,key=lambda game:game['name'].lower())
  if shelf=='played':return sorted(found,key=lambda game:-(game.get('seconds') or 0))
  return found
@@ -56,13 +60,33 @@ def game_line(game,running='',waiting=None,now=None):
  return f"Played {ago_text(game['played'],now)}  ·  {time_text(seconds)} played" if game.get('played') else time_text(seconds)+' played'
 def game_cards(game):
  """What the two cards that belong to a game say. Nothing here is estimated: the console keeps all of it."""
- kind={'PPSA':'PS5 game','CUSA':'PS4 game'}.get(game['title'][:4],'App');seconds=game.get('seconds')
+ kind='Homebrew app' if game.get('app') else {'PPSA':'PS5 game','CUSA':'PS4 game'}.get(game['title'][:4],'App');seconds=game.get('seconds')
  try:installed=datetime.fromtimestamp(game['installed']).strftime('%d %b %Y') if game.get('installed') else ''
  except (OSError,OverflowError,ValueError):installed=''
  return (('Your time',time_text(seconds) if seconds else 'Not played',f"Last played {ago_text(game['played'])}" if seconds and game.get('played') else 'On this console'),('On your PS5',size_text(game.get('size')),'  ·  '.join(part for part in (kind,installed) if part)))
 def total_cards(games):
- """The same two cards with no game in focus."""
+ """The same two cards with no game in focus. Homebrew apps are not counted as games."""
+ games=[game for game in games if not game.get('app')]
  return (('Your time',f'{sum(game.get("seconds") or 0 for game in games)//3600:,} h',f'Across {len(games)} games'),('On your PS5',f'{len(games)} games',size_text(sum(game.get('size') or 0 for game in games))))
+def day_text(seconds):
+ try:return datetime.fromtimestamp(seconds).strftime('%d %b %Y') if seconds else ''
+ except (OSError,OverflowError,ValueError):return ''
+def trophy_card(found):
+ """The card with a game's trophies, from ConsoleLink.trophy_set. None when the PC knows no set for the game."""
+ if not found:return None
+ tally=found['tally']
+ if not found['known']:return ('Trophies',f"{tally['total']} trophies",'Not read from this PS5 yet')
+ return ('Trophies',f"{tally['earned']} / {tally['total']}",'Platinum earned' if tally['platinum'] else f"{tally['progress']}% complete")
+def trophy_total_card(totals):
+ """The same card with no game in focus, from ConsoleLink.trophy_totals."""
+ if not totals:return None
+ return ('Trophies',f"{totals['earned']:,}",f"{totals['platinum']} platinum  ·  {totals['games']} games")
+def trophy_rows(found):
+ """The trophy list's heading, its line, and a row for each trophy: (grade, name, detail, when, earned)."""
+ tally=found['tally'];line=f"{tally['earned']} of {tally['total']} earned  ·  {tally['progress']}%" if found['known'] else f"{tally['total']} trophies  ·  not read from this PS5 yet"
+ if tally['platinum']:line+='  ·  Platinum earned'
+ rows=[(row['grade'],row['name'] or f"Trophy {row['id']}",row['detail'],day_text(row['earned']) or ('Hidden' if row['hidden'] else ''),bool(row['earned'])) for row in found['trophies']]
+ return found['name'] or 'Trophies',line,rows
 def status_text(info):
  """What the top bar says about the console."""
  name=info.get('name') or 'PS5';return {'online':name+'  ·  Online','connecting':'Connecting to '+name}.get(info.get('state','offline'),'Not connected')
@@ -71,7 +95,8 @@ def power_items(online,running,exit_label=''):
  items=[]
  if online:items=([('soft_reset','Soft reset (restart game)')] if running else [])+[('rest','Rest mode'),('reboot','Reboot PS5'),('off','Turn off PS5'),('recovery','Recovery (Safe Mode)')]
  return items+([('exit',exit_label)] if exit_label else [])
-def empty_line(link,searching):
+def empty_line(link,searching,shelf=''):
+ if link.games and shelf=='apps':return 'No app matches that name.' if searching else 'No homebrew apps on this PS5.'
  if link.games:return 'No game matches that name.' if searching else 'No games on this shelf.'
  if not link.online:return 'Connect to your PS5 and your games will appear here.'
  return 'Reading your games…' if link.refreshing else 'No games were found on this PS5.'
@@ -233,7 +258,7 @@ class GameShelf(tk.Frame):
  def page_job(self,game):
   layout=self.layout;size=(layout.width,layout.height)
   if game is None:
-   name='Your games';line=empty_line(self.link,self.text);cards=total_cards(self.link.games);art=cover=None
+   name='Your games';line=empty_line(self.link,self.text,self.shelf);cards=total_cards(self.link.games);art=cover=None
   else:
    name=game['name'];line=game_line(game,self.running,self.waiting);cards=game_cards(game);art=self.art_path(game['title']);cover=self.path(game['title'])
   return ('page',size,name,line,cards,art,self.when(art),cover,self.when(cover)),lambda:scene.library_page(load_picture(art,size),load_icon(cover),layout,name,line,cards)
@@ -317,7 +342,7 @@ class GameShelf(tk.Frame):
   game=self.focused();title=game['title'] if game else ''
   if title and title==self.waiting:return 'Starting'
   if title and title==self.running:return 'Resume'
-  if self.link.online:return 'Play' if game else ''
+  if self.link.online:return ('Open' if game.get('app') else 'Play') if game else ''
   return 'Connecting' if self.info.get('state')=='connecting' else 'Connect'
  def choose(self):
   text=self.action_text();game=self.focused()
@@ -566,7 +591,7 @@ class GameShelf(tk.Frame):
   if key!=self.top_key:self.top_key=key;self.top,self.top_hits=scene.top_bar(layout,values)
   return self.top
  def foot_picture(self):
-  action=self.action_text();action=action if action in ('Resume','Connect') else 'Play';key=(bool(self.info.get('pad')),self.line,self.notice,action)
+  action=self.action_text();action=action if action in ('Resume','Connect','Open') else 'Play';key=(bool(self.info.get('pad')),self.line,self.notice,action)
   if key!=self.foot_key:
    self.foot_key=key;self.foot=scene.hint_bar(self.layout,tuple((mark,label.format(action=action)) for mark,label in (PAD_HINTS if key[0] else KEY_HINTS)),self.notice or self.line,bool(self.notice))
   return self.foot
