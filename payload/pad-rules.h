@@ -98,6 +98,8 @@ enum{PAD_STEP_USER=1,PAD_STEP_FOREGROUND=2,PAD_STEP_OPEN=3,PAD_STEP_LEFTOVERS=4,
 #define PAD_FAILED_QUIET_US 10000000ull
 #define PAD_FAILED_LIMIT_US 30000000ull
 #define PAD_IDLE_US 600000000ull
+/* How long the companion waits with no controller in use: the usual ten minutes, or the away hours (away-rules.h). */
+static uint64_t pad_idle_us=PAD_IDLE_US;
 #define PAD_POLL_MS 50
 /* The console side, given to the loop so the PC tests can stand in for it.
    receive: a packet's size and who sent it (an address and port in one number), 0 when none came in time, below 0 when the socket broke.
@@ -188,7 +190,7 @@ static int pad_run(const struct pad_calls*c,struct pad_report*r){
    if(now-q->heard>=PAD_GONE_US)pad_drop(c,r,q);
   }
   if(failed){uint64_t since=heard>failed_at?heard:failed_at;if(now-since>=PAD_FAILED_QUIET_US||now-failed_at>=PAD_FAILED_LIMIT_US)break;}
-  if(!pad_live(slots)&&now-heard>=PAD_IDLE_US)break;
+  if(!pad_live(slots)&&now-heard>=pad_idle_us)break;
  }
  for(int i=0;i<PAD_SLOTS;i++)if(slots[i].used)pad_drop(c,r,&slots[i]);
  return failed?PAD_END_FAILED:PAD_END_IDLE;

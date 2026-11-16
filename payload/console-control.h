@@ -19,10 +19,13 @@ static struct{
 }sce;
 static FILE*control_log;
 static int control_listener=-1;
-#define CLOG(...) do{if(control_log){fprintf(control_log,__VA_ARGS__);fflush(control_log);}}while(0)
+/* A line in the control log, and with trace on to the PC too (secure-link.h). Its arguments are worked out once. */
+#define CLOG(...) secure_log(control_log,"control",__VA_ARGS__)
 static void*symbol(uint32_t handle,const char*name){void*p=handle?(void*)kernel_dynlib_dlsym(-1,handle,name):0;CLOG("%s=%p\n",name,p);return p;}
-static int control_write(int fd,const void*data,size_t n){const unsigned char*p=data;while(n){ssize_t w=send(fd,p,n,0);if(w<=0)return -1;p+=w;n-=(size_t)w;}return 0;}
-static int control_read(int fd,void*data,size_t n){unsigned char*p=data;while(n){ssize_t r=recv(fd,p,n,0);if(r<=0)return -1;p+=r;n-=(size_t)r;}return 0;}
+/* Each port's connection, sealed when this payload holds the PC's key (secure-link.h). Each is used by its own thread only. */
+static struct secure_link control_link,mic_link;
+static int control_write(int fd,const void*data,size_t n){return link_write(&control_link,fd,data,n);}
+static int control_read(int fd,void*data,size_t n){return link_read(&control_link,fd,data,n);}
 static int control_header(int fd,int result,uint32_t n){unsigned char h[12];memcpy(h,"PBR1",4);memcpy(h+4,&result,4);memcpy(h+8,&n,4);return control_write(fd,h,12);}
 static int control_reply(int fd,int result,const void*body,uint32_t n){return control_header(fd,result,n)||(n&&control_write(fd,body,n))?-1:0;}
 /* The newest game frame count. Its own thread reads it, so a display driver slow to answer can never hold up a status answer or the
@@ -198,12 +201,16 @@ static int control_close(void){
  if(!sce.kill)return ENOSYS;
  int rv=sce.kill(app);CLOG("kill rv=%08x\n",rv);return rv;
 }
-static void control_session(int fd){
+/* Serves one connection until it ends, and says why for the log. */
+static const char*control_session(int fd,uint32_t*served){
  struct timeval limit={5,0};setsockopt(fd,SOL_SOCKET,SO_SNDTIMEO,&limit,sizeof limit);int nd=1;setsockopt(fd,IPPROTO_TCP,TCP_NODELAY,&nd,sizeof nd);
  for(;;){
   unsigned char h[12];char body[CONTROL_BODY_MAX+1];uint32_t command,length;
-  if(control_read(fd,h,12)<0||memcmp(h,"PBC1",4))return;
-  memcpy(&command,h+4,4);memcpy(&length,h+8,4);if(length>CONTROL_BODY_MAX||control_read(fd,body,length)<0)return;
+  if(control_read(fd,h,12)<0)return "the PC closed it, or a record did not open";
+  if(memcmp(h,"PBC1",4))return "not a request";
+  memcpy(&command,h+4,4);memcpy(&length,h+8,4);
+  if(length>CONTROL_BODY_MAX)return "a request too long";
+  if(control_read(fd,body,length)<0)return "a request that did not arrive whole";
   body[length]=0;int failed=0;
   if(command==CONTROL_STATUS)failed=control_status(fd);
   else if(command==CONTROL_FILE)failed=control_file(fd,body,length);
@@ -217,8 +224,11 @@ static void control_session(int fd){
   else if(command==CONTROL_REST)failed=control_reply(fd,power_call("standby",0,sce.rest),0,0);
   else if(command==CONTROL_POWER_OFF)failed=control_reply(fd,power_call("turn off",sce.ask_off,sce.off),0,0);
   else if(command==CONTROL_REBOOT)failed=control_reply(fd,power_call("reboot",sce.ask_reboot,sce.reboot),0,0);
+  /* Play away from home ends: the payload leaves once no stream is running (stream-av3.c). */
+  else if(command==CONTROL_AWAY_END){CLOG("away play ended by the PC\n");away_end=1;failed=control_reply(fd,0,0,0);}
   else failed=control_reply(fd,EINVAL,0,0);
-  if(failed)return;
+  if(failed)return "an answer did not go";
+  if(!(*served)++)CLOG("control: first request (%u) answered\n",command);
  }
 }
 static int control_socket(int port){
@@ -229,14 +239,44 @@ static int control_socket(int port){
 }
 /* Console services answer over IPC and any of them could block, so they start on this thread and the capture never waits for them. */
 static void*control_thread(void*unused){(void)unused;
- if(sce.user_init)CLOG("sceUserServiceInitialize=%08x\n",sce.user_init(0));
- if(sce.lnc_init)CLOG("sceLncUtilInitialize=%08x\n",sce.lnc_init());
+ /* Each console call is written down before it too, so a log that ends there names the call that never came back. */
+ if(sce.user_init){CLOG("sceUserServiceInitialize...\n");CLOG("sceUserServiceInitialize=%08x\n",sce.user_init(0));}
+ if(sce.lnc_init){CLOG("sceLncUtilInitialize...\n");CLOG("sceLncUtilInitialize=%08x\n",sce.lnc_init());}
  control_listener=control_socket(CONTROL_PORT);CLOG("control listener=%d errno=%d\n",control_listener,errno);
  if(control_listener<0)return 0;
- for(;;){int fd=accept(control_listener,0,0);if(fd<0){if(errno==EINTR)continue;return 0;}control_session(fd);close(fd);fan_restore();}
+ for(;;){
+  int fd=accept(control_listener,0,0);if(fd<0){if(errno==EINTR)continue;CLOG("control: accept errno=%d\n",errno);return 0;}
+  uint32_t peer=link_peer(fd);char at[16];secure_address(peer,at);
+  if(!away_admit(secure_on,peer)){CLOG("control: %s, outside the home network, was closed\n",at);close(fd);continue;}
+  if(secure_on){
+   uint64_t began=secure_now_ms();int proved=secure_accept(&control_link,fd,SECURE_CONTROL);
+   if(proved<0){CLOG("control: %s did not prove the key: %s errno=%d after %llu ms\n",at,secure_failure(proved),errno,(unsigned long long)(secure_now_ms()-began));close(fd);continue;}
+   CLOG("control: %s proved the key in %llu ms\n",at,(unsigned long long)(secure_now_ms()-began));
+  }
+  else CLOG("control: %s connected\n",at);
+  uint32_t served=0;const char*why=control_session(fd,&served);
+  CLOG("control: %s left after %u requests: %s errno=%d\n",at,served,why,errno);
+  link_end(&control_link);close(fd);fan_restore();
+ }
 }
 /* Called once the capture session has a viewer. The SDK's kernel calls share one set of descriptors and are not safe across threads, so
    every symbol is looked up here on the main thread, and the other threads only ever call the results. If they cannot start, the stream carries on without them. */
+/* Each helper thread gets a stack of a size this payload chooses rather than the system's default, which nothing documents for a payload;
+   the default is written down, to compare. */
+#define HELPER_STACK (256u<<10)
+static int helper_thread(void*(*run)(void*),const char*name){
+ /* The stack is only ever made bigger than the console's own, never smaller. */
+ pthread_attr_t attr;pthread_t thread;size_t usual=0,stack=0;int failed=pthread_attr_init(&attr);
+ if(!failed){
+  pthread_attr_getstacksize(&attr,&usual);stack=usual<HELPER_STACK?HELPER_STACK:usual;
+  failed=pthread_attr_setstacksize(&attr,stack)||pthread_create(&thread,&attr,run,0);pthread_attr_destroy(&attr);
+ }
+ /* Without attributes, as before. */
+ if(failed){stack=usual;failed=pthread_create(&thread,0,run,0);}
+ if(!failed)pthread_detach(thread);
+ CLOG("%s thread %s, stack %u KiB (default %u KiB)\n",name,failed?"not started":"started",(unsigned)(stack>>10),(unsigned)(usual>>10));
+ return failed;
+}
 static void control_start(load_fn load){
  /* The previous run's log is kept, because it is the only record of a run that did not end well. */
  rename("/data/playbridge-control.txt","/data/playbridge-control.old.txt");
@@ -246,8 +286,7 @@ static void control_start(load_fn load){
  sce.lnc_init=symbol(service,"sceLncUtilInitialize");sce.launch=symbol(service,"sceSystemServiceLaunchApp");sce.big_app=symbol(service,"sceLncUtilGetAppIdOfRunningBigApp");sce.title_of=symbol(service,"sceLncUtilGetAppTitleId");sce.kill=symbol(service,"sceLncUtilKillApp");
  sce.front=symbol(service,"sceLncUtilGetAppFocusedAppStatus");sce.rest=symbol(service,"sceSystemStateMgrEnterStandby");sce.off=symbol(service,"sceSystemStateMgrTurnOff");sce.reboot=symbol(service,"sceSystemStateMgrReboot");
  sce.ask_off=symbol(service,"sceSystemServiceRequestPowerOff");sce.ask_reboot=symbol(service,"sceSystemServiceRequestReboot");
- pthread_t thread;if(pthread_create(&thread,0,control_thread,0)==0)pthread_detach(thread);
- pthread_t reader;if(pthread_create(&reader,0,fps_thread,0)==0)pthread_detach(reader);
+ helper_thread(control_thread,"control");helper_thread(fps_thread,"frame counter");
 }
 static void control_stop(void){
  fan_restore();

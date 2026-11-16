@@ -1,5 +1,6 @@
 """The clip editor in Media: a recording's length and a strip of stills along it, a still at any moment, and a trimmed copy made from
-it, as an MP4 at the recording's own size, a small MP4 for sharing, or a GIF. The recording itself is never changed.
+it, as an MP4 at the recording's own size, a small MP4 for sharing, a GIF, or a vertical 9:16 MP4 for phones (highlights.render). The
+recording itself is never changed.
 
 A copy starts exactly where the player chose, not at the keyframe before: the frames are made again, on the graphics card when one
 of its encoders works (video_encoders' list, the same as for Discord's clips), else on the processor."""
@@ -7,8 +8,10 @@ import os,time
 from fractions import Fraction
 from pathlib import Path
 
-KINDS=('full','small','gif')
-KIND_NAMES=dict(full='MP4, full quality',small='MP4, small for sharing',gif='GIF')
+KINDS=('full','small','gif','vertical','vertical_fit')
+KIND_NAMES=dict(full='MP4, full quality',small='MP4, small for sharing',gif='GIF',vertical='Vertical 9:16',vertical_fit='Vertical, whole picture')
+# The vertical kinds and the shape highlights.render makes them in.
+VERTICAL_SHAPES=dict(vertical='fill',vertical_fit='fit')
 # A small copy fits this many bytes, as Discord and most chats take; a GIF is at most this long and this wide.
 SMALL_BYTES=9_500_000;GIF_SECONDS=20;GIF_WIDTH=480;GIF_RATE=15
 # The full copy's bits per second: the recording's own, within these.
@@ -54,7 +57,7 @@ def strip(path,seconds,folder,count=STRIP,height=96):
 def target_for(source,kind,clock=time.localtime):
  """Where the copy goes: beside the recording, with the time it was made in its name."""
  source=Path(source);stamp=time.strftime('%H%M%S',clock())
- return source.with_name(f'{source.stem}-clip-{stamp}{".gif" if kind=="gif" else ".mp4"}')
+ return source.with_name(f'{source.stem}-{"vertical" if kind in VERTICAL_SHAPES else "clip"}-{stamp}{".gif" if kind=="gif" else ".mp4"}')
 
 def plan(kind,length,source):
  """The copy's height, frame rate and bits per second for a stretch of length seconds of a recording described by info()."""
@@ -70,6 +73,9 @@ def problem(kind,start,end,seconds):
  if end-start<.5:return 'Choose at least half a second.'
  if start<0 or end>seconds+.5:return 'That stretch is outside the recording.'
  if kind=='gif' and end-start>GIF_SECONDS:return f'A GIF can be at most {GIF_SECONDS} seconds. Make the stretch shorter, or choose MP4.'
+ if kind in VERTICAL_SHAPES:
+  from highlights import VERTICAL_SECONDS
+  if end-start>VERTICAL_SECONDS:return f'A vertical clip can be at most {VERTICAL_SECONDS//60} minutes. Make the stretch shorter.'
  return ''
 
 def frames(inside,video,audio,start,end):
@@ -86,6 +92,9 @@ def frames(inside,video,audio,start,end):
 def export(source,target,kind,start,end,encoders,progress=lambda share:None,busy=lambda:False,stopping=lambda:False):
  """Makes the copy. Returns '' or what went wrong; a copy that failed is removed."""
  import av
+ if kind in VERTICAL_SHAPES:
+  import highlights
+  return highlights.render(source,target,[(start,end)],VERTICAL_SHAPES[kind],encoders,progress,busy,stopping)
  described=info(source)
  if described is None:return 'This recording cannot be read.'
  wrong=problem(kind,start,end,described['seconds'])

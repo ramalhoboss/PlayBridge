@@ -376,6 +376,8 @@ class ServerTests(unittest.TestCase):
   status,page=self.request('GET','/');self.assertEqual(status,200);self.assertIn(b'<title>PlayBridge</title>',page)
   # The browser's own player can be picked in the address.
   self.assertEqual(self.request('GET','/?player=media'),(200,page))
+  # A TV, a Steam Deck or another computer opens the same page at /tv, for a remote, a controller or a keyboard.
+  self.assertEqual(self.request('GET','/tv'),(200,page));self.assertIn(b'location.pathname === "/tv"',page)
   self.assertEqual(self.request('POST','/api/pair',b'{"code":"123456"}')[0],410)
   code=self.pairing.new_code(time.monotonic());wrong='000000' if code!='000000' else '111111'
   status,body=self.request('POST','/api/pair',json.dumps({'code':wrong}).encode());self.assertEqual((status,json.loads(body)),(403,{'error':'code','left':4}))

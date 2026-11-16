@@ -247,12 +247,53 @@ FocusScope {
                         first.handle: Rectangle { x: range.first.visualPosition * range.availableWidth - width / 2; y: -4; width: 12; height: range.height + 8; radius: 4; color: range.first.pressed ? Theme.goldHover : Theme.gold }
                         second.handle: Rectangle { x: range.second.visualPosition * range.availableWidth - width / 2; y: -4; width: 12; height: range.height + 8; radius: 4; color: range.second.pressed ? Theme.goldHover : Theme.gold }
                     }
+                    // Each highlight, as a mark on the recording.
+                    Repeater {
+                        model: editor.c.moments || []
+                        delegate: Rectangle {
+                            required property var modelData
+                            x: Math.max(0, Math.min(parent.width - width, parent.width * modelData.at - width / 2)); y: parent.height - 10
+                            width: 8; height: 8; radius: 4; rotation: 45
+                            color: modelData.kind === "trophy" ? Theme.gold : Theme.goldSoft
+                            border.width: 1; border.color: Qt.rgba(0, 0, 0, 0.6)
+                        }
+                    }
                 }
                 Text {
                     text: "Length " + editor.clock(editor.end - editor.start) + "  ·  the whole recording is " + editor.clock(editor.c.seconds) + ". A GIF can be up to 20 seconds."
                     color: Theme.muted; font.family: Theme.face; font.pixelSize: 14
                 }
-                Row {
+                // The highlights PlayBridge found: a pick makes the stretch that moment.
+                Column {
+                    width: parent.width
+                    spacing: 8
+                    Text {
+                        width: parent.width; wrapMode: Text.WordWrap; color: Theme.muted; font.family: Theme.face; font.pixelSize: 14
+                        text: editor.c.finding ? "Looking for highlights: trophies, loud moments and busy stretches…"
+                            : (editor.c.moments || []).length ? "Highlights. Pick one to make it the stretch, or make a reel of the best of them."
+                            : "No highlights found in this recording. Trophies, loud moments and stretches of fast button presses on this PC's controller show here."
+                    }
+                    Flow {
+                        width: parent.width
+                        spacing: 8
+                        Repeater {
+                            model: editor.c.moments || []
+                            delegate: PillButton {
+                                required property var modelData
+                                required property int index
+                                text: modelData.text
+                                tone: "ghost"
+                                height: 38
+                                fontSize: 13
+                                enabled: !editor.c.busy && !editor.c.loading
+                                selected: Math.abs(editor.start - modelData.start) < 0.06 && Math.abs(editor.end - modelData.end) < 0.06
+                                onClicked: shell.act("clip_moment", index)
+                            }
+                        }
+                    }
+                }
+                Flow {
+                    width: parent.width
                     spacing: 10
                     Repeater {
                         model: editor.c.kinds || []
@@ -270,6 +311,8 @@ FocusScope {
                 Text {
                     width: parent.width; wrapMode: Text.WordWrap; color: Theme.dim; font.family: Theme.face; font.pixelSize: 14
                     text: editor.c.kind === "gif" ? "A GIF plays everywhere, without sound: 480 pixels wide, 15 pictures a second."
+                        : editor.c.kind === "vertical" ? "For TikTok, Shorts and Reels: 1080 x 1920 with the sound, cut from the middle of the picture. The highlights reel is made the same way."
+                        : editor.c.kind === "vertical_fit" ? "For TikTok, Shorts and Reels: 1080 x 1920 with the sound, the whole picture across the middle over a blurred copy of itself, so nothing at its edges is lost. The highlights reel is made the same way."
                         : editor.c.kind === "full" ? "The stretch at the recording's own size, with its sound. The picture is made again, so it starts exactly where you chose."
                         : "Small enough for Discord, WhatsApp and most chats: H.264 under 10 MB, 720p when it is short enough."
                 }
@@ -288,6 +331,7 @@ FocusScope {
                 Row {
                     spacing: 12
                     PillButton { width: 200; height: 48; tone: "main"; text: editor.c.busy ? "Making…" : "Save the clip"; enabled: !editor.c.busy && !editor.c.loading && editor.end - editor.start >= 0.5; onClicked: shell.act("clip_export", null) }
+                    PillButton { visible: (editor.c.moments || []).length > 0; height: 48; text: "Make the highlights reel · " + (editor.c.reelSeconds || 0) + " s"; enabled: !editor.c.busy && !editor.c.loading; onClicked: shell.act("clip_reel", null) }
                     PillButton { visible: (editor.c.made || "") !== ""; width: 180; height: 48; text: "Show in folder"; onClicked: shell.act("clip_show", null) }
                 }
             }

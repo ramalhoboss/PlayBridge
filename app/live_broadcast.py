@@ -1,19 +1,24 @@
-"""Going live: the console's own H.264 and AAC, copied as they arrive to Twitch, YouTube, TikTok, any RTMP server, or OBS on this PC.
-Nothing is encoded again, so it costs this PC almost nothing, and the stream is exactly what the PS5 sent. Only when Smaller stream is on,
+"""Going live: the console's own H.264 and AAC, copied as they arrive to Twitch, YouTube, TikTok, Kick, any RTMP server, or OBS on this PC,
+to one of them or to several at once. Nothing is encoded again, so it costs this PC almost nothing, and the stream is exactly what the PS5
+sent. To several services, FFmpeg's tee sends the same packets to each through a queue and a thread of its own, so a slow or refused one
+never holds up the others. Only when Smaller stream is on,
 for YouTube or another RTMP server, the graphics card makes the video again as AV1 or HEVC (enhanced RTMP) at a fraction of the bitrate.
 The stream key is a password: it is never put in a message, a log or the diagnostics, and it is kept encrypted for this Windows user."""
-import base64,io,queue,sys,threading,time
+import base64,io,logging,queue,sys,threading,time
 from fractions import Fraction
 import av
+import av.logging
 from av.codec.hwaccel import HWAccel
 from media_capture import HEVC,codec_headers,is_idr,strip_adts
 from frame_overlay import FrameOverlay
 import video_encoders
 
 OBS_PORT=9100
-SERVICES={'twitch':'Twitch','youtube':'YouTube','tiktok':'TikTok','custom':'Other RTMP server','obs':'OBS on this PC'}
-# The services whose server address changes and is pasted with the key: TikTok gives a new one for each live stream.
-WITH_SERVER=('tiktok','custom')
+SERVICES={'twitch':'Twitch','youtube':'YouTube','tiktok':'TikTok','kick':'Kick','custom':'Other RTMP server','obs':'OBS on this PC'}
+# The services whose server address is pasted with the key: TikTok gives a new one for each live stream, Kick shows its own in its dashboard.
+WITH_SERVER=('tiktok','kick','custom')
+# The services that need a key as well as their server address.
+KEY_NEEDED=('twitch','youtube','tiktok','kick')
 # The services that take HEVC and AV1 over RTMP. Twitch only does in its Enhanced Broadcasting beta, through OBS, and OBS gets the
 # stream on this PC, where a new encode would only cost.
 COMPRESSIBLE=('youtube','custom')
@@ -34,8 +39,88 @@ def destination(service,key='',server=''):
  if service not in WITH_SERVER:raise ValueError('Choose where to go live.')
  server=server.strip()
  if not server.lower().startswith(('rtmp://','rtmps://')) or len(server)<10:raise ValueError('Enter a server address that starts with rtmp:// or rtmps://.')
- if service=='tiktok' and not key:raise ValueError('Enter the stream key TikTok gave with the server address.')
+ if service in KEY_NEEDED and not key:raise ValueError(f'Enter the stream key {SERVICES[service]} gave with the server address.')
  return (server.rstrip('/')+'/'+key if key else server),'flv'
+
+def ready(service,key,server):
+ """Whether a service has what it needs to go live, without saying what is missing."""
+ try:destination(service,key,server);return True
+ except ValueError:return False
+
+def raw_targets(saved):
+ """Each service's server and sealed key as the settings keep them, {service: {'key', 'server'}}, and the services switched on for Go
+ live, in the order of SERVICES. Settings from before several services had one service, its key and server: it stays, switched on."""
+ def text(value):return value if isinstance(value,str) else ''
+ kept=saved.get('live_targets')
+ if isinstance(kept,dict):
+  targets={service:dict(key=text(item.get('key')),server=text(item.get('server'))) for service,item in kept.items() if service in SERVICES and isinstance(item,dict)}
+  on=saved.get('live_on') if isinstance(saved.get('live_on'),list) else []
+ else:
+  service=saved.get('live_service')
+  targets={service:dict(key=text(saved.get('live_key')),server=text(saved.get('live_server')))} if service in SERVICES else {}
+  on=[service] if service in SERVICES else []
+ return targets,[service for service in SERVICES if service in on]
+def saved_targets(saved):
+ """raw_targets with each key read back for this Windows user."""
+ targets,on=raw_targets(saved)
+ return {service:dict(key=unseal(item['key']),server=item['server']) for service,item in targets.items()},on
+def keep_target(saved,service,key,server):
+ """The settings that keep key (sealed for this Windows user) and server for service, the other services as they were."""
+ targets,on=raw_targets(saved)
+ if service in SERVICES:targets[service]=dict(key=seal(key.strip()) if key.strip() else '',server=server.strip())
+ return dict(live_targets=targets,live_on=on)
+def switch_target(saved,service,on):
+ """The settings with service switched on or off for Go live."""
+ targets,chosen=raw_targets(saved);chosen=[name for name in chosen if name!=service]+([service] if on and service in SERVICES else [])
+ return dict(live_targets=targets,live_on=[name for name in SERVICES if name in chosen])
+def chosen_targets(saved):
+ """The services switched on for Go live, [(service, key, server)], each with what it was given, ready or not."""
+ targets,on=saved_targets(saved)
+ return [(service,targets.get(service,{}).get('key',''),targets.get(service,{}).get('server','')) for service in on]
+
+def names_text(names):
+ """'Twitch', 'Twitch and YouTube', 'Twitch, YouTube and Kick'."""
+ names=list(names)
+ return ' and '.join(names) if len(names)<3 else ', '.join(names[:-1])+' and '+names[-1]
+
+# Each service's queue in a stream to several: about five seconds of packets. A service that cannot take them that fast loses packets
+# instead of holding up the others; one that drops the connection is called again after a pause, a few times.
+FIFO_OPTIONS='queue_size=600:drop_pkts_on_overflow=1:attempt_recovery=1:recovery_wait_time=2:max_recovery_attempts=3:restart_with_keyframe=1'
+def tee_part(text):
+ """An address as one of tee's outputs: its separator, quote and escape characters escaped."""
+ return ''.join('\\'+c if c in '\\|\'' else c for c in text)
+def fan_out(destinations):
+ """The tee address and options that send one stream to each of destinations, [(name, address, container)]. Each output is dropped
+ alone when it fails (onfail=ignore), so the others go on."""
+ parts=[]
+ for _,address,container in destinations:
+  options=f'f={container}:onfail=ignore'+(':flvflags=no_duration_filesize' if container=='flv' else '')
+  parts.append(f'[{options}]{tee_part(address)}')
+ return '|'.join(parts),{'use_fifo':'1','fifo_options':FIFO_OPTIONS}
+
+class TeeWatch(logging.Handler):
+ """Reads FFmpeg's own messages from the tee and its queues while a stream goes to several services, and turns the ones about a
+ service into words for the user. The messages hold the addresses, and so the keys: they are matched here and never kept or shown."""
+ def __init__(self,broadcast,destinations):
+  super().__init__(logging.WARNING);self.broadcast=broadcast;self.destinations=list(destinations);self.full_said=0
+ def emit(self,record):
+  try:self.read(record.name,record.getMessage())
+  except Exception:pass
+ def read(self,source,message):
+  broadcast=self.broadcast
+  if source=='libav.fifo' and message.startswith('Error opening '):
+   at=message[len('Error opening '):]
+   for name,address,_ in self.destinations:
+    if at.startswith(address):broadcast.target_failed(name,False);return
+  elif source=='libav.tee' and message.startswith('Slave muxer #'):
+   try:index=int(message[len('Slave muxer #'):].split()[0])
+   except ValueError:return
+   if 0<=index<len(self.destinations):broadcast.target_failed(self.destinations[index][0],True)
+  elif source=='libav.fifo' and message.startswith('FIFO queue full'):
+   # A queue fills while its service is called again after a refusal, too; that service has been named already.
+   now=time.monotonic()
+   if now-self.full_said>30 and all(state=='live' for state in broadcast.targets.values()):
+    self.full_said=now;broadcast.events.put(('error','One of your services is losing parts of the stream: your upload cannot carry it to all of them. Choose a lower profile or fewer services.'))
 
 def seal(text):
  """The key, encrypted for this Windows user (DPAPI), as text for the settings file; '' if it cannot be."""
@@ -130,6 +215,8 @@ class LiveBroadcast:
  """Takes the packets the player receives and sends them on from a thread of its own, so a slow upload never holds up the picture."""
  def __init__(self):
   self.lock=threading.Lock();self.events=queue.SimpleQueue();self.thread=None;self.state='idle';self.codec=0;self.headers=b'';self.name='';self.since=None;self.sent_bytes=0;self.encoder=None
+  # In a stream to several services: each one's state, 'live', 'trying' (refused, being called again) or 'ended'.
+  self.targets={}
   self.max_queue=600;self.max_bytes=48*1024*1024;self.queued_bytes=0;self.ending=threading.Event();self.queue=queue.Queue(1)
   # The overlay drawn into the stream while the video is made again: set by the window, (BGRA bytes, width, height) or None.
   self.overlay_image=None;self.frame_overlay=FrameOverlay()
@@ -142,9 +229,34 @@ class LiveBroadcast:
   with self.lock:
    if self.active:return False
    if container=='flv' and self.codec==HEVC and not encoder:raise ValueError(f'{name} takes H.264 over RTMP, and 1440p and 4K come as HEVC. Choose a 1080p profile, or go through OBS.')
-   self.name=name;self.encoder=encoder;self.queue=queue.Queue(self.max_queue);self.queued_bytes=0;self.ending=threading.Event();self.state='waiting';self.since=None;self.sent_bytes=0
+   self.name=name;self.encoder=encoder;self.queue=queue.Queue(self.max_queue);self.queued_bytes=0;self.ending=threading.Event();self.state='waiting';self.since=None;self.sent_bytes=0;self.targets={}
    self.thread=threading.Thread(target=self._run,args=(address,container,opener or av.open),name='PlayBridge live',daemon=True);self.thread.start()
    return True
+ def start_many(self,destinations,opener=None,encoder=None):
+  """Starts one stream to each of destinations, [(name, address, container)], at the next keyframe. One goes as start() sends it."""
+  destinations=list(destinations)
+  if not destinations:raise ValueError('Choose where to go live.')
+  if len(destinations)==1:
+   name,address,container=destinations[0];return self.start(address,container,name,opener,encoder)
+  with self.lock:
+   if self.active:return False
+   rtmp=[name for name,_,container in destinations if container=='flv']
+   if rtmp and self.codec==HEVC and not encoder:raise ValueError(f'{names_text(rtmp)} take H.264 over RTMP, and 1440p and 4K come as HEVC. Choose a 1080p profile, or go through OBS.')
+   address,options=fan_out(destinations)
+   self.name=names_text(name for name,_,_ in destinations);self.encoder=encoder;self.queue=queue.Queue(self.max_queue);self.queued_bytes=0;self.ending=threading.Event();self.state='waiting';self.since=None;self.sent_bytes=0
+   self.targets={name:'live' for name,_,_ in destinations}
+   self.thread=threading.Thread(target=self._run,args=(address,'tee',opener or av.open,options,destinations),name='PlayBridge live',daemon=True);self.thread.start()
+   return True
+ def target_failed(self,name,ended):
+  """A service of a stream to several refused it or dropped it: it is called again after a pause (ended False) or left out for good."""
+  with self.lock:
+   before=self.targets.get(name)
+   if before is None or before=='ended':return
+   self.targets[name]='ended' if ended else 'trying'
+   left=[target for target,state in self.targets.items() if state!='ended']
+   if ended and left:self.name=names_text(left)
+  if ended:self.events.put(('error',f'{name} ended the live stream.'+(f' It goes on on {names_text(left)}.' if left else '')))
+  elif before=='live':self.events.put(('error',f'{name} did not take the live stream: check its stream key and server. PlayBridge calls it again a few times, and the other services go on.'))
  def feed(self,kind,data,pts,dts):
   headers=codec_headers(data,self.codec) if kind==1 else b''
   with self.lock:
@@ -168,7 +280,7 @@ class LiveBroadcast:
   if self.active:self.events.put(('status',f'The live stream on {self.name} ended with the PS5 connection.'))
   self.stop(wait=True)
   with self.lock:self.headers=b''
- def _converter(self,out,width,height):
+ def _converter(self,out,width,height,shared=False):
   """The decoder and the output stream for making the video again. The decoder uses the graphics card where it can, and hands its
   frames back to this thread, so the picture on screen keeps its own decoder untouched."""
   decoder=None
@@ -181,9 +293,15 @@ class LiveBroadcast:
   stream.bit_rate=video_encoders.bitrate(self.encoder,height,live=True);stream.time_base=Fraction(1,90000);stream.codec_context.time_base=Fraction(1,90000)
   # A keyframe every two seconds, which is what YouTube asks for.
   stream.codec_context.gop_size=120;stream.options=video_encoders.options(self.encoder,live=True)
+  # Through tee the video's headers go once, ahead of the stream, as each service's FLV needs them; tee does not ask for that itself.
+  if shared:stream.codec_context.flags|=av.codec.context.Flags.global_header
   return Remaker(decoder,stream,overlay=lambda frame,own:self.frame_overlay.draw(frame,self.overlay_image,own)),stream
- def _run(self,address,container,opener):
-  out=None;templates=[];base=None;pending=[];video_first=audio_first=None;vs=aus=None;sent=0;reason='';decoder=None
+ def _run(self,address,container,opener,options=None,destinations=None):
+  out=None;templates=[];base=None;pending=[];video_first=audio_first=None;vs=aus=None;sent=0;reason='';decoder=None;watch=None;level=None;propagated=True
+  if destinations:
+   # FFmpeg's messages about each service, read while the stream goes to several. Nothing else of FFmpeg's is shown for it.
+   level=av.logging.get_level();watch=TeeWatch(self,destinations);logger=logging.getLogger('libav');logger.addHandler(watch);propagated=logger.propagate;logger.propagate=False
+   if level is None or level<av.logging.WARNING:av.logging.set_level(av.logging.WARNING)
   try:
    while not self.ending.is_set():
     try:packet=self.queue.get(timeout=.1)
@@ -202,10 +320,10 @@ class LiveBroadcast:
       continue
      video_template=opener(io.BytesIO(video_first),format='hevc' if self.codec==HEVC else 'h264');audio_template=opener(io.BytesIO(audio_first),format='aac');templates=[video_template,audio_template]
      try:
-      options={'flvflags':'no_duration_filesize'} if container=='flv' else {}
+      options=options or ({'flvflags':'no_duration_filesize'} if container=='flv' else {})
       out=opener(address,'w',format=container,options=options,timeout=(10,10))
       if self.encoder:
-       source=video_template.streams.video[0].codec_context;decoder,vs=self._converter(out,source.width,source.height)
+       source=video_template.streams.video[0].codec_context;decoder,vs=self._converter(out,source.width,source.height,shared=container=='tee')
       else:vs=out.add_stream_from_template(video_template.streams.video[0])
       aus=out.add_stream_from_template(audio_template.streams.audio[0]);aus.codec_context.extradata=strip_adts(audio_first)[1]
      except Exception:reason=f'Could not reach {self.name}. Check the stream key and your connection.';break
@@ -238,6 +356,9 @@ class LiveBroadcast:
    for template in templates:
     try:template.close()
     except Exception:pass
+   if watch is not None:
+    logger=logging.getLogger('libav');logger.removeHandler(watch);logger.propagate=propagated
+    if level is None or level<av.logging.WARNING:av.logging.set_level(level)
    if reason:self.events.put(('error',reason))
    elif sent:self.events.put(('status',f'The live stream on {self.name} ended after {clock(time.monotonic()-self.since)}.'))
    self.state='idle';self.since=None

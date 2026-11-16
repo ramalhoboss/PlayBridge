@@ -50,10 +50,10 @@ static int fake_accept(int t){int i=fake_accept_calls++;if(i<8)fake_timeouts[i]=
 static int fake_options(int fd){(void)fd;int i=fake_option_calls++;return fake_answers[i<fake_answer_count?i:fake_answer_count-1];}
 static void fake_drop(int fd){fake_drops++;fake_last_dropped=fd;}
 static uint64_t fake_now(void){return fake_clock;}
-__declspec(dllexport) int pb_viewer(const int*accepts,int na,const int*answers,int nb,uint32_t cost,int*counts){
+__declspec(dllexport) int pb_viewer(const int*accepts,int na,const int*answers,int nb,uint32_t cost,int*counts,uint32_t wait){
  fake_accepts=accepts;fake_accept_count=na;fake_answers=answers;fake_answer_count=nb;fake_accept_cost=cost;fake_clock=1000;fake_accept_calls=fake_option_calls=fake_drops=0;fake_last_dropped=-1;
  for(int i=0;i<8;i++)fake_timeouts[i]=0;
- struct viewer_calls c={fake_accept,fake_options,fake_drop,fake_now};int dropped=0,invalid=-1;int fd=first_viewer(&c,&dropped,&invalid);
+ struct viewer_calls c={fake_accept,fake_options,fake_drop,fake_now,wait};int dropped=0,invalid=-1;int fd=first_viewer(&c,&dropped,&invalid);
  counts[0]=fake_accept_calls;counts[1]=fake_option_calls;counts[2]=dropped;counts[3]=fake_drops;counts[4]=fake_last_dropped;counts[5]=invalid;
  for(int i=0;i<8;i++)counts[6+i]=fake_timeouts[i];
  return fd;
@@ -116,7 +116,9 @@ class PayloadOptionTests(unittest.TestCase):
   self.assertEqual(self.split(0x106),(1,(6,1,0)))
   # The notice flag passes; any flag this payload does not know refuses the options, as an older payload refuses them all.
   self.assertEqual(self.split(0x10106),(1,(6,1,1)))
-  self.assertEqual(self.split(0x20004)[0],0)
+  # The UDP flag (play away from home) passes too.
+  self.assertEqual(self.split(0x20004),(1,(4,0,2)));self.assertEqual(self.split(0x30106),(1,(6,1,3)))
+  self.assertEqual(self.split(0x40004)[0],0)
   self.assertEqual(self.split(0x80000000)[0],0)
  def headers(self,sets,codec):
   block=bytearray(0x1a8)
@@ -240,9 +242,9 @@ class PayloadOptionTests(unittest.TestCase):
  def test_a_failed_status_query_ends_the_wait_without_an_open(self):
   rv,s=self.ready([0],[0],status_result=-0x7e6affff);self.assertEqual((rv,s['checks'],s['opens']),(0x81950001,1,0))
  READ,INVALID,DROPPED,NO_VIEWER,VIEWER_INVALID=0,-1,-2,-1,-2
- def viewer(self,accepts,answers,cost=0):
+ def viewer(self,accepts,answers,cost=0,wait=0):
   a=(ctypes.c_int*len(accepts))(*accepts);b=(ctypes.c_int*len(answers))(*answers);counts=(ctypes.c_int*14)()
-  fd=self.lib.pb_viewer(a,len(accepts),b,len(answers),ctypes.c_uint32(cost),counts)
+  fd=self.lib.pb_viewer(a,len(accepts),b,len(answers),ctypes.c_uint32(cost),counts,ctypes.c_uint32(wait))
   return fd,dict(zip(('accepts','option_reads','dropped','drops','last_dropped','invalid'),counts[:6])),list(counts[6:])
  def test_a_connection_that_leaves_before_its_options_is_dropped_and_the_next_viewer_is_taken(self):
   fd,seen,timeouts=self.viewer([7,8],[self.DROPPED,self.READ],cost=500)
@@ -255,6 +257,8 @@ class PayloadOptionTests(unittest.TestCase):
   fd,seen,_=self.viewer([-1],[self.READ]);self.assertEqual((fd,seen['option_reads']),(self.NO_VIEWER,0))
   fd,seen,timeouts=self.viewer([7,8,9,10],[self.DROPPED],cost=25000)
   self.assertEqual((fd,seen['accepts'],seen['drops']),(self.NO_VIEWER,3,3));self.assertEqual(timeouts[:3],[60000,35000,10000])
+  # After a stream away from home the wait is the away hours.
+  fd,seen,timeouts=self.viewer([7],[self.READ],wait=12*3600000);self.assertEqual((fd,timeouts[0]),(7,12*3600000))
  OK,NO_GAME,NO_DEVICE,FAILED=0,1,2,3
  def fps(self,answers,written=128,value=0):
   a=(ctypes.c_int*len(answers))(*answers);block=(ctypes.c_ubyte*0x4000)();out=(ctypes.c_uint64*8)()

@@ -4,13 +4,20 @@ The newest release is read from GitHub's public API. When it is newer than this 
 update folder next to the preferences, slowly enough not to disturb a stream, and kept only when its SHA-256 matches the line for
 it in the same release's SHA256SUMS.txt. A running EXE cannot be replaced on Windows, so the new EXE does the swap itself: started
 with --finish-update and the old EXE's path, it waits for the old one to close, copies itself over it and, when asked, opens it.
-A copy run from source only says that a new version is out."""
+A copy run from source only says that a new version is out.
+
+On the beta channel the newest release counts whether or not GitHub marks it a pre-release (tags such as v1.8.0-beta.2); a final
+version is newer than its own betas. Leaving the channel never goes back to an older version: the next final one is waited for."""
 import hashlib,json,os,re,subprocess,sys,threading,time,traceback,urllib.request
 from pathlib import Path
 from app_version import VERSION
 
 REPOSITORY='ramalhoboss/PlayBridge'
 LATEST=os.environ.get('PLAYBRIDGE_UPDATE_URL') or f'https://api.github.com/repos/{REPOSITORY}/releases/latest'
+RELEASES=os.environ.get('PLAYBRIDGE_RELEASES_URL') or f'https://api.github.com/repos/{REPOSITORY}/releases?per_page=20'
+CHANNELS=('stable','beta')
+BETA_NOTE=('Beta versions come out before the final ones: new things sooner, and sometimes bugs. Turned off again, PlayBridge waits for the '
+ 'next final version and never goes back to an older one.')
 EXE='PlayBridge.exe';SUMS='SHA256SUMS.txt'
 CHECK_EVERY=6*3600;FIRST_CHECK=8
 # About 12 Mbps: a 4K stream at 80 Mbps over Wi-Fi keeps its room.
@@ -22,17 +29,32 @@ def parse_version(text):
  """'v1.6.0' or '1.6.0' as (1,6,0); anything else as None."""
  found=re.fullmatch(r'v?(\d+)\.(\d+)(?:\.(\d+))?',str(text or '').strip())
  return tuple(int(part or 0) for part in found.groups()) if found else None
+# A version with its stage: 1.8.0-beta.2 is (1,8,0,1,2); a final version has the highest stage, so it comes after its betas.
+STAGES={'alpha':0,'beta':1,'rc':2,None:3}
+def version_key(text):
+ """'v1.8.0-beta.2' as (1,8,0,1,2), '1.7.1' as (1,7,1,3,0); anything else as None."""
+ found=re.fullmatch(r'v?(\d+)\.(\d+)(?:\.(\d+))?(?:-(alpha|beta|rc)\.?(\d+)?)?',str(text or '').strip(),re.I)
+ if not found:return None
+ major,minor,patch,stage,number=found.groups()
+ return (int(major),int(minor),int(patch or 0),STAGES[stage.lower() if stage else None],int(number or 0))
+def version_name(text):
+ """A version as PlayBridge writes it: '1.8.0' or '1.8.0-beta.2'."""
+ key=version_key(text)
+ if key is None:return None
+ stage=next(name for name,value in STAGES.items() if value==key[3])
+ return '.'.join(map(str,key[:3]))+(f'-{stage}.{key[4]}' if stage else '')
 def is_newer(version,current=VERSION):
- theirs,ours=parse_version(version),parse_version(current)
+ theirs,ours=version_key(version),version_key(current)
  return bool(theirs and ours and theirs>ours)
-def read_release(data):
- """The parts of a GitHub release this needs, or None when it is a draft, a pre-release or lacks the EXE or its checksums."""
- if not isinstance(data,dict) or data.get('draft') or data.get('prerelease'):return None
- version=parse_version(data.get('tag_name'))
+def read_release(data,beta=False):
+ """The parts of a GitHub release this needs, or None when it is a draft, a pre-release (unless beta) or lacks the EXE or its checksums."""
+ if not isinstance(data,dict) or data.get('draft') or data.get('prerelease') and not beta:return None
+ version=version_key(data.get('tag_name'))
+ if version and version[3]!=STAGES[None] and not beta:return None
  assets={asset.get('name'):asset for asset in data.get('assets') or [] if isinstance(asset,dict)}
  exe,sums=assets.get(EXE),assets.get(SUMS)
  if not version or not exe or not sums or not exe.get('browser_download_url') or not sums.get('browser_download_url'):return None
- return dict(version='.'.join(map(str,version)),page=data.get('html_url') or f'https://github.com/{REPOSITORY}/releases/latest',exe_url=exe['browser_download_url'],
+ return dict(version=version_name(data.get('tag_name')),page=data.get('html_url') or f'https://github.com/{REPOSITORY}/releases/latest',exe_url=exe['browser_download_url'],
   exe_size=int(exe.get('size') or 0),sums_url=sums['browser_download_url'])
 def prompt(status,source=False):
  """What PlayBridge asks once a new version is in, or None: 'install' when it is downloaded and checked, 'page' when this copy
@@ -66,21 +88,29 @@ def frozen():return bool(getattr(sys,'frozen',False))
 class Updater:
  """Checks, downloads and hands over to the new EXE. Its state is read by the window: idle, checking, current, downloading, ready,
  available (from source, or with downloads off), failed."""
- def __init__(self,folder,automatic=True,on_change=None,rate=DOWNLOAD_RATE):
-  self.folder=Path(folder);self.automatic=automatic;self.on_change=on_change;self.rate=rate
+ def __init__(self,folder,automatic=True,on_change=None,rate=DOWNLOAD_RATE,channel='stable'):
+  self.folder=Path(folder);self.automatic=automatic;self.on_change=on_change;self.rate=rate;self.channel=channel if channel in CHANNELS else 'stable'
   self.state='idle';self.version=None;self.page=None;self.progress=0.0;self.reason='';self.checked_at=None;self.file=None;self.revision=0
   self.lock=threading.Lock();self.stop=threading.Event();self.wake=threading.Event();self.busy=False;self.thread=None
  def status(self):
   with self.lock:return dict(state=self.state,version=self.version,progress=self.progress,reason=self.reason,checked_at=self.checked_at,current=VERSION,
-   automatic=self.automatic,installable=self.state=='ready' and frozen(),page=self.page,revision=self.revision)
+   automatic=self.automatic,installable=self.state=='ready' and frozen(),page=self.page,revision=self.revision,channel=self.channel)
  def set_automatic(self,on):
   """Update automatically on or off; turned on, it looks at once."""
   with self.lock:self.automatic=bool(on);self.revision+=1
   if self.automatic:self.wake.set()
+ def set_channel(self,channel):
+  """Beta versions on or off. A beta downloaded and waiting is dropped when they go off; either way it looks again at once."""
+  channel=channel if channel in CHANNELS else 'stable'
+  with self.lock:
+   if channel==self.channel:return
+   self.channel=channel;self.revision+=1
+   if channel=='stable' and self.version and (version_key(self.version) or (0,))[3:4]!=(STAGES[None],):self.state='idle';self.version=None;self.file=None;self.progress=0.0
+  self.wake.set()
  def text(self):
   s=self.status();state=s['state'];version=s['version']
   if state=='checking':return 'Looking for a new version…'
-  if state=='current':return f'PlayBridge {VERSION} is the latest version.'+(f' Checked at {time.strftime("%H:%M",time.localtime(s["checked_at"]))}.' if s['checked_at'] else '')
+  if state=='current':return f'PlayBridge {VERSION} is the latest version'+(', betas included.' if s['channel']=='beta' else '.')+(f' Checked at {time.strftime("%H:%M",time.localtime(s["checked_at"]))}.' if s['checked_at'] else '')
   if state=='downloading':return f'Downloading PlayBridge {version}… {round(s["progress"]*100)}%'
   if state=='ready':return f'PlayBridge {version} is ready. It installs when you close PlayBridge, or now with Restart and update.'
   if state=='available':return f'PlayBridge {version} is out. Download it from the GitHub page.' if not frozen() else f'PlayBridge {version} is out. Select Check now to download it.'
@@ -112,8 +142,7 @@ class Updater:
    self.busy=True
   try:
    self.set(state='checking',reason='')
-   try:
-    with fetch(LATEST,api=True) as answer:release=read_release(json.loads(answer.read(1_000_000).decode('utf8')))
+   try:release=self.newest()
    except Exception as error:
     self.keep_error(error);self.set(state='failed',reason=f'Could not reach GitHub to look for a new version ({type(error).__name__}).');return
    if not release or not is_newer(release['version']):self.set(state='current',checked_at=time.time(),version=None);return
@@ -122,6 +151,13 @@ class Updater:
    self.download(release)
   finally:
    with self.lock:self.busy=False
+ def newest(self):
+  """The newest release this channel takes, or None."""
+  if self.channel!='beta':
+   with fetch(LATEST,api=True) as answer:return read_release(json.loads(answer.read(1_000_000).decode('utf8')))
+  with fetch(RELEASES,api=True) as answer:data=json.loads(answer.read(4_000_000).decode('utf8'))
+  found=[release for release in (read_release(item,beta=True) for item in (data if isinstance(data,list) else [])) if release]
+  return max(found,key=lambda release:version_key(release['version']),default=None)
  def download(self,release):
   self.folder.mkdir(parents=True,exist_ok=True)
   final=self.folder/f'PlayBridge-{release["version"]}.exe';partial=final.with_suffix('.exe.partial')
@@ -213,8 +249,8 @@ def tidy(folder,current=VERSION,tries=30):
  for _ in range(tries):
   left=[]
   for path in folder.glob('PlayBridge-*.exe*'):
-   version=parse_version(path.name[len('PlayBridge-'):].split('.exe')[0])
-   if path.name.endswith('.partial') or not version or not is_newer('.'.join(map(str,version)),current):
+   version=version_name(path.name[len('PlayBridge-'):].split('.exe')[0])
+   if path.name.endswith('.partial') or not version or not is_newer(version,current):
     try:path.unlink()
     except OSError:left.append(path)
   if not left:return True

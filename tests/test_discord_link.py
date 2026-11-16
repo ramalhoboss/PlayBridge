@@ -168,10 +168,11 @@ class AppTests(unittest.TestCase):
   core=self.core;order=[];events=queue.SimpleQueue()
   for name in ('Recording','Replay','Trophy clip'):events.put(('saved',f'{name} saved',f'C:/clips/{name}.mp4'))
   events.put(('error','Unable to save',''))
-  me=SimpleNamespace(recorder=SimpleNamespace(events=events),notify=lambda text:None,discord_hook=SimpleNamespace(share=lambda kind,path:order.append(('discord',kind))),
+  finished=[];me=SimpleNamespace(recorder=SimpleNamespace(events=events,active=False,started='Recording started'),moments=SimpleNamespace(finish=finished.append,drop=lambda:None,begin=lambda path,at:None),notify=lambda text:None,discord_hook=SimpleNamespace(share=lambda kind,path:order.append(('discord',kind))),
    compactor=SimpleNamespace(add=lambda path:order.append(('smaller',Path(path).stem)),events=queue.SimpleQueue(),remembered=lambda:[]),compact_saved=[],broadcast=SimpleNamespace(events=queue.SimpleQueue()),show_presence=lambda:order.append('presence'))
   with patch.object(core,'config',lambda:{'compact_recordings':True}):core.Player.poll_capture_events(me)
   self.assertEqual(order,[('discord','Recording'),('smaller','Recording'),('discord','Replay'),('smaller','Replay'),('discord','Trophy clip'),('smaller','Trophy clip'),'presence'])
+  self.assertEqual(finished,['C:/clips/Recording.mp4','C:/clips/Replay.mp4','C:/clips/Trophy clip.mp4'],'each saved file closes its highlight moments')
  def test_share_encoders_end_with_the_processors(self):
   self.assertEqual(self.core.share_encoders()[-2:],['libx264','h264_mf'])
 

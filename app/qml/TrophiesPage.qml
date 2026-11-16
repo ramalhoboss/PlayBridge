@@ -122,7 +122,7 @@ FocusScope {
                 model: page.opened ? [] : (page.t.filters || [])
                 delegate: PillButton {
                     required property string modelData
-                    text: modelData; tone: "ghost"; width: 112; height: 40
+                    text: modelData; tone: "ghost"; width: 104; height: 40
                     selected: (page.t.filter || "All") === modelData
                     onClicked: shell.act("trophy_filter", modelData)
                 }
@@ -155,7 +155,7 @@ FocusScope {
         Glass {
             id: sheet
             frost: page.frost
-            follow: page.x + page.opacity + (page.opened ? trophyList.contentY : titleList.contentY)
+            follow: page.x + page.opacity + (page.opened ? trophyList.contentY : page.t.hunting ? huntList.contentY : titleList.contentY)
             anchors.top: note.bottom
             anchors.topMargin: 12
             anchors.bottom: parent.bottom
@@ -170,10 +170,72 @@ FocusScope {
                 text: page.t.empty || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: 16
             }
 
+            // Next up: the trophies most players have that you have not, from your games in progress.
+            ListView {
+                id: huntList
+                visible: !page.opened && !!page.t.hunting
+                anchors.fill: parent
+                anchors.margins: 10
+                clip: true
+                spacing: 4
+                boundsBehavior: Flickable.StopAtBounds
+                ScrollBar.vertical: ScrollBar { width: 8; policy: ScrollBar.AsNeeded }
+                model: visible ? (page.t.hunt || []) : []
+                header: Text {
+                    width: huntList.width - 10
+                    leftPadding: 12; rightPadding: 12; topPadding: 8; bottomPadding: 12
+                    wrapMode: Text.WordWrap
+                    text: page.t.huntLine || ""
+                    color: Theme.muted; font.family: Theme.face; font.pixelSize: 14
+                }
+                delegate: Item {
+                    id: hunted
+                    required property var modelData
+                    required property int index
+                    property bool navigable: true
+                    function activate() { Theme.keys = true; shell.act("trophy_hunt_open", hunted.index) }
+                    width: huntList.width - 10
+                    height: hunted.modelData.watch ? 104 : 86
+                    activeFocusOnTab: true
+                    Keys.onReturnPressed: activate()
+                    Keys.onEnterPressed: activate()
+                    Accessible.role: Accessible.Button
+                    Accessible.name: hunted.modelData.name + ", " + hunted.modelData.game + ", " + hunted.modelData.rare
+                    Rectangle { anchors.fill: parent; radius: 12; color: huntArea.containsMouse || hunted.activeFocus ? Qt.rgba(1, 1, 1, 0.07) : "transparent"; Behavior on color { ColorAnimation { duration: Theme.ms(110) } } }
+                    MouseArea { id: huntArea; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: { Theme.keys = false; shell.act("trophy_hunt_open", hunted.index) } }
+                    Picture { id: huntBadge; x: 12; anchors.verticalCenter: parent.verticalCenter; width: 56; height: 56; radius: 10; source: hunted.modelData.icon || ""; initial: ""; lit: false
+                        TrophyCup { visible: (hunted.modelData.icon || "") === ""; anchors.centerIn: parent; grade: hunted.modelData.grade; width: 30; height: 30 } }
+                    Column {
+                        anchors.left: huntBadge.right; anchors.leftMargin: 16
+                        anchors.right: huntTools.left; anchors.rightMargin: 16
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 3
+                        Row {
+                            width: parent.width
+                            spacing: 8
+                            TrophyCup { anchors.verticalCenter: parent.verticalCenter; grade: hunted.modelData.grade; width: 16; height: 16 }
+                            Text { width: parent.width - 24; elide: Text.ElideRight; text: hunted.modelData.name; color: Theme.text; font.family: Theme.strong; font.pixelSize: 16 }
+                        }
+                        Text { width: parent.width; elide: Text.ElideRight; text: hunted.modelData.game + "  ·  " + hunted.modelData.rare; color: Theme.goldSoft; font.family: Theme.face; font.pixelSize: 13 }
+                        Text { width: parent.width; elide: Text.ElideRight; maximumLineCount: 1; text: hunted.modelData.detail; color: Theme.muted; font.family: Theme.face; font.pixelSize: 14 }
+                        Text { visible: !!hunted.modelData.watch; width: parent.width; elide: Text.ElideRight; text: "Watch out: " + hunted.modelData.watch + "."; color: Theme.alert; font.family: Theme.face; font.pixelSize: 13 }
+                    }
+                    Row {
+                        id: huntTools
+                        anchors.right: parent.right; anchors.rightMargin: 14
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 8
+                        PillButton { visible: !!hunted.modelData.watch; width: 118; height: 38; fontSize: 13; text: "Missables"; onClicked: shell.act("trophy_hunt_missable", hunted.index) }
+                        GlyphButton { glyph: ""; tip: "Find a guide for this trophy"; onClicked: shell.act("trophy_hunt_guide", hunted.index) }
+                    }
+                    FocusGlow { on: hunted.activeFocus && Theme.keys; radius: 12 }
+                }
+            }
+
             // Every game, the latest trophies first.
             ListView {
                 id: titleList
-                visible: !page.opened
+                visible: !page.opened && !page.t.hunting
                 anchors.fill: parent
                 anchors.margins: 10
                 clip: true

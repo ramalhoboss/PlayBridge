@@ -25,7 +25,10 @@ MAP_AT_ONCE=5;MAP_DAYS=7;MAPS_AT_ONCE=2
 ROOM=60
 # Pictures from Sony's image server (not counted against the budget): at most this many in one go, each at most this size.
 ICONS_AT_ONCE=12;ICON_MOST=1<<20
-FILTERS=('All','PS5','PS4','Platinum','Unfinished')
+FILTERS=('All','PS5','PS4','Platinum','Unfinished','Next up')
+# Next up, the trophy hunt: the trophies most players have that the player has not, from the latest games they have started and not
+# finished (at most HUNT_GAMES), at most HUNT_LISTED of them.
+HUNT_GAMES=10;HUNT_LISTED=30
 TITLE=re.compile('[A-Z]{4}[0-9]{5}')
 
 def whole(value,low=0,high=None):
@@ -114,7 +117,7 @@ class TrophyBook:
   self.psn=psn;self.folder=Path(folder);self.lock=threading.Lock()
   # changes moves with anything the Trophies page shows, shelf_changes only with what the Games page shows.
   self.changes=0;self.shelf_changes=0
-  self.watching=False;self.open=None;self.friend='';self.problem=''
+  self.watching=False;self.hunting=False;self.open=None;self.friend='';self.problem=''
   self.list_fresh=False;self.list_next=0;self.list_at=0
   kept=self.load('list.json')
   self.summary=summary_from(kept.get('summary')) if kept.get('summary') else None
@@ -152,6 +155,10 @@ class TrophyBook:
  def watch(self,on):
   """The Trophies page shows (on) or not: while it shows, the list is read again every LIST_EVERY seconds."""
   self.watching=bool(on)
+  if on:self.psn.wake()
+ def hunt(self,on):
+  """Next up shows (on) or not: while it shows, the trophies of the games in the hunt are read, one game at a time."""
+  self.hunting=bool(on)
   if on:self.psn.wake()
  def refresh(self):
   self.list_next=0;self.list_fresh=False;self.next_try.clear()
@@ -210,7 +217,13 @@ class TrophyBook:
     opened=dict(set=key,title=title,rows=merged(rows['rows'],states_from(mine) if mine else {},theirs.get('states') if theirs else ({} if self.friend else None)) if rows else [],
      loading=rows is None or mine is None,theirs=theirs)
    friend=self.friend_titles.get(self.friend) if self.friend else None
-   return dict(summary=self.summary,titles=list(self.titles),listed=self.list_fresh or bool(self.titles),open=opened,friend=self.friend,friend_list=friend,problem=self.problem,changes=self.changes)
+   hunt=None
+   if self.hunting:
+    hunt=[]
+    for title in hunt_titles(self.titles):
+     rows=self.set_rows(title['set']);mine=self.mine.get(title['set'])
+     hunt.append((title,rows['rows'] if rows else None,states_from(mine) if mine and rows else None))
+   return dict(summary=self.summary,titles=list(self.titles),listed=self.list_fresh or bool(self.titles),open=opened,friend=self.friend,friend_list=friend,problem=self.problem,changes=self.changes,hunt=hunt)
 
  # The thread's side.
  def forget(self):
@@ -224,6 +237,7 @@ class TrophyBook:
   if (not self.list_fresh or self.watching and now-self.list_at>=LIST_EVERY) and now>=self.list_next:self.read_list(now)
   if self.open:self.read_set(now,*self.open)
   if self.friend and self.watching:self.read_friend(now)
+  if self.hunting and self.watching:self.read_hunt(now)
   self.read_maps(now)
   self.fill_shelf(now)
   self.fetch_icons()
@@ -291,6 +305,13 @@ class TrophyBook:
    if refused.status!=403:raise
    titles=[];private=True
   with self.lock:self.friend_titles[account]=dict(at=now,titles=titles,private=private);self.changes+=1
+ def read_hunt(self,now):
+  """One game of the hunt not read yet: its trophies, then the player's side (which carries how many players have each)."""
+  for title in hunt_titles(self.titles):
+   key=title['set']
+   with self.lock:rows=self.set_rows(key);mine=self.mine.get(key)
+   if (rows is None or title['version'] and rows['version']!=title['version']) and self.due(('set',key),now):self.tried(('set',key),now);self.read_definitions(key,title['service'],title);return
+   if (mine is None or mine.get('stale')) and self.due(('mine',key),now):self.tried(('mine',key),now);self.read_mine(key,title['service'],title);return
  def shelf_sets(self):
   return {set_id((value.get('item') or {}).get('npCommunicationId')) for key,value in self.map.items() if key in self.shelf}
  def read_maps(self,now):
@@ -328,6 +349,56 @@ class TrophyBook:
    try:(self.folder/'icons').mkdir(parents=True,exist_ok=True);(self.folder/'icons'/(key+kind)).write_bytes(raw)
    except OSError:self.icon_failed.add(url);continue
    with self.lock:self.icons[key]=key+kind;self.changes+=1
+
+def hunt_titles(titles):
+ """The games of the hunt: started (a trophy earned), not finished and not hidden, the latest first."""
+ return [title for title in titles if sum(title['earned'].values()) and title['progress']<100 and not title['hidden']][:HUNT_GAMES]
+
+def hunt_rows(entries,most=HUNT_LISTED):
+ """The trophies not earned yet in the games of the hunt, the one most players have first: [(rate, title, trophy)]. The platinum is left
+ out (it comes with the others), and so is a trophy Sony gives no share for."""
+ found=[]
+ for title,rows,states in entries or []:
+  if rows is None or states is None:continue
+  for row in rows:
+   state=states.get(row['id']) or {}
+   if state.get('at') or row['grade']=='platinum' or state.get('rate') is None:continue
+   found.append((state['rate'],title,row))
+ found.sort(key=lambda item:(-item[0],item[1]['name'].lower(),item[2]['id']))
+ return found[:most]
+
+# A trophy that may be lost by playing on: what its own words say. PSN does not mark missable trophies, so this is only read from the
+# description, and the page says why it warns.
+CUES=((re.compile(r'\bmissable\b',re.I),lambda found:'its description says it can be missed'),
+ (re.compile(r'\b(chapter|mission|episode|act|part)\s+([0-9]+|[ivx]+)\b',re.I),lambda found:f'it belongs to {found.group(1).capitalize()} {found.group(2).upper()}'),
+ (re.compile(r'\b(?:in a single|in one)\s+(playthrough|run|life|sitting|session|attempt|save)\b',re.I),lambda found:f'it has to be done in one {found.group(1).lower()}'),
+ (re.compile(r'\bwithout\s+(dying|being (?:seen|spotted|detected|hit)|taking (?:any )?damage|killing|reloading|saving|failing)\b',re.I),lambda found:f'it has to be done without {found.group(1).lower()}'),
+ (re.compile(r'\b(?:on|at)\s+(hard|crushing|hardest|grounded|insane|nightmare|expert|legendary|survivor|extreme|brutal|realistic)\b',re.I),lambda found:f'it needs {found.group(1).capitalize()} difficulty'),
+ (re.compile(r'\bbefore\b',re.I),lambda found:'it has to happen before something else in the game'))
+def watch_out(name,detail):
+ """Why a trophy may be missed, from its name and description: 'it belongs to Chapter 4', or ''."""
+ text=f'{name or ""}. {detail or ""}'
+ for pattern,why in CUES:
+  found=pattern.search(text)
+  if found:return why(found)
+ return ''
+
+def hunt_view(entries,icon=lambda url:''):
+ """Next up, in words: the rows, and a line on how many games are still being read."""
+ if entries is None:return [],''
+ rows=[]
+ for rate,title,row in hunt_rows(entries):
+  secret=row['hidden']
+  rows.append(dict(set=title['set'],id=row['id'],game=title['name'] or title['set'],grade=row['grade'],name='Hidden trophy' if secret else row['name'] or f"Trophy {row['id']}",
+   detail='Keep playing to find out what it is.' if secret else row['detail'],icon='' if secret else icon(row['icon']),gameIcon=icon(title['icon']),
+   rare=f'{rate:.1f}% of players have it',watch='' if secret else watch_out(row['name'],row['detail'])))
+ waiting=sum(1 for _,found,states in entries if found is None or states is None)
+ if not entries:line='Start a game with trophies, and the trophies you have left that most players earned show here.'
+ elif waiting:line=f"Reading {waiting} of your {len(entries)} games in progress…" if len(entries)>1 else 'Reading your game in progress…'
+ elif not rows:line='No trophies left to show in your games in progress.'
+ else:line=f"The trophies most players have, from your {len(entries)} games in progress." if len(entries)>1 else 'The trophies most players have, from your game in progress.'
+ if any(row['watch'] for row in rows) and not waiting:line+=' Watch out marks a trophy its own words tie to a point in the game: check a guide before you move on.'
+ return rows,line
 
 # The Trophies page, in words: plain functions of TrophyBook.view(), so they are tested without a window.
 def day(seconds):
@@ -370,6 +441,7 @@ def page(state,view,friends,chosen='All',icon=lambda url:'',me=None):
  elif not titles:empty='No trophies on your PSN account yet.'
  elif not rows:empty=f'No games in common with {friend_name} here.' if comparing else 'No games on this list.'
  opened=None
+ hunt=hunt_view(view.get('hunt'),icon) if chosen=='Next up' else ([],'')
  if view.get('open'):
   found=view['open'];title=found['title'];their=found.get('theirs');why=(their or {}).get('why','')
   trophy_rows=[]
@@ -392,4 +464,5 @@ def page(state,view,friends,chosen='All',icon=lambda url:'',me=None):
    friendName=friend_name if friend and their is not None and not why else '')
  level=dict(level=summary['level'],tier=summary['tier'],share=summary['progress']/100,counts=grade_counts(summary['earned']),total=sum(summary['earned'].values())) if summary else None
  return dict(state=state,problem=view.get('problem',''),me=me or {},level=level,filters=list(FILTERS),filter=chosen,friends=['Nobody']+[name for _,name in friends if name],
-  friendName=friend_name,friendLine=friend_line,comparing=comparing,titles=rows,count=len(rows),empty=empty,open=opened)
+  friendName=friend_name,friendLine=friend_line,comparing=comparing,titles=rows if chosen!='Next up' else [],count=len(rows),empty=empty if chosen!='Next up' or not view.get('listed') else '',open=opened,
+  hunting=chosen=='Next up',hunt=hunt[0],huntLine=hunt[1])

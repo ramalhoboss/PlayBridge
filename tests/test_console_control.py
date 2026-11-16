@@ -305,7 +305,7 @@ class LinkTests(unittest.TestCase):
   self.assertIsNone(flow.update('PPSA00001',2));self.assertEqual(flow.update('',3),'launch');self.assertEqual(flow.waiting,'PPSA00001');self.assertIsNone(flow.update('',4));self.assertEqual(flow.update('PPSA00001',5),'started')
  def test_the_commands_match_the_payload(self):
   rules=(Path(__file__).resolve().parents[1]/'payload'/'control-rules.h').read_text(encoding='utf8');found={name:int(value) for name,value in re.findall(r'CONTROL_([A-Z_]+)=(\d+)',rules)}
-  self.assertEqual(found,dict(STATUS=control.STATUS,FILE=control.FILE,LAUNCH=control.LAUNCH,CLOSE=control.CLOSE,REST=control.REST,POWER_OFF=control.POWER_OFF,REBOOT=control.REBOOT,LIST=control.LIST,RANGE=control.RANGE,FAN=control.FAN))
+  self.assertEqual(found,dict(STATUS=control.STATUS,FILE=control.FILE,LAUNCH=control.LAUNCH,CLOSE=control.CLOSE,REST=control.REST,POWER_OFF=control.POWER_OFF,REBOOT=control.REBOOT,LIST=control.LIST,RANGE=control.RANGE,FAN=control.FAN,AWAY_END=control.AWAY_END))
 class GameRateTests(unittest.TestCase):
  def feed(self,rate,seconds,start=0,flips=1000,step=.25,state=0,clock=None):
   """Status answers every step seconds from a game at rate frames per second; returns the last rate seen."""

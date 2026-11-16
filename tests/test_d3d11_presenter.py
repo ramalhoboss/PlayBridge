@@ -132,7 +132,7 @@ class FailureTests(unittest.TestCase):
 
  def test_the_swap_chain_waits_for_its_window_to_show(self):
   # Made on a hidden window of one pixel, it sometimes showed the picture black or enlarged from the middle for a whole session.
-  output=d.D3D11Presenter.__new__(d.D3D11Presenter);output.swap=None;output.hwnd=1;opened=[];output.open_swap_chain=lambda:opened.append(1)
+  output=d.D3D11Presenter.__new__(d.D3D11Presenter);output.swap=None;output.hwnd=1;opened=[];output.open_swap_chain=lambda:opened.append(1) or True
   with patch.object(d,'showing',lambda hwnd:False):self.assertFalse(output.fit())
   self.assertEqual(opened,[])
   with patch.object(d,'showing',lambda hwnd:True):self.assertTrue(output.fit())
@@ -401,13 +401,13 @@ class DrawingTests(unittest.TestCase):
    self.assertEqual(self.in_flight_and_buffers(output),(2,3));self.assertIsNone(output.failed)
   finally:output.detach();other.destroy();self.root.update()
  def test_misses_spread_out_change_nothing(self):
-  output=d.D3D11Presenter.__new__(d.D3D11Presenter);output.timeouts=0;output.cross=False;output.extra=0;output.misses=collections.deque()
+  output=d.D3D11Presenter.__new__(d.D3D11Presenter);output.timeouts=0;output.cross=False;output.extra=0;output.misses=collections.deque();output.engine_active=False
   for at in range(20):output.missed(at*2.0)
   self.assertEqual((output.extra,output.timeouts),(0,20))
   for at in range(d.MISS_LIMIT-1):output.missed(100+at*.1)
   self.assertEqual(output.extra,0)
  def test_each_step_needs_fresh_misses_and_the_steps_stop_at_three(self):
-  output=d.D3D11Presenter.__new__(d.D3D11Presenter);output.timeouts=0;output.cross=True;output.extra=0;output.misses=collections.deque()
+  output=d.D3D11Presenter.__new__(d.D3D11Presenter);output.timeouts=0;output.cross=True;output.extra=0;output.misses=collections.deque();output.engine_active=False
   for at in range(d.MISS_LIMIT):output.missed(10+at*.1)
   self.assertEqual(d.in_flight(output.cross,output.extra),3);output.missed(11)
   for at in range(30):output.missed(12+at*.1)

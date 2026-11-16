@@ -12,6 +12,31 @@ SHORTEST=60
 KEEP=300
 # The game counts as at its usual rate within this many frames a second of it.
 NEAR_RATE=2
+# The rates games are held to. A game whose fastest seconds sit on one of them runs in that mode; any other is unlocked.
+CAPS=(30,40,60,120)
+# Points kept of a session's rate for its graph: each the average and the lowest of its stretch of the session.
+CURVE=180
+
+def percentile(values,share):
+ """The value below which share percent of values lie, by nearest rank. None for no values."""
+ if not values:return None
+ ordered=sorted(values);return ordered[min(len(ordered)-1,max(0,int(len(ordered)*share/100+.5)-1))]
+def mode_of(rates):
+ """The game's mode as its rate shows it: the cap its fastest seconds (the 95th percentile) sit on, 'Unlocked' for none, '' for no rate."""
+ top=percentile([value for value in rates if value>=1],95)
+ if top is None:return ''
+ for cap in CAPS:
+  if abs(top-cap)<=NEAR_RATE:return f'{cap} fps'
+ return 'Unlocked'
+def curve(rates,points=CURVE):
+ """The session's rate in at most points stretches, each [average, lowest] of the moments the game drew, [0, 0] for a stretch it drew
+ nothing in (a pause or the console's menu), for its graph."""
+ if not rates:return []
+ size=max(1,-(-len(rates)//points));out=[]
+ for start in range(0,len(rates),size):
+  part=[value for value in rates[start:start+size] if value>=1]
+  out.append([round(sum(part)/len(part),1),round(min(part),1)] if part else [0,0])
+ return out
 
 def watts(status):
  """The power the console's chip and memory draw, (GPU, CPU, memory) in watts, or None when it gave no reading. The payload sends -1 for
@@ -37,13 +62,15 @@ class GameSession:
   parts=watts(status)
   if parts is not None:self.power.append(parts)
  def summary(self):
-  """The session as it is kept: rates in frames a second, temperatures in °C, power in watts. None for what the console never gave."""
-  rates=self.rates;usual=round(sorted(rates)[len(rates)//2]) if rates else None
+  """The session as it is kept: rates in frames a second, temperatures in °C, power in watts. None for what the console never gave.
+  The rates leave out the moments the game drew nothing, as on a pause or the console's menu: that is not the game slowing down."""
+  rates=[value for value in self.rates if value>=1];usual=round(sorted(rates)[len(rates)//2]) if rates else None
   def mean(values):return round(sum(values)/len(values),1) if values else None
   out=dict(title=self.title,name=self.name,started=self.wall,minutes=round((self.last-self.started)/60,1),
    fps_average=mean(rates),fps_lowest=round(min(rates),1) if rates else None,fps_usual=usual,
    at_usual=round(100*sum(1 for value in rates if value>=usual-NEAR_RATE)/len(rates)) if rates else None,
    cpu_max=max(self.cpu) if self.cpu else None,cpu_average=mean(self.cpu),soc_max=max(self.soc) if self.soc else None,soc_average=mean(self.soc))
+  if rates:out.update(fps_low1=round(percentile(rates,1),1),fps_low01=round(percentile(rates,.1),1),mode=mode_of(rates),curve=curve(self.rates))
   if self.power:
    totals=[sum(parts) for parts in self.power]
    out.update(watts_average=mean(totals),watts_max=round(max(totals),1),gpu_watts=mean([p[0] for p in self.power]),cpu_watts=mean([p[1] for p in self.power]),memory_watts=mean([p[2] for p in self.power]))

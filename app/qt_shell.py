@@ -19,11 +19,13 @@ from hang_watch import HangWatch
 from keep_awake import BatteryHint,KeepAwake
 from pad_input import KEY_NAMES,KEYBOARD_HELP,PadBridge
 from mouse_aim import MOUSE_HELP,AimProfiles,MouseAim,RawMouse,free_pointer,hold_pointer
-import voice_note,fan_target,console_mic,library_view,twitch_chat,local_api,app_version,psn_link,friends_view,clip_editor,game_stats,pad_profiles,trophy_guides,payload_manager,ftp_files,psn_trophies
+import bug_report,perf_watch,voice_note,fan_target,console_mic,library_view,twitch_chat,local_api,app_version,psn_link,friends_view,clip_editor,game_stats,pad_profiles,trophy_guides,payload_manager,ftp_files,psn_trophies
+import performance_lab,share_cards,highlights,away_play
 from functools import partial
 from performance import reading,watts
 from screen_rate import ScreenRate
 from smooth_motion import NOTE as SMOOTH_NOTE,SmoothMotion
+from picture_studio import PictureStudio
 from performance import report_details
 import hud
 from run_timer import RunTimer,text as timer_text
@@ -51,9 +53,12 @@ DEFAULT_MIC='Windows default microphone'
 # How long a chat message stays over the game when old ones fade.
 CHAT_SECONDS=60
 SECTIONS=(('console','Console','Address, favourites, connection and power'),('picture','Picture','Quality, graphics card, video output and upscaling'),('captures','Captures','Instant replay, files and diagnostics'),
- ('sound','Sound','Music and sounds on the Games page'),('live','Streaming','Twitch, YouTube, TikTok, any RTMP server, or OBS on this PC'),('connect','Connections','PSN, Discord, Twitch, Stream Deck and OBS'),('look','Appearance','Gaming Mode, motion and the look of PlayBridge'),
+ ('sound','Sound','Music and sounds on the Games page'),('live','Streaming','Twitch, YouTube, TikTok, Kick, any RTMP server or OBS, one or several at once'),('connect','Connections','PSN, Discord, Twitch, Stream Deck and OBS'),('look','Appearance','Gaming Mode, motion and the look of PlayBridge'),
  ('phone','Phone','Watch and play from your phone\'s browser'),('updates','Updates','New versions of PlayBridge from GitHub'))
-LIVE_HINTS={'twitch':'Twitch recommends at most 6 Mbps, so the Data saver profile suits it best. Higher profiles work on many channels.','youtube':'YouTube takes every 1080p profile. The key travels over an encrypted connection.',
+# How the picture travels away from home, as Settings names it.
+AWAY_HAND_LOADED='Away play needs PlayBridge to send its own payload, which holds this PC\'s key: turn off "ELF already loaded in Payload Manager" above.'
+AWAY_TRANSPORTS={'udp':'UDP with error correction (smoother on a line that loses)','tcp':'TCP (every piece, but stalls when the line loses)'}
+LIVE_HINTS={'kick':'In Kick, open your Creator Dashboard, then Settings and Stream URL & Key. Paste the Stream URL as the server address and the stream key here. Kick takes H.264 at up to 1080p: keep the bitrate at about 8 Mbps or less.','twitch':'Twitch recommends at most 6 Mbps, so the Data saver profile suits it best. Higher profiles work on many channels.','youtube':'YouTube takes every 1080p profile. The key travels over an encrypted connection.',
  'tiktok':'TikTok gives a new server address and stream key each time you go live, in LIVE Center on its website, once your account has LIVE access with a stream key. Paste both here. It takes H.264, about 2.5 to 6 Mbps: the Data saver profile suits it. A landscape stream shows with bars or cropped on phones.',
  'custom':'Enter the server address and, if your service gives it separately, the stream key.','obs':f'In OBS, add a Media Source, untick Local File, and enter udp://127.0.0.1:{live_broadcast.OBS_PORT} as the input. Then select Go live here.'}
 
@@ -159,7 +164,8 @@ class Shell(QObject):
   self.actions.update(psn_friends=lambda:self.show_page('friends'),psn_messages=lambda:self.show_page('friends'),psn_trophies=lambda:self.show_page('trophies'),
    psn_settings=lambda:self.do_psn_settings(None),psn_refresh=self.psn_refresh_all,psn_sign_out=self.psn_sign_out_first)
   self.shelf_state=Shelf(app.link,self.actions,self.sounds.play);self.games=GameModel();self.shelf_state.options=library_view.ViewChoice.from_saved(saved)
-  self.pad=PadBridge(lambda:app.args.host,app.stop,companion=core.companion_bytes,send_elf=payload_sender.send_payload)
+  self.pad=PadBridge(lambda:app.args.host,app.stop,companion=app.companion_payload,send_elf=payload_sender.send_payload,key=app.payload_pairing.pad_key)
+  self.pad.reach=app.reach;self.pad.away=lambda:app.away_active
   self.console_pad=bool(saved.get('console_pad',False));self.key_codes=keyboard_codes()
   # The mouse as the right stick while you aim, with each game's own settings.
   self.aim=MouseAim();self.pad.mouse=self.aim;self.aim_profiles=AimProfiles(core.STATE/'library'/'aim.json');self.raw_mouse=None;self.aiming=False
@@ -167,13 +173,14 @@ class Shell(QObject):
   hashes=saved.get('phone_tokens',[]);hashes=[item for item in hashes if isinstance(item,str)] if isinstance(hashes,list) else []
   self.pairing=phone_link.Pairing(hashes,lambda kept:core.save_config(phone_tokens=kept))
   self.phones=phone_link.PhoneServer(app.phone_feed,self.pairing,lambda:app.args.host,lambda:self.pad.attached,log=phone_link.PhoneLog(core.STATE/'phone-log.txt'))
+  self.phones.pad_key=app.payload_pairing.pad_key;self.phones.pad_reach=app.reach
   # A phone that plays needs the controller companion as much as this PC does.
   self.pad.wanted=self.phones.in_use
   if saved.get('phone_on',False):self.phones.start()
   self.diagnostic=bool(saved.get('diagnostic',False));self.match_on=bool(saved.get('match_refresh',True));self.animations=bool(saved.get('animations',True))
   self.say_text=('','plain');self.say_until=None;self.update_seen=-1;self.update_offered=None;self.scan_results=queue.Queue();self.discovered={};self.scanning=False;self.scan_status='Find your PS5 or enter its IP address above.';self.found_label='Select a console'
   self.favourite_status=('Save this IP and quality profile for next time.','plain');self.payload_status=('Sends any ELF to the loader your exploit opened on port 9021. A payload runs with full access to the PS5, so send only files you trust.','plain')
-  self.payload_results=queue.Queue();self.live_status=None;self.encoders=None;self.encoder_results=queue.Queue();self.section='console';self.typed_host=None;self.typed_profile=None
+  self.payload_results=queue.Queue();self.away_results=queue.Queue();self.away_busy=False;self.away_problem='';self.live_status=None;self.encoders=None;self.encoder_results=queue.Queue();self.section='console';self.typed_host=None;self.typed_profile=None
   # Text the window puts in the address and name fields, as when a console is found: a new version each time, so the field takes it once.
   self.fill=dict(host='',name='',version=0)
   # Read once: the cards and what the screen offers do not change while PlayBridge runs.
@@ -211,12 +218,15 @@ class Shell(QObject):
   app=self.app;core=self.core
   self.engine=engine;self.window=engine.rootObjects()[0];self.hwnd=int(self.window.winId());self.video_rect=QRect(0,0,1,1);self.video=None
   self.float_frame();self.window.visibilityChanged.connect(lambda *_:QTimer.singleShot(0,self.float_frame))
-  self.presenter=None;self.direct=False
+  self.presenter=None;self.direct=False;self.studio=PictureStudio(core);self.engine_seen=None
   if app.renderer=='d3d11':
    try:
     from d3d11_presenter import D3D11Presenter
     self.video=VideoSurface(self.window,self);self.video.setGeometry(self.video_rect)
-    self.presenter=D3D11Presenter(self.video,core.config().get('sharpen',False),core.config().get('fsr',False),app.adapter,core.config().get('vrr',False),core.config().get('smooth_motion',True));self.direct=True
+    # Picture Studio's usual values: a game with its own gets them once it is seen running.
+    self.studio=PictureStudio(core);usual=self.studio.usual()
+    self.presenter=D3D11Presenter(self.video,usual['sharpen'],usual['fsr'],app.adapter,core.config().get('vrr',False),core.config().get('smooth_motion',True),
+     super_resolution=usual['super_resolution'],video_hdr=usual['video_hdr'],deband=usual['deband']);self.direct=True
    except Exception:self.presenter=None;app.use_gdi()
   if not self.direct:
    from gdi_presenter import GdiPresenter
@@ -257,6 +267,8 @@ class Shell(QObject):
   self.clip_results=queue.Queue();self.clip_job=0;self.clip_share=None;self.clip_stopping=threading.Event()
   # Your play, counted while PlayBridge is connected, for the Stats page.
   self.play_log=game_stats.PlayLog(core.STATE/'library'/'play.json');self.stats_year=None;self.stats_seen=None
+  # Performance Lab on the Stats page: the report picked, and its card drawn once for each report and history.
+  self.lab_key='';self.lab_card=core.STATE/'cards'/'performance.png';self.lab_drawn=None;self.year_card=core.STATE/'cards'/'wrapped.png';self.year_drawn=None
   # Controller profiles: each game's own way to play with this PC's controller, applied on the PC before it is sent.
   self.pad_profiles=pad_profiles.PadProfiles(core.STATE/'library'/'controller.json');self.pad_profile_title=None
   # A shelf of PS5 payloads from a repository's releases, a developer loop that resends an ELF as it is built, and a read-only kernel log.
@@ -325,7 +337,8 @@ class Shell(QObject):
   """Windows 11 gives a window its rounded corners and shadow, and no light line along its edge, only while it keeps the caption
   style. Qt leaves that style out of a window without a title, and sets its own again after full screen, so it goes back on each time."""
   try:
-   if self.window.visibility()!=QWindow.Visibility.FullScreen:
+   seen=self.window.visibility();self.expanded_area(seen)
+   if seen in (QWindow.Visibility.Windowed,QWindow.Visibility.Maximized):
     style=user32.GetWindowLongW(self.hwnd,GWL_STYLE)&0xffffffff
     if style&WS_CAPTION!=WS_CAPTION:user32.SetWindowLongW(self.hwnd,GWL_STYLE,ctypes.c_long(style|WS_CAPTION).value);user32.SetWindowPos(self.hwnd,None,0,0,0,0,FRAME_CHANGED)
    top=self.window.safeAreaMargins().top();buttons=CAPTION_BUTTONS if top>0 else 0
@@ -334,6 +347,14 @@ class Shell(QObject):
   if hasattr(self,'classic_page'):
    inset=round(buttons*self.window.devicePixelRatio()) if not (self.values['fullscreen'] or self.values['mini']) else 0
    if inset!=self.classic_page.inset:self.classic_page.inset=inset;self.classic_page.stale=True
+ def expanded_area(self,seen):
+  """The pages reach the top of a window with no title bar through Qt's expanded client area, which keeps room for the resize borders
+  at the sides and the bottom. Those borders are see-through, and in full screen nothing hides them, so another window showed in 8 px
+  strips at the edges (seen 2026-11-16). So full screen goes without it: full() takes it away just before and gives it back just after,
+  as Qt leaves full screen when a full-screen window's flags change. Here it only comes back, on a window or a maximized one that
+  left full screen some other way."""
+  hint=Qt.WindowType.ExpandedClientAreaHint
+  if seen in (QWindow.Visibility.Windowed,QWindow.Visibility.Maximized) and not self.window.flags()&hint:self.window.setFlag(hint,True)
  def leave_direct(self):
   """This PC cannot keep the GPU output going, so the picture carries on through memory, on the same window."""
   from gdi_presenter import GdiPresenter
@@ -405,6 +426,7 @@ class Shell(QObject):
   if self.direct:app.stats['present_timeouts']=self.presenter.timeouts;app.stats['cross_card']=self.presenter.cross;app.stats['frames_in_flight']=self.presenter.flight
   app.stats['screen_rate']=self.rate.label();app.stats['screen_rate_check']=self.rate.note;app.stats['controller_link']=self.pad.link(time.monotonic());app.stats['ui']='qt'
   app.stats['smooth_motion']=self.smooth.second(self.presenter,self.presenter.timeouts if self.direct else 0)
+  if self.direct:self.picture_second()
   app.repeats.wanted=self.direct and self.smooth.can_run(self.presenter);app.stats['repeat_frames']=app.repeats.state()
   self.watch_second()
   made=app.stats.get('between_presented',0);app.stats['between_fps']=round((made-self.between_mark)/max(.5,now-self.second_at),1);self.between_mark=made;self.second_at=now
@@ -414,7 +436,7 @@ class Shell(QObject):
   streaming=app.connection_state=='Connected' and app.worker.is_alive()
   hint=self.battery.second(streaming,app.stats['presented_fps'],wanted_fps);app.stats['on_battery']=self.battery.on
   if hint:app.notify(hint);app.notice_until=now+15
-  app.snapshot()
+  app.perf_watch.second(streaming and app.stats['presented_fps']>0,app.snapshot())
  def each_quarter(self,now,queue_ms):
   app=self.app;core=self.core;self.last_info=now;page=self.values['page']
   app.poll_capture_events();active=app.worker.is_alive();linked=app.connection_state=='Connected' and active
@@ -450,9 +472,13 @@ class Shell(QObject):
   if page=='trophies':self.show_trophies()
   if page=='stats':self.show_stats()
   self.ask_shelf_trophies(app.link)
-  if page=='settings' and (app.link.saves.version!=getattr(self,'saves_seen',None) or fans!=getattr(self,'fans_seen',None)):
-   self.saves_seen=app.link.saves.version;self.fans_seen=fans;self.refresh_settings()
+  # Streaming follows the live stream: going live, a service refused or ended, and the end, which can take a few seconds.
+  on_air=(app.broadcast.state,tuple(sorted(app.broadcast.targets.items())))
+  if page=='settings' and (app.link.saves.version!=getattr(self,'saves_seen',None) or fans!=getattr(self,'fans_seen',None) or on_air!=getattr(self,'on_air_seen',None)):
+   if on_air[0]=='idle' and getattr(self,'on_air_seen',('idle',))[0]=='ending':self.live_status=('The live stream ended.','plain')
+   self.saves_seen=app.link.saves.version;self.fans_seen=fans;self.on_air_seen=on_air;self.refresh_settings()
   self.put('keyPad',dict(keys=sorted(self.key_codes) if self.pad.sending else []))
+  app.moments.count(self.pad.presses)
   playing=running_title(app.link.status);readings=console_line(app.link.status)
   self.follow_game(playing)
   if now-self.info_at>=1:
@@ -474,7 +500,7 @@ class Shell(QObject):
    self.put('dock',dict(self.alert_view(),**session_view(app,health,self.fps,queue_ms,linked,now,now-self.recording_at if self.recording_at is not None else None,app.link.game_name(playing) if playing else 'No game open' if app.link.online else 'Not connected',readings,self.history),lastGame=report_details(last) if last else []))
   # The video keeps arriving behind the other pages, so coming back shows a waiting screen only if no frame turns up.
   waiting=not self.has_video and page=='live' and now-self.revealed_at>1
-  self.put('stage',dict(waiting=waiting,text=app.error or ('Connecting to your console…' if active else 'Open Payload Manager on your PS5, then connect.'),video=self.has_video))
+  self.put('stage',dict(waiting=waiting,text=app.error or (app.waiting_text() if active else 'Open Payload Manager on your PS5, then connect.'),video=self.has_video))
   text,tone=message_line(app,core,health,linked,active,now,self.recording_at,self.pad,controller_text(self.pad,time.monotonic()) if self.pad.sending else '',self.fps,queue_ms,self.diagnostic)
   self.put('message',dict(text=text,tone=tone))
   if page=='settings':self.refresh_settings()
@@ -569,6 +595,7 @@ class Shell(QObject):
   for command in self.api.take():self.api_command(command)
   while not self.scan_results.empty():self.finish_scan(*self.scan_results.get_nowait())
   while not self.payload_results.empty():self.finish_payload(*self.payload_results.get_nowait())
+  while not self.away_results.empty():self.finish_away(*self.away_results.get_nowait())
   if self.encoders is None and not self.encoder_results.empty():self.encoders=self.encoder_results.get_nowait();self.refresh_settings()
   while not self.media_results.empty():self.finish_media(*self.media_results.get_nowait())
   while not self.clip_results.empty():self.finish_clip(*self.clip_results.get_nowait())
@@ -651,9 +678,14 @@ class Shell(QObject):
   if self.values['mini']:self.small_window()
   on=not self.values['fullscreen'];self.put('fullscreen',on)
   # Back from full screen to the state before it: a maximized window comes back maximized.
-  if on:self.was_maximized=self.window.visibility()==QWindow.Visibility.Maximized;self.window.showFullScreen()
-  elif getattr(self,'was_maximized',False):self.window.showMaximized()
-  else:self.window.showNormal()
+  # Full screen goes without the expanded client area (expanded_area), changed only outside full screen and in the same turn as the
+  # change of state, so no picture is drawn in between.
+  hint=Qt.WindowType.ExpandedClientAreaHint
+  if on:self.was_maximized=self.window.visibility()==QWindow.Visibility.Maximized;self.window.setFlag(hint,False);self.window.showFullScreen()
+  else:
+   # The flag goes back on a plain window: on a maximized one Qt would drop the maximized state with it.
+   self.window.showNormal();self.window.setFlag(hint,True)
+   if getattr(self,'was_maximized',False):self.window.showMaximized()
   self.pointer_moved();self.place_session()
  def place_session(self):
   # The session panel belongs to the live view, and only if the window has room for it.
@@ -789,10 +821,9 @@ class Shell(QObject):
  def toggle_live(self):
   app=self.app
   if app.broadcast.active:app.end_live();return
-  saved=self.core.config();kind=saved.get('live_service');key=live_broadcast.unseal(saved.get('live_key',''));server=saved.get('live_server','')
-  ready=kind=='obs' or kind in ('twitch','youtube') and key or kind=='custom' and server or kind=='tiktok' and server and key
-  if not ready:self.show_page('settings');self.section='live';self.say_line('Choose where to go live, then select Go live.');return
-  problem=app.go_live(kind,key,server)
+  targets=live_broadcast.chosen_targets(self.core.config())
+  if not targets or not all(live_broadcast.ready(*target) for target in targets):self.show_page('settings');self.section='live';self.say_line('Choose where to go live, then select Go live.');return
+  problem=app.go_live_many(targets)
   if problem:self.say(problem)
  def set_microphone(self,on):
   """Your voice in recordings, instant replays and Go live. The choice is kept, and a microphone that will not open says why."""
@@ -1067,7 +1098,7 @@ class Shell(QObject):
   self.say_text=(text,tone);self.say_until=None if tone=='error' or keep or not text else time.perf_counter()+6;self.refresh_settings()
  def reopen_line(self):self.say_line('Saved. It takes effect the next time PlayBridge opens.','news')
  def refresh_settings(self):
-  app=self.app;core=self.core;saved=core.config();profiles=core.PROFILES
+  app=self.app;core=self.core;saved=core.config();profiles=core.PROFILES;checked=app.perf_watch.check()
   favourites=saved_consoles(saved,profiles);match=next((item for item in favourites if item['host']==app.args.host),None)
   found=self.found_cards;automatic='Automatic: '+graphics_card.label(graphics_card.automatic(found),found) if len(found)>1 else ''
   kept_card=saved.get('graphics_card',graphics_card.AUTOMATIC);names=[item['name'] for item in found]
@@ -1082,6 +1113,7 @@ class Shell(QObject):
    compact_note='This PC has no encoder for this, so recordings stay as the PS5 made them.' if files_encoder is None else f'After each recording or replay is saved, PlayBridge makes its video again with {video_encoders.NAMES.get(files_encoder,files_encoder)}, at about a third of the size, and keeps the sound as it is. It works only while no stream plays, and the original goes to the Recycle Bin once the new file has been checked.'
    live_note='This PC\'s graphics card makes neither HEVC nor AV1, so the stream always goes as the PS5 sent it.' if live_encoder is None else f'{video_encoders.NAMES.get(live_encoder,live_encoder)} makes the video again at about a quarter of the PS5\'s bitrate (4K at about {video_encoders.bitrate(live_encoder,2160,live=True)//1_000_000} Mbps), for a slower upload. It uses the graphics card\'s encoder, not the processor.'
   service=saved.get('live_service') if saved.get('live_service') in live_broadcast.SERVICES else 'twitch'
+  targets,_=live_broadcast.saved_targets(saved);target=targets.get(service,{})
   live_status=self.live_status or (LIVE_HINTS[service],'plain')
   if app.broadcast.state=='live':live_status=('Live on '+app.broadcast.name+' for '+live_broadcast.clock(app.broadcast.elapsed())+'.','news')
   self.put('settings',dict(
@@ -1089,24 +1121,24 @@ class Shell(QObject):
    host=app.args.host,favourites=[item['name']+' · '+item['host'] for item in favourites],consoleName=match['name'] if match else '',
    found=list(self.discovered) or (['No console found'] if self.scan_status.startswith('No console') else ['Select a console']),foundLabel=self.found_label,scanning=self.scanning,scanStatus=self.scan_status,
    favouriteStatus=dict(text=self.favourite_status[0],tone=self.favourite_status[1]),reconnect=bool(app.args.auto_reconnect),manual=bool(app.args.connect_only),notices=bool(saved.get('ps5_notices',False)),
-   consolePad=self.console_pad,keyboardHelp=KEYBOARD_HELP,padStatus=self.pad_status(),**self.phone_view(),**self.aim_view(),**self.pad_profile_view(),**self.fan_view(),**self.discord_view(),**self.chat_settings(),**self.api_view(),**self.psn_settings(),
+   consolePad=self.console_pad,keyboardHelp=KEYBOARD_HELP,padStatus=self.pad_status(),**self.phone_view(),**self.aim_view(),**self.pad_profile_view(),**self.fan_view(),**self.away_view(),**self.discord_view(),**self.chat_settings(),**self.api_view(),**self.psn_settings(),
    chatProblem=getattr(self,'chat_problem',''),
    recent=[self.payload_label(item) for item in self.recent_payloads()] or ['No payload sent yet'],payloadStatus=dict(text=self.payload_status[0],tone=self.payload_status[1]),**self.payloads_view(),
    profiles=[value['name'] for value in profiles.values()],profile=profiles[app.args.profile]['name'],cardSummary=graphics_card.summary(app.graphics()),
    cards=([automatic]+names) if len(found)>1 else [],card=(kept_card if kept_card in names else automatic) if len(found)>1 else '',
-   diagnostic=self.diagnostic,perfOverlay=self.perf_overlay,timerShown=self.timer_shown,timerAuto=bool(saved.get('timer_auto',True)),timerTrophies=bool(saved.get('timer_trophies',True)),liveOverlay=bool(saved.get('live_overlay',False)),trophyClips=bool(saved.get('trophy_clips',True)),gpuOutput=bool(saved.get('direct_video',True)),matchRefresh=self.match_on,direct=self.direct,sharpen=bool(self.presenter.sharpen) if self.direct else False,fsr=bool(self.presenter.fsr) if self.direct else False,
+   diagnostic=self.diagnostic,perfOverlay=self.perf_overlay,timerShown=self.timer_shown,timerAuto=bool(saved.get('timer_auto',True)),timerTrophies=bool(saved.get('timer_trophies',True)),liveOverlay=bool(saved.get('live_overlay',False)),trophyClips=bool(saved.get('trophy_clips',True)),gpuOutput=bool(saved.get('direct_video',True)),matchRefresh=self.match_on,direct=self.direct,**self.studio_view(),
    vrrSupported=vrr_supported,vrr=bool(saved.get('vrr',False)),smooth=bool(self.smooth.on) if self.direct else False,smoothState=self.smooth_note(),smoothNote=SMOOTH_NOTE,
    replayLengths=list(REPLAY_LENGTHS),replay=next((label for label,seconds in REPLAY_LENGTHS.items() if seconds==app.replay.seconds),'Last 60 seconds'),
    mic=bool(app.microphone.on),mics=[DEFAULT_MIC,console_mic.NAME]+mics,micDevice=kept_mic if kept_mic in mics or kept_mic==console_mic.NAME else DEFAULT_MIC,micState=app.microphone.state(),micLevel=float(app.mic_mix.level),micMax=float(mic_mix.LEVEL_MAX),
    captureFolder=str(app.capture_folder()),compact=bool(saved.get('compact_recordings',False)),compactNote=compact_note,compactProgress=app.compactor.status(),
    saveBackup=bool(app.link.saves.auto),savesBusy=bool(app.link.saves.busy()),savesStatus=app.link.saves.status or 'No saves copied in this session yet.',
-   services=list(live_broadcast.SERVICES.values()),service=live_broadcast.SERVICES[service],serviceKey=service,server=saved.get('live_server','') if isinstance(saved.get('live_server'),str) else '',
-   key=live_broadcast.unseal(saved.get('live_key','')),compressible=service in live_broadcast.COMPRESSIBLE,compress=bool(saved.get('live_compress',False)),compressNote=live_note,
-   liveStatus=dict(text=live_status[0],tone=live_status[1]),liveActive=bool(app.broadcast.active),
+   services=list(live_broadcast.SERVICES.values()),service=live_broadcast.SERVICES[service],serviceKey=service,server=target.get('server',''),
+   key=target.get('key',''),compressible=service in live_broadcast.COMPRESSIBLE,**self.live_view(saved,service),compress=bool(saved.get('live_compress',False)),compressNote=live_note,
+   liveStatus=dict(text=live_status[0],tone=live_status[1]),liveActive=bool(app.broadcast.active),liveEnding=app.broadcast.state=='ending',
    music=bool(self.sounds.music_on),cues=bool(self.sounds.effects_on),level=float(self.sounds.volume),gamingOnStart=bool(saved.get('gaming_mode',False)),animations=self.animations,qt=saved.get('ui','qt')=='qt',
    gamesViews=[name for _,name in library_view.VIEWS],gamesView=library_view.VIEW_NAMES[self.shelf_state.options.view],tileSizes=[name for _,name in library_view.SIZES],
    tileSize=library_view.SIZE_NAMES[self.shelf_state.options.size],tileNames=self.shelf_state.options.names,tileBadges=self.shelf_state.options.badges,
-   update=dict(app.updates.status(),text=app.updates.text(),source=not getattr(sys,'frozen',False))))
+   update=dict(app.updates.status(),text=app.updates.text(),source=not getattr(sys,'frozen',False),check=perf_watch.line(checked),slower=checked['state']=='slower')))
  def start_api(self):
   """Starts local control on the port it had before, so the addresses in a Stream Deck keep working, or on the next free one."""
   saved=self.core.config();secret=saved.get('api_secret') if isinstance(saved.get('api_secret'),str) and len(saved.get('api_secret'))>=12 else local_api.new_secret()
@@ -1214,11 +1246,12 @@ class Shell(QObject):
   # The options card is the open conversation's, and reactions are chosen for a message still shown.
   if self.chat_card=='options' and not view.get('thread'):self.chat_card=''
   if self.chat_picking and not any(m.get('id')==self.chat_picking for m in view.get('messages') or []):self.chat_picking=''
-  outgoing=self.chat_outgoing;key=repr((view,running,playing,self.friend_finder,outgoing,self.friends_filter,self.chat_card,self.chat_picking,int(time.time()//30)))
+  games=self.app.link.games;title=running_title(self.app.link.status) if self.app.link.online else ''
+  outgoing=self.chat_outgoing;key=repr((view,running,playing,self.friend_finder,outgoing,self.friends_filter,self.chat_card,self.chat_picking,int(time.time()//30),self.app.link.revision,title))
   if key!=self.psn_seen:
    self.psn_seen=key
    picture=dict(image=file_url(outgoing['path']),name=outgoing['name']) if outgoing else None
-   self.put('friends',dict(friends_view.page(view,time.time(),self.friends_filter,self.psn_picture,running,self.chat_picture,playing),finderOpen=self.friend_finder,outgoing=picture,
+   self.put('friends',dict(friends_view.page(view,time.time(),self.friends_filter,self.psn_picture,running,self.chat_picture,playing,games,title or ''),finderOpen=self.friend_finder,outgoing=picture,
     chatCard=self.chat_card,picking=self.chat_picking))
  def chat_picture(self,name):return file_url(self.core.STATE/'psn'/'chat'/name) if name else ''
  def media_ready(self,kind,path,message_id):
@@ -1274,6 +1307,14 @@ class Shell(QObject):
   key=str(key);kept=set(self.psn.favourites)
   if not key.isdigit():return
   kept^={key};self.psn.favourites=kept;self.core.save_config(psn_favourites=sorted(kept));self.sounds.play('accept');self.show_friends()
+ def do_friend_play(self,key):
+  """Play this too: the game a friend plays starts on the PS5 (as from the Games page), or the Store opens on it when it is not there."""
+  friend=next((f for f in self.psn.view()['friends'] if f['id']==str(key)),None)
+  title=running_title(self.app.link.status) if self.app.link.online else ''
+  found=friends_view.play_too(friend or {},self.app.link.games,title or '')
+  if not found:self.say('Your friend is not playing anything now.');return
+  if found['kind']=='store':QDesktopServices.openUrl(QUrl(friends_view.store_url(found['game'])));self.sounds.play('accept');self.say(f"{found['game']} is not on your PS5. The PlayStation Store opened in your browser.");return
+  self.sounds.play('accept');self.start_game(found['title'])
  def do_friend_trophies(self,key):self.trophy_book.compare_with(str(key));self.sounds.play('accept');self.show_page('trophies')
  # Trophies from PSN.
  def ask_shelf_trophies(self,link):
@@ -1293,10 +1334,12 @@ class Shell(QObject):
   if key==self.trophy_seen:return
   self.trophy_seen=key;me=psn['me'];opened=view['open'] or {}
   # Pictures from Sony's image server: the games on the list and the open game's trophies.
-  self.trophy_book.want_icons([((opened.get('title') or {}).get('icon',''))]+[row['icon'] for row in opened.get('rows',[]) if not row['hidden'] or row['earned']]+[title['icon'] for title in view['titles'][:120]])
+  hunted=[(title['icon'],row['icon'] if not row['hidden'] else '') for _,title,row in psn_trophies.hunt_rows(view.get('hunt'))]
+  self.trophy_book.want_icons([((opened.get('title') or {}).get('icon',''))]+[row['icon'] for row in opened.get('rows',[]) if not row['hidden'] or row['earned']]+[title['icon'] for title in view['titles'][:120]]
+   +[url for pair in hunted for url in pair if url])
   self.put('trophies',psn_trophies.page(psn['state'],view,friends,self.trophy_filter,self.trophy_icon,dict(name=me.get('name',''),picture=self.psn_picture(me.get('picture')))))
  def do_trophy_filter(self,name):
-  if name in psn_trophies.FILTERS:self.trophy_filter=name;self.sounds.play('move');self.show_trophies()
+  if name in psn_trophies.FILTERS:self.trophy_filter=name;self.trophy_book.hunt(name=='Next up');self.sounds.play('move');self.show_trophies()
  def do_trophy_open(self,key):self.trophy_book.show_set(str(key));self.sounds.play('accept');self.show_trophies()
  def do_trophy_close(self,_):self.trophy_book.close_set();self.sounds.play('back');self.show_trophies()
  def do_trophy_compare(self,name):
@@ -1307,6 +1350,21 @@ class Shell(QObject):
   """A trophy chosen in an open game: a search for its guide, as on the Games page."""
   opened=self.values['trophies'].get('open') or {};row=next((row for row in opened.get('rows',[]) if row['id']==number),None)
   if row:self.open_trophy_guide(opened.get('name',''),dict(name='' if row['name']=='Hidden trophy' else row['name']))
+ # Next up: a trophy of the hunt opens its game, its guide or the game's missable trophies.
+ def hunt_row(self,index):
+  rows=(self.values.get('trophies') or {}).get('hunt') or []
+  try:index=int(index)
+  except (TypeError,ValueError):return None
+  return rows[index] if 0<=index<len(rows) else None
+ def do_trophy_hunt_open(self,index):
+  row=self.hunt_row(index)
+  if row:self.do_trophy_open(row['set'])
+ def do_trophy_hunt_guide(self,index):
+  row=self.hunt_row(index)
+  if row:self.open_trophy_guide(row['game'],dict(name='' if row['name']=='Hidden trophy' else row['name']))
+ def do_trophy_hunt_missable(self,index):
+  row=self.hunt_row(index)
+  if row:QDesktopServices.openUrl(QUrl(trophy_guides.missable_url(row['game'])));self.say_line(f"Opened a list of missable trophies for {trophy_guides.plain(row['game'])} in your browser.")
  def do_friend_message(self,key):
   if self.friend_finder:self.friend_finder=False;self.psn.clear_find()
   self.psn.chat_with(str(key));self.sounds.play('accept')
@@ -1524,6 +1582,53 @@ class Shell(QObject):
  def do_manual(self,on):
   self.app.args.connect_only=bool(on);self.core.save_config(connect_only=bool(on));self.say_line('Saved. Used the next time PlayBridge connects.')
  def do_notices(self,on):self.core.save_config(ps5_notices=bool(on));self.say_line('Saved. Used the next time PlayBridge connects.')
+ # Play away from home (away_play): turned on at home, then used away.
+ def away_view(self):
+  app=self.app;profiles=self.core.PROFILES;away=app.away_settings();names=away_play.ladder(profiles)
+  chosen=away.get('profile') if away.get('profile') in names else away_play.USUAL_PROFILE
+  hours=away.get('hours') if away.get('hours') in away_play.HOURS else away_play.USUAL_HOURS
+  transport='tcp' if away.get('transport')=='tcp' else 'udp';now=''
+  if app.away_active and app.connection_state=='Connected':
+   over_udp=app.udp_video is not None and app.sock is app.udp_video
+   now=f"Playing away from home now: {profiles[app.away_profile or chosen]['name']}, "+(f"over UDP with error correction, {app.udp_video.percent}% extra for lost pieces." if over_udp else 'over TCP.')
+  # A payload loaded by hand holds no key, so it never answers from outside the home network.
+  problem=self.away_problem or (AWAY_HAND_LOADED if away.get('on') and app.args.connect_only else '')
+  return dict(away=dict(on=bool(away.get('on')),busy=bool(self.away_busy),now=now,text=away_play.explain(away),problem=problem,
+   typed=bool(away.get('on')) and away.get('method') in ('router','manual'),address=str(away.get('address','')) if away.get('method') in ('router','manual') else '',
+   hoursList=[f'{h} hours' for h in away_play.HOURS],hours=f'{hours} hours',profiles=[profiles[n]['name'] for n in names],profile=profiles[chosen]['name'],
+   transports=list(AWAY_TRANSPORTS.values()),transport=AWAY_TRANSPORTS[transport]))
+ def do_away(self,on):
+  if self.away_busy:return
+  app=self.app;self.away_problem='';away=app.away_settings()
+  if on:
+   if app.connection_state=='Connected':self.away_problem='Disconnect first: the payload that waits for you cannot start while a stream runs.';self.refresh_settings();return
+   if app.args.connect_only:self.away_problem=AWAY_HAND_LOADED;self.refresh_settings();return
+   hours=away.get('hours') if away.get('hours') in away_play.HOURS else away_play.USUAL_HOURS
+   self.away_busy=True;app.prepare_away(hours,lambda result,sent,problem:self.away_results.put(('on',result,sent,problem)))
+  else:
+   self.away_busy=True;app.end_away(lambda told,removed:self.away_results.put(('off',told,removed,'')))
+  self.refresh_settings()
+ def finish_away(self,kind,first,second,problem):
+  self.away_busy=False;self.away_problem=problem
+  if kind=='on' and first is not None and not problem:self.say_line('Away play is ready. Take this PC with you and connect as usual.','news')
+  elif kind=='off':self.say_line('Away play is off.'+(' The PS5 stops waiting once no stream runs.' if first else '')+(' Your router\'s forwards were removed.' if second else ''),'news')
+  else:self.refresh_settings()
+ def save_away(self,**changes):
+  away=dict(self.app.away_settings());away.update(changes);self.core.save_config(away=away);self.refresh_settings()
+ def do_away_hours(self,label):
+  if self.away_busy or self.app.away_settings().get('on'):return
+  hours=next((h for h in away_play.HOURS if f'{h} hours'==label),None)
+  if hours:self.save_away(hours=hours)
+ def do_away_profile(self,label):
+  profiles=self.core.PROFILES;name=next((n for n in away_play.ladder(profiles) if profiles[n]['name']==label),None)
+  if name and not self.away_busy:self.save_away(profile=name);self.say_line('Saved. Used the next time PlayBridge connects away from home.')
+ def do_away_transport(self,label):
+  key=next((k for k,text in AWAY_TRANSPORTS.items() if text==label),None)
+  if key and not self.away_busy:self.save_away(transport=key);self.say_line('Saved. Used the next time PlayBridge connects away from home.')
+ def do_away_address(self,text):
+  text=str(text or '').strip()
+  if not away_play.address_ok(text):self.say_line('Type your home IP address, or a name such as home.example.net.','error');return
+  self.save_away(address=text);self.say_line('Saved. PlayBridge connects there away from home.')
  def do_console_pad(self,on):
   self.console_pad=bool(on);self.core.save_config(console_pad=self.console_pad)
   self.say_line('Your controller and keyboard play on your PS5 from the live view.' if on else 'Your controller and keyboard stay on this PC.','news');self.refresh_settings()
@@ -1871,15 +1976,43 @@ class Shell(QObject):
  def do_gpu_output(self,on):self.core.save_config(direct_video=bool(on));self.reopen_line()
  def do_match(self,on):self.match_on=bool(on);self.core.save_config(match_refresh=self.match_on);self.refresh_settings()
  def do_sharpen(self,on):
-  if self.direct:self.presenter.sharpen=bool(on);self.core.save_config(sharpen=bool(on));self.refresh_settings()
+  if self.direct:self.studio.change('sharpen',on,self.presenter);self.refresh_settings()
  def do_fsr(self,on):
-  if self.direct:self.presenter.fsr=bool(on);self.core.save_config(fsr=bool(on));self.refresh_settings()
+  if self.direct:self.studio.change('fsr',on,self.presenter);self.refresh_settings()
  def do_vrr(self,on):self.core.save_config(vrr=bool(on));self.reopen_line()
  def do_perf_overlay(self,on):
   self.perf_overlay=bool(on);self.core.save_config(perf_overlay=self.perf_overlay);self.refresh_settings()
   if on and not self.direct:self.app.notify('The performance overlay needs the GPU video output.')
  def do_smooth(self,on):
   if self.direct:self.smooth.turn(self.presenter,bool(on));self.core.save_config(smooth_motion=bool(on));self.refresh_settings()
+ def picture_second(self):
+  """Once a second with the GPU video output: whether Windows HDR is on for the window's screen, what the video engine does, and the
+  game running now, whose own picture values Picture Studio puts in. Settings are drawn again when any of that changes."""
+  app=self.app;self.presenter.check_screen();state=self.presenter.engine_state()
+  app.stats['picture_engine']=state['scaling'];app.stats['video_hdr']=state['hdr']
+  title=running_title(app.link.status) if app.link.online else ''
+  changed=self.studio.see(title,app.link.game_name(title) if title else '',self.presenter)
+  if (changed or state!=self.engine_seen) and self.values.get('page')=='settings':self.engine_seen=state;self.refresh_settings()
+  else:self.engine_seen=state
+ def studio_view(self):
+  """Picture Studio's part of Settings."""
+  if not self.direct:return dict(superResolution=False,videoHdr=False,deband=False,sharpen=False,fsr=False,compare=False,engineScaling='',engineHdr='',studioGame='',studioOwn=False,studioGames=[])
+  state=self.presenter.engine_state();view=self.studio.view()
+  return dict(view,compare=bool(self.presenter.split),engineScaling=state['scaling'],engineHdr=state['hdr'])
+ def do_super_resolution(self,on):
+  if self.direct:self.studio.change('super_resolution',on,self.presenter);self.refresh_settings()
+ def do_video_hdr(self,on):
+  if self.direct:self.studio.change('video_hdr',on,self.presenter);self.presenter.check_screen();self.refresh_settings()
+ def do_deband(self,on):
+  if self.direct:self.studio.change('deband',on,self.presenter);self.refresh_settings()
+ def do_compare(self,on):
+  if self.direct:self.presenter.split=bool(on);self.refresh_settings()
+ def do_studio_keep(self,_):
+  if self.direct and self.studio.keep_for_game(self.presenter):self.app.notify(f'{self.studio.name or "This game"} keeps these picture settings.')
+  self.refresh_settings()
+ def do_studio_forget(self,_):
+  if self.direct:self.studio.forget_game(self.presenter);self.app.notify('This game uses your usual picture settings again.')
+  self.refresh_settings()
  def smooth_note(self):
   """What smooth motion is doing now, under its switch."""
   if not self.direct:return ''
@@ -1908,9 +2041,38 @@ class Shell(QObject):
   self.core.save_config(compact_recordings=bool(on))
   if on:self.app.compactor.resume(self.core.config().get('compact_waiting',[]))
   self.refresh_settings()
- def do_live_service(self,label):
+ def live_view(self,saved,service):
+  """Which services Go live sends to, in words, and whether the one shown is one of them."""
+  chosen=live_broadcast.chosen_targets(saved);names=[live_broadcast.SERVICES[name] for name,_,_ in chosen]
+  missing=[]
+  for name,key,server in chosen:
+   try:live_broadcast.destination(name,key,server)
+   except ValueError as problem:missing.append(f'{live_broadcast.SERVICES[name]}: {problem}')
+  if not chosen:summary='Switch on each service to go live on. Go live then sends to all of them at once.'
+  elif len(chosen)==1:summary=f'Go live sends to {names[0]}. Switch on more services to go live on them at the same time.'
+  else:summary=(f'Go live sends to {live_broadcast.names_text(names)} at once, each the stream the PS5 made, without encoding it again. '
+   f'Your upload carries it once for each of them, so it needs {len(chosen)} times your profile\'s bitrate.')
+  if self.app.broadcast.active and self.app.broadcast.targets:
+   states={'trying':'being called again','ended':'ended'}
+   summary+=' '+' '.join(f'{name}: {states[state]}.' for name,state in self.app.broadcast.targets.items() if state in states)
+  return dict(liveOn=service in [name for name,_,_ in chosen],liveSummary=summary,liveMissing=' '.join(missing),liveCount=len(chosen))
+ def keep_live_fields(self,value):
+  """Keeps what is typed for the service shown, its key sealed for this Windows user."""
+  value=dict(value or {});service=self.values['settings'].get('serviceKey','twitch')
+  self.core.save_config(**live_broadcast.keep_target(self.core.config(),service,str(value.get('key','')),str(value.get('server',''))))
+  return service
+ def do_live_target(self,value):
+  """The service shown is switched on or off for Go live; what was typed for it is kept first."""
+  if self.app.broadcast.active:self.refresh_settings();return
+  service=self.keep_live_fields(value);on=bool(dict(value or {}).get('on'))
+  self.core.save_config(**live_broadcast.switch_target(self.core.config(),service,on));self.live_status=None;self.sounds.play('move');self.refresh_settings()
+ def do_live_service(self,value):
+  """Another service shown; what was typed for the one before is kept first."""
+  label=value.get('label') if isinstance(value,dict) else value
   kind=next((key for key,name in live_broadcast.SERVICES.items() if name==label),None)
-  if kind:self.core.save_config(live_service=kind);self.live_status=None;self.refresh_settings()
+  if not kind:return
+  if isinstance(value,dict) and not self.app.broadcast.active:self.keep_live_fields(value)
+  self.core.save_config(live_service=kind);self.live_status=None;self.refresh_settings()
  def do_live_check(self,value):
   """Says what is wrong with the key or the address while it is typed, before Go live is pressed. An empty field waits."""
   if self.app.broadcast.active:return
@@ -1921,11 +2083,11 @@ class Shell(QObject):
   self.live_status=None;self.refresh_settings()
  def do_live_go(self,value):
   app=self.app
-  if app.broadcast.active:app.end_live();self.live_status=('The live stream ended.','plain');self.refresh_settings();return
-  value=dict(value or {});kind=self.values['settings'].get('serviceKey','twitch');key=str(value.get('key','')).strip();server=str(value.get('server','')).strip()
-  # The key is kept encrypted for this Windows user.
-  self.core.save_config(live_service=kind,live_server=server,live_key=live_broadcast.seal(key))
-  problem=app.go_live(kind,key,server)
+  if app.broadcast.active:app.end_live();self.live_status=('Ending the live stream…','plain');self.refresh_settings();return
+  # What is typed is kept, the key encrypted for this Windows user. With no service switched on, the one shown goes, as before.
+  service=self.keep_live_fields(value);saved=self.core.config()
+  if not live_broadcast.chosen_targets(saved):self.core.save_config(**live_broadcast.switch_target(saved,service,True));saved=self.core.config()
+  problem=app.go_live_many(live_broadcast.chosen_targets(saved))
   self.live_status=(problem,'error') if problem else ('Waiting for the next keyframe…','plain');self.refresh_settings()
  def do_live_compress(self,on):self.core.save_config(live_compress=bool(on));self.refresh_settings()
  def do_music(self,on):self.sounds.set_music(bool(on));self.core.save_config(sound_music=bool(on));self.refresh_settings()
@@ -1937,6 +2099,14 @@ class Shell(QObject):
  def do_qt(self,on):self.core.save_config(ui='qt' if on else 'tk');self.reopen_line()
  # Updates.
  def do_update_check(self,value):self.app.updates.check_now()
+ def do_update_beta(self,on):
+  channel='beta' if on else 'stable';self.app.updates.set_channel(channel);self.core.save_config(update_channel=channel);self.refresh_settings()
+ def do_bug_report(self,_):
+  """Report a problem: the new-issue page opens in the browser with the details in it, and they go to the clipboard too."""
+  lines=self.app.report_details('qt')
+  QDesktopServices.openUrl(QUrl(bug_report.issue_url(updater.REPOSITORY,lines)))
+  QGuiApplication.clipboard().setText('\n'.join(lines));self.sounds.play('accept')
+  self.app.notify('A new GitHub issue opened in your browser with PlayBridge\'s details. Nothing is sent until you submit it there.');self.app.notice_until=time.perf_counter()+10
  def do_update_auto(self,on):self.app.updates.set_automatic(on);self.core.save_config(update_auto=bool(on));self.refresh_settings()
  def do_update_install(self,value):
   if self.app.updates.status()['installable']:self.app.restart_after_update=True;self.close()
@@ -1955,9 +2125,62 @@ class Shell(QObject):
  def do_media_folder(self,_):self.app.open_captures()
  # Stats.
  def show_stats(self):
-  """The Stats page, put again when a session or trophy was added, a minute went by, or another year was chosen."""
-  log=self.play_log;now=time.time();key=(len(log.sessions),len(log.trophies),log.open[0] if log.open else '',int(now//60),self.stats_year)
-  if key!=self.stats_seen:self.stats_seen=key;self.put('stats',game_stats.page(log,self.app.link.games,self.stats_year,now))
+  """The Stats page, put again when a session or trophy was added, a minute went by, another year or report was chosen, or a game's
+  performance was kept."""
+  log=self.play_log;now=time.time();kept=self.lab_kept()
+  level=self.trophy_level()
+  key=(len(log.sessions),len(log.trophies),log.open[0] if log.open else '',int(now//60),self.stats_year,kept,self.lab_key,repr(level))
+  if key!=self.stats_seen:
+   self.stats_seen=key;view=game_stats.page(log,self.app.link.games,self.stats_year,now)
+   self.put('stats',dict(view,yearCard=self.year_view(view['year'],level),wrappedLevel=bool(level),**self.lab_view(kept)))
+ def trophy_level(self):
+  """The PSN trophy level for the Wrapped card while signed in, else None."""
+  summary=self.trophy_book.summary if self.psn.state=='on' else None
+  return dict(level=summary['level'],counts=psn_trophies.grade_counts(summary['earned'])) if summary else None
+ def year_view(self,year,level):
+  """The Wrapped card of the year shown, drawn to a file for its preview when the year's numbers change."""
+  drawn=repr((year,level))
+  if self.year_drawn!=drawn or not self.year_card.is_file():
+   try:self.year_card.parent.mkdir(parents=True,exist_ok=True);share_cards.save(share_cards.wrapped_card(year,level),self.year_card);self.year_drawn=drawn
+   except (OSError,ValueError) as error:self.app.event(f'Wrapped card not drawn: {type(error).__name__}: {error}');self.year_drawn=None
+  return file_url(self.year_card) if self.year_drawn else ''
+ def lab_kept(self):
+  """When the performance history last changed, so the page reads it again only then."""
+  try:return self.app.link.performance.path.stat().st_mtime_ns
+  except OSError:return 0
+ def lab_view(self,kept):
+  """Performance Lab's part of the Stats page, with the picked report's card drawn to a file for its preview."""
+  history=self.app.link.performance.history();view=performance_lab.view(history,self.lab_key);picked=view['labPicked'];view['labCard']=''
+  if picked:
+   if self.lab_drawn!=(kept,picked) or not self.lab_card.is_file():
+    report=performance_lab.picked(history,picked)
+    try:self.lab_card.parent.mkdir(parents=True,exist_ok=True);share_cards.save(share_cards.performance_card(report),self.lab_card);self.lab_drawn=(kept,picked)
+    except (OSError,ValueError) as error:self.app.event(f'Performance card not drawn: {type(error).__name__}: {error}');self.lab_drawn=None
+   if self.lab_drawn:view['labCard']=file_url(self.lab_card)
+  return view
+ def do_lab_pick(self,key):
+  if isinstance(key,str) and key!=self.lab_key:self.lab_key=key;self.sounds.play('move');self.show_stats()
+ def lab_image(self):
+  """The picked report's card at full size, drawn again so it is the history as it is now."""
+  report=performance_lab.picked(self.app.link.performance.history(),self.values['stats'].get('labPicked',''))
+  return share_cards.performance_card(report) if report else None
+ def year_image(self):
+  """The Wrapped card of the year shown, drawn again at full size."""
+  year=(self.values.get('stats') or {}).get('year')
+  return share_cards.wrapped_card(year,self.trophy_level()) if year else None
+ def save_card(self,image):
+  if image is None:return
+  try:path=share_cards.save(image,self.app.capture_path('Screenshots','.png'))
+  except OSError as error:self.app.notify(f'The card could not be saved: {error}');return
+  self.sounds.play('accept');self.app.notify(f'Saved the card in your captures: {path.name}');self.app.notice_until=time.perf_counter()+8
+ def copy_card(self,image):
+  if image is None:return
+  picture=QImage(image.tobytes('raw','RGB'),image.width,image.height,image.width*3,QImage.Format.Format_RGB888).copy()
+  QGuiApplication.clipboard().setImage(picture);self.sounds.play('accept');self.app.notify('Copied the card. Paste it anywhere with Ctrl+V.');self.app.notice_until=time.perf_counter()+8
+ def do_lab_save(self,_):self.save_card(self.lab_image())
+ def do_lab_copy(self,_):self.copy_card(self.lab_image())
+ def do_year_save(self,_):self.save_card(self.year_image())
+ def do_year_copy(self,_):self.copy_card(self.year_image())
  def do_stats_year(self,year):
   try:self.stats_year=int(year)
   except (TypeError,ValueError):return
@@ -1969,11 +2192,15 @@ class Shell(QObject):
   path=str(path or '')
   if not path.lower().endswith(('.mp4','.mov','.mkv')) or not os.path.isfile(path):return
   self.clip_job+=1;job=self.clip_job;folder=self.core.STATE/'clip-editor'/str(job)
-  self.put('clip',dict(path=path,name=Path(path).name,loading=True,seconds=0,start=0,end=0,strip=[],kind='small',kinds=self.clip_kinds(),stills=['',''],status='',tone='plain',busy=False,share=0,made=''))
+  self.put('clip',dict(path=path,name=Path(path).name,loading=True,seconds=0,start=0,end=0,strip=[],kind='small',kinds=self.clip_kinds(),stills=['',''],status='',tone='plain',busy=False,share=0,made='',
+   moments=[],finding=True,reelSeconds=0))
+  # The play log's trophies stand in for a recording with no notes of its own; their names are not kept there.
+  trophies=[(at,'') for _,_,at,_ in list(self.play_log.trophies)]
   def load():
    described=clip_editor.info(path)
    if described is None:self.clip_results.put((job,'failed','This recording cannot be read.'));return
    self.clip_results.put((job,'info',described));self.clip_results.put((job,'strip',clip_editor.strip(path,described['seconds'],folder)))
+   self.clip_results.put((job,'moments',highlights.find(path,described['seconds'],trophies,stopping=lambda:self.clip_stopping.is_set() or job!=self.clip_job)))
   threading.Thread(target=load,name='PlayBridge clip strip',daemon=True).start()
  def clip_stills(self,start,end):
   """The pictures where the stretch starts and ends, made on a thread."""
@@ -1995,6 +2222,9 @@ class Shell(QObject):
    self.put('clip',clip);self.clip_stills(0,clip['end']);return
   elif kind=='strip':clip.update(strip=[file_url(path) if path else '' for path in value])
   elif kind=='stills':clip.update(stills=[file_url(path) if path else '' for path in value])
+  elif kind=='moments':
+   seconds=max(.1,clip.get('seconds') or .1);stretches=highlights.reel(value)
+   clip.update(finding=False,moments=[dict(item,at=item['moment']/seconds) for item in sorted(value,key=lambda item:item['start'])],reelSeconds=round(sum(end-start for start,end in stretches)))
   elif kind=='done':
    problem,target=value;self.clip_share=None
    if problem:clip.update(busy=False,status=problem,tone='error')
@@ -2025,6 +2255,27 @@ class Shell(QObject):
    problem=clip_editor.export(source,target,clip['kind'],clip['start'],clip['end'],self.core.share_encoders(),share,busy=lambda:app.connection_state=='Connected',stopping=self.clip_stopping.is_set)
    self.clip_results.put((job,'done',(problem,target)))
   threading.Thread(target=make,name='PlayBridge clip export',daemon=True).start()
+ def do_clip_moment(self,index):
+  """A highlight picked: the stretch becomes it."""
+  clip=self.values['clip']
+  try:item=clip.get('moments',[])[int(index)]
+  except (TypeError,ValueError,IndexError):return
+  self.sounds.play('move');self.do_clip_range([item['start'],item['end']])
+ def do_clip_reel(self,_):
+  """The highlights reel: the best moments, up to a minute, in the order they happened, wide or in the vertical shape chosen."""
+  clip=self.values['clip']
+  if not clip or clip.get('busy') or clip.get('loading') or clip.get('finding'):return
+  stretches=highlights.reel(clip.get('moments',[]));shape=clip_editor.VERTICAL_SHAPES.get(clip['kind'],'wide')
+  wrong=highlights.problem(shape,stretches,clip['seconds'])
+  if wrong:self.put('clip',dict(clip,status=wrong,tone='error'));return
+  job=self.clip_job;source=clip['path'];target=highlights.target_for(source,'highlights' if shape=='wide' else 'highlights-vertical');self.clip_share=0.0
+  self.put('clip',dict(clip,busy=True,share=0,status='Making the highlights reel…',tone='plain',made=''));self.sounds.play('accept')
+  def share(value):self.clip_share=value
+  app=self.app
+  def make():
+   problem=highlights.render(source,target,stretches,shape,self.core.share_encoders(),share,busy=lambda:app.connection_state=='Connected',stopping=self.clip_stopping.is_set)
+   self.clip_results.put((job,'done',(problem,target)))
+  threading.Thread(target=make,name='PlayBridge highlights',daemon=True).start()
  def do_clip_show(self,_):
   made=self.values['clip'].get('made')
   if made and os.path.isfile(made):

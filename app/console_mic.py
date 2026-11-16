@@ -1,7 +1,10 @@
 """The DualSense's microphone, heard through the PS5: the payload opens the console's own microphone library while PlayBridge listens on
 PORT and sends what it hears, 16-bit mono, a block at a time. Here it becomes 48 kHz samples for the same voice buffer the PC's microphone
 fills, so recordings, instant replays and Go live take it the same way. The payload listens only while a stream runs, so this keeps
-trying while it is on, and says why when the PS5 cannot open the microphone."""
+trying while it is on, and says why when the PS5 cannot open the microphone.
+
+Measured on the PS5 on 2026-11-16: opening the microphone from a payload gets the whole payload stopped by the system, so today's
+payload never opens it and answers STAYS_CLOSED; the DualSense's microphone then comes over USB to the PC instead."""
 import socket,struct,threading,time
 import numpy as np
 
@@ -9,6 +12,10 @@ PORT=9079;MAGIC=b'PBM1'
 HEAD=struct.Struct('<4siiii');BLOCK=struct.Struct('<HH')
 NAME='DualSense on your PS5'
 RATE=48000
+# The payload's answer in place of a handle when it keeps the microphone closed (payload/mic-rules.h).
+STAYS_CLOSED=0x8eb00001
+STAYS_CLOSED_NOTE=('The PS5 stops PlayBridge if it opens the DualSense microphone, so it stays closed. Connect the DualSense to this PC '
+ 'with a USB cable and pick its microphone in Settings.')
 # sceAudioInGetSilentState's flags.
 NO_DEVICE=0x01;PRIORITY_LOW=0x02;NO_FORMAT=0x08
 # Seconds between tries while the PS5 does not answer, and the most samples in one block.
@@ -42,7 +49,9 @@ def silence_note(flags):
 
 class ConsoleMic:
  """Feeds voice (mic_mix.VoiceBuffer) from the DualSense while it runs. host(): the console's address. stop() ends it."""
- def __init__(self,host,voice,notify=None):
+ def __init__(self,host,voice,notify=None,connect=None):
+  # connect(host, port): sealed when the payload holds this PC's key (secure_link.Pairing.connect).
+  self.connect=connect or (lambda host,port:socket.create_connection((host,port),2))
   self.host=host;self.voice=voice;self.notify=notify or (lambda text:None);self.stopping=threading.Event();self.sock=None
   self.state='Waiting for the PS5…';self.rate=0;self.way=-1;self.silent=0;self.blocks=0;self.told=''
   self.thread=threading.Thread(target=self.run,name='DualSense microphone',daemon=True);self.thread.start()
@@ -52,7 +61,7 @@ class ConsoleMic:
  def run(self):
   while not self.stopping.is_set():
    try:
-    with socket.create_connection((self.host(),PORT),2) as sock:
+    with self.connect(self.host(),PORT) as sock:
      self.sock=sock;sock.settimeout(5);self.serve(sock)
    except (OSError,EOFError,ValueError,struct.error):pass
    finally:self.sock=None
@@ -62,7 +71,8 @@ class ConsoleMic:
   magic,handle,rate,grain,way=HEAD.unpack(read_exact(sock,HEAD.size))
   if magic!=MAGIC:raise ValueError('Not the PlayBridge microphone')
   if handle<0:
-   self.tell(f'The PS5 did not open the DualSense microphone ({handle&0xffffffff:08x}).');self.stopping.wait(30);return
+   code=handle&0xffffffff
+   self.tell(STAYS_CLOSED_NOTE if code==STAYS_CLOSED else f'The PS5 did not open the DualSense microphone ({code:08x}).');self.stopping.wait(30);return
   if not 0<grain<=GRAIN_MOST or rate<=0:raise ValueError('Odd microphone blocks')
   self.rate,self.way=rate,way;upsample=Upsampler(rate);self.tell(f'DualSense microphone on, at {rate//1000} kHz.')
   while not self.stopping.is_set():

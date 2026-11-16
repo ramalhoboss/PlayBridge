@@ -51,12 +51,24 @@ video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;backgr
 .alert span{display:block;color:var(--ink);font-size:14px}
 @media (max-height:380px),(max-width:380px){.chip{min-height:32px;padding:5px 10px;font-size:13px}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+/* A big screen (a TV, a Steam Deck, a PC browser): read from a sofa and moved through with a remote or a controller. */
+.big .card{width:min(680px,100%);padding:40px;border-radius:28px}
+.big .card h1{font-size:34px}
+.big .card p,.big .note{font-size:21px}
+.big .hint{font-size:18px}
+.big .code{font-size:52px;letter-spacing:16px}
+.big .primary{min-height:68px;font-size:24px}
+.big .chip{min-height:52px;padding:10px 22px;font-size:20px}
+.big :focus-visible,.big .chip:focus{outline:4px solid var(--gold);outline-offset:3px}
+.big .bar{transition:opacity .2s}
+.big .bar.away{opacity:0;pointer-events:none}
+.keys{margin:16px 0 0;color:var(--muted);font-size:18px;line-height:1.6}
 </style>
 </head>
 <body>
 <section class="screen" id="pairing" hidden>
  <form class="card" id="pairForm" autocomplete="off">
-  <h1>Pair this phone</h1>
+  <h1 id="pairTitle">Pair this phone</h1>
   <p>On the PC, open PlayBridge › Settings › Phone and select <b>Pair a phone</b>. Enter the code it shows.</p>
   <label for="code" class="hint" style="display:block;margin:0 0 6px">Six-digit code</label>
   <input class="code" id="code" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required>
@@ -85,6 +97,7 @@ video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;backgr
   <div class="card">
    <h1 id="overlayTitle">Ready</h1>
    <p id="overlayText">Tap to start the picture and sound from your PS5.</p>
+   <p class="keys" id="keysHelp" hidden></p>
    <button class="primary" id="startButton" type="button">Start</button>
    <button class="primary" id="againButton" type="button" hidden>Connect again</button>
   </div>
@@ -99,6 +112,15 @@ const store = {
   set(v){ try { v ? localStorage.setItem("pb_token", v) : localStorage.removeItem("pb_token"); } catch (e) {} }
 };
 let token = store.get();
+
+// ---- Big screen: a TV, a Steam Deck or a PC browser, played with a controller, a TV remote or a keyboard rather than touch. /tv asks
+// for it; a browser with no touch screen gets it too.
+const big = location.pathname === "/tv" || new URLSearchParams(location.search).has("tv") || (!("ontouchstart" in window) && !matchMedia("(pointer: coarse)").matches);
+if (big) {
+  document.documentElement.classList.add("big");
+  $("pairTitle").textContent = "Pair this screen";
+  $("overlayText").textContent = "Press OK or ✕ to start the picture and sound from your PS5.";
+}
 
 // ---- Pairing
 function showPairing(message, bad){
@@ -407,6 +429,7 @@ function gamepadState(){
 function send(force){
   if (!socket || socket.readyState !== 1) return;
   let b = touchButtons, s = [sticks[0], sticks[1], sticks[2], sticks[3], touchButtons & B.L2 ? 255 : 0, touchButtons & B.R2 ? 255 : 0];
+  if (mayPlay) { b |= keyButtons; for (let i = 0; i < 4; i++) if (keySticks[i] !== 128) s[i] = keySticks[i]; if (keyButtons & B.L2) s[4] = 255; if (keyButtons & B.R2) s[5] = 255; }
   const g = mayPlay ? gamepadState() : null;
   if (g) { b |= g.b; for (let i = 0; i < 4; i++) if (s[i] === 128) s[i] = g.s[i]; s[4] = Math.max(s[4], g.s[4]); s[5] = Math.max(s[5], g.s[5]); }
   const state = b + ":" + s.join(","), now = performance.now();
@@ -414,6 +437,65 @@ function send(force){
   // phone's own clock (t, in ms), so the phone log shows how much later than usual the states reach the PC.
   if (force || state !== lastSent || now - lastAt > 100) { socket.send(JSON.stringify({ b, s, t: Math.round(now) })); lastSent = state; lastAt = now; }
 }
+// ---- Keys: a TV remote's arrows, OK and Back, or a keyboard laid out as in PlayBridge on the PC. Held keys are sent with the rest.
+const KEY_BUTTONS = { ArrowUp:B.UP, ArrowDown:B.DOWN, ArrowLeft:B.LEFT, ArrowRight:B.RIGHT, Enter:B.CROSS, NumpadEnter:B.CROSS, Space:B.CROSS,
+  Backspace:B.CIRCLE, Escape:B.CIRCLE, GoBack:B.CIRCLE, BrowserBack:B.CIRCLE, KeyQ:B.SQUARE, KeyE:B.TRIANGLE, Digit1:B.L1, Digit2:B.L2, Digit3:B.R1,
+  Digit4:B.R2, KeyF:B.L3, KeyH:B.R3, Tab:B.OPTIONS, ContextMenu:B.OPTIONS, MediaPlayPause:B.OPTIONS, KeyT:B.TOUCHPAD, Home:B.PS };
+const KEY_STICKS = { KeyA:[0,0], KeyD:[0,255], KeyW:[1,0], KeyS:[1,255], KeyJ:[2,0], KeyL:[2,255], KeyI:[3,0], KeyK:[3,255] };
+const KEYS_HELP = "W A S D left stick · I J K L right stick · arrows D-pad · Enter or Space ✕ · Backspace ○ · Q □ · E △ · 1 L1 · 2 L2 · 3 R1 · 4 R2 · F L3 · H R3 · Tab Options · T touch pad · Home PS";
+const BACK = new Set(["Escape", "GoBack", "BrowserBack", "Backspace"]);
+let keyButtons = 0, keySticks = [128,128,128,128], menuOpen = false, backHeld = null;
+const heldKeys = new Set();
+// The name a key goes by: its place on the keyboard, or what a remote calls it.
+function keyName(ev){ return KEY_BUTTONS[ev.code] !== undefined || KEY_STICKS[ev.code] ? ev.code : ev.key === " " ? "Space" : ev.key; }
+function keysToPad(){
+  keyButtons = 0; keySticks = [128,128,128,128];
+  for (const name of heldKeys) {
+    if (KEY_BUTTONS[name] !== undefined) keyButtons |= KEY_BUTTONS[name];
+    const stick = KEY_STICKS[name]; if (stick) keySticks[stick[0]] = keySticks[stick[0]] === 128 ? stick[1] : 128;
+  }
+}
+// The page's own menu (Controls, Full screen, Disconnect) opens by holding Back for a second; Back again or a pick closes it.
+function openMenu(){
+  menuOpen = true; heldKeys.clear(); keysToPad(); send(true);
+  document.querySelector(".bar").classList.remove("away"); $("leaveButton").focus();
+}
+function closeMenu(){ menuOpen = false; if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); if (big) document.querySelector(".bar").classList.add("away"); }
+function playing(){ return started && $("overlay").hidden && !$("stage").hidden; }
+document.addEventListener("keydown", ev => {
+  if (!playing()) return;
+  const name = keyName(ev);
+  if (menuOpen) {
+    if (BACK.has(name)) { ev.preventDefault(); closeMenu(); return; }
+    const chips = Array.from(document.querySelectorAll(".bar button.chip")).filter(c => !c.hidden), at = chips.indexOf(document.activeElement);
+    if (name === "ArrowLeft" || name === "ArrowRight") { ev.preventDefault(); chips[(at + (name === "ArrowLeft" ? chips.length - 1 : 1)) % chips.length].focus(); }
+    return;
+  }
+  if (KEY_BUTTONS[name] === undefined && !KEY_STICKS[name]) return;
+  ev.preventDefault();
+  if (BACK.has(name) && !ev.repeat) backHeld = setTimeout(openMenu, 1000);
+  if (!mayPlay || heldKeys.has(name)) return;
+  heldKeys.add(name); keysToPad(); send(true);
+});
+document.addEventListener("keyup", ev => {
+  const name = keyName(ev);
+  if (BACK.has(name) && backHeld !== null) { clearTimeout(backHeld); backHeld = null; }
+  if (!heldKeys.delete(name)) return;
+  ev.preventDefault(); keysToPad(); send(true);
+});
+// Leaving the window lets go of every key, as nothing would tell the page they came up.
+addEventListener("blur", () => { heldKeys.clear(); keysToPad(); send(true); });
+// A TV browser's Back leaves the page unless the page keeps a step of its own: it comes back as ○, pressed and let go.
+function keepBack(){ try { history.pushState({ playbridge: 1 }, ""); } catch (e) {} }
+addEventListener("popstate", () => {
+  if (!playing()) return;
+  keepBack();
+  if (menuOpen) { closeMenu(); return; }
+  if (!mayPlay) return;
+  heldKeys.add("GoBack"); keysToPad(); send(true);
+  setTimeout(() => { heldKeys.delete("GoBack"); keysToPad(); send(true); }, 90);
+});
+
 // A controller paired with the phone is read every 8 ms (a DualSense reports every 4 ms); touch sends each change as it happens.
 setInterval(() => send(false), 8);
 
@@ -544,7 +626,8 @@ function layout(){
 addEventListener("resize", layout);
 addEventListener("orientationchange", () => setTimeout(layout, 200));
 document.addEventListener("fullscreenchange", () => setTimeout(layout, 100));
-let controlsShown = true;
+let controlsShown = !big;
+$("controlsButton").setAttribute("aria-pressed", String(controlsShown));
 $("controlsButton").addEventListener("click", () => { controlsShown = !controlsShown; $("controlsButton").setAttribute("aria-pressed", String(controlsShown)); $("pad").hidden = !mayPlay || !controlsShown; layout(); });
 $("fullButton").addEventListener("click", async () => {
   const el = document.documentElement;
@@ -560,13 +643,28 @@ $("againButton").addEventListener("click", connectAgain);
 $("startButton").addEventListener("click", () => {
   // Unmuted after the tap, as before, so the browser keeps the screen on while it plays (the picture has no sound of its own).
   started = true; $("overlay").hidden = true; video.muted = false; startSound(); video.play().catch(() => {});
+  if (big) {
+    keepBack(); document.querySelector(".bar").classList.add("away");
+    const el = document.documentElement;
+    if (!document.fullscreenElement && el.requestFullscreen) el.requestFullscreen({ navigationUI: "hide" }).catch(() => {});
+  }
 });
+// With a mouse, the bar comes back while it moves and steps aside again three seconds after.
+let barTimer = null;
+addEventListener("mousemove", () => {
+  if (!big || !playing() || menuOpen) return;
+  const bar = document.querySelector(".bar"); bar.classList.remove("away");
+  clearTimeout(barTimer); barTimer = setTimeout(() => { if (!menuOpen && !bar.matches(":hover")) bar.classList.add("away"); }, 3000);
+});
+// Any pick in the menu closes it, so the keys go back to the PS5.
+document.querySelectorAll(".bar button.chip").forEach(chip => chip.addEventListener("click", () => { if (menuOpen) closeMenu(); }));
 function showStage(){
   $("pairing").hidden = true; $("stage").hidden = false; $("pad").hidden = true; layout();
   if (!socket || socket.readyState > 1) connect();
   setTimeout(() => $("startButton").focus(), 50);
 }
 buildPad();
+if (big) { $("keysHelp").hidden = false; $("keysHelp").textContent = "Play with a controller, a TV remote (arrows, OK ✕, Back ○) or the keyboard: " + KEYS_HELP + ". Hold Back for a second for the menu."; }
 if (token) showStage(); else showPairing("");
 </script>
 </body>

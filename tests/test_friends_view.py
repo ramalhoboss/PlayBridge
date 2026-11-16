@@ -147,4 +147,24 @@ class FriendsViewTests(unittest.TestCase):
   out=friends_view.settings(dict(state='out'),wants,'That is not the code.',NOW);self.assertEqual((out['psnState']['text'],out['psnProblem'],out['psnOn']),('Not signed in.','That is not the code.',False))
   self.assertEqual(friends_view.favourites_from({'psn_favourites':['12','x',3]}),{'12','3'});self.assertEqual(friends_view.favourites_from({'psn_favourites':'12'}),set())
 
+class PlayThisTooTests(unittest.TestCase):
+ """The game a friend plays: started from the console's games by title id or by name, or searched for in the Store."""
+ GAMES=[dict(title='PPSA01234',name='ASTRO BOT™'),dict(title='CUSA05555',name="Ghost of Tsushima Director's Cut"),dict(title='PPSA09999',name='Media Player',app=True)]
+ def test_by_title_by_name_or_the_store(self):
+  playing=dict(online=True,game='Astro Bot',title_id='PPSA01234_00')
+  self.assertEqual(friends_view.play_too(playing,self.GAMES),dict(kind='play',title='PPSA01234',game='Astro Bot',tip='Play Astro Bot too'))
+  self.assertEqual(friends_view.play_too(playing,self.GAMES,'PPSA01234')['kind'],'running')
+  # The friend plays the PS5 version; this console has the PS4 one.
+  other=dict(online=True,game="Ghost of Tsushima DIRECTOR'S CUT",title_id='PPSA02222_00')
+  self.assertEqual(friends_view.play_too(other,self.GAMES)['title'],'CUSA05555')
+  away=friends_view.play_too(dict(online=True,game='Gran Turismo 7',title_id='PPSA01000_00'),self.GAMES)
+  self.assertEqual((away['kind'],away['tip']),('store','Find Gran Turismo 7 in the PlayStation Store'))
+  self.assertEqual(friends_view.store_url('Gran  Turismo 7'),'https://store.playstation.com/search/Gran%20Turismo%207')
+  self.assertEqual(friends_view.play_too(dict(online=True,game='Media Player',title_id='PPSA09999_00'),self.GAMES)['kind'],'store','an app is not a game to start')
+  self.assertIsNone(friends_view.play_too(dict(online=False,game='Astro Bot'),self.GAMES));self.assertIsNone(friends_view.play_too(dict(online=True),self.GAMES))
+ def test_rows_on_the_page_carry_it(self):
+  page=friends_view.page(view(),NOW,games=self.GAMES)
+  rows={row['name']:row['playToo'] for row in page['friends']}
+  self.assertEqual(rows['NightOwl']['kind'],'play');self.assertIsNone(rows['ModSquad'])
+
 if __name__=='__main__':unittest.main()

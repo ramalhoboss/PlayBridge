@@ -11,11 +11,12 @@ from console_control import CLOSE, GameFlow, POWER_OFF, REBOOT, REST, console_li
 from pad_input import PadBridge
 from settings_look import GlassPage
 from focus_ring import FocusWalker
-import graphics_card,payload_sender,live_broadcast,mic_mix,updater,video_encoders,webbrowser
+import bug_report,graphics_card,payload_sender,live_broadcast,mic_mix,perf_watch,updater,video_encoders,webbrowser
 from hang_watch import HangWatch
 from keep_awake import BatteryHint,KeepAwake,on_battery
 from screen_rate import ScreenRate
 from smooth_motion import NOTE as SMOOTH_NOTE
+from picture_studio import NAMES as STUDIO_NAMES,PictureStudio
 from desktop_features import CursorHider, saved_consoles, remember_console
 from PIL import Image,ImageTk
 import sounddevice as sd
@@ -267,15 +268,6 @@ def run_ui(app):
   switch(place,'Match the screen to the stream',match_on,lambda:core.save_config(match_refresh=match_on.get()))
   note(place,'60 fps judders on a 144 or 165 Hz screen, because some frames stay up longer than others. While a game streams, PlayBridge switches the screen to 120 or 60 Hz, and back when the stream ends.')
   if direct:
-   sharpen_on=ctk.BooleanVar(value=presenter.sharpen)
-   def change_sharpen():
-    presenter.sharpen=sharpen_on.get();core.save_config(sharpen=sharpen_on.get())
-   switch(place,'Sharpen picture',sharpen_on,change_sharpen)
-   fsr_on=ctk.BooleanVar(value=presenter.fsr)
-   def change_fsr():
-    presenter.fsr=fsr_on.get();core.save_config(fsr=fsr_on.get())
-   switch(place,'FSR 1 upscaling',fsr_on,change_fsr)
-   note(place,'When the screen is larger than the picture, such as 1080p on a 1440p or 4K monitor, AMD FidelityFX Super Resolution 1 enlarges it, and Sharpen picture uses its sharpening. Works on any graphics card.')
    smooth_on=ctk.BooleanVar(value=smooth.on)
    def change_smooth():
     smooth.turn(presenter,smooth_on.get());core.save_config(smooth_motion=smooth_on.get())
@@ -287,6 +279,20 @@ def run_ui(app):
     vrr_wanted=ctk.BooleanVar(value=core.config().get('vrr',False))
     switch(place,'Variable refresh rate',vrr_wanted,lambda:(core.save_config(vrr=vrr_wanted.get()),reopen()))
     note(place,'For screens with G-Sync, FreeSync or Adaptive-Sync: each frame shows the moment it is due, so 60 fps plays evenly on a 144 Hz screen without switching it to 60 Hz. Works best in full screen (F11), and other screens may show tearing. While it is on, PlayBridge leaves the screen rate alone. Applies the next time PlayBridge opens.')
+   place=card(sections['picture'],'Picture Studio')
+   current=studio.current();studio_vars.clear()
+   def change_picture(key):
+    studio.change(key,studio_vars[key].get(),presenter)
+    if key=='video_hdr':presenter.check_screen()
+   for key,text in (('super_resolution','When the window is larger than the picture, such as 1080p on a 1440p or 4K screen, the graphics card\'s own video engine enlarges it: NVIDIA RTX Video Super Resolution on an RTX card, Intel\'s video super resolution on Intel Arc and recent Intel graphics. On an NVIDIA card it also needs RTX Video super resolution on in the NVIDIA app. Other cards use FSR 1 instead.'),
+                    ('video_hdr','On an NVIDIA RTX card with Windows HDR on for this screen, the graphics card turns the PS5\'s SDR picture into HDR. It is the card\'s own estimate of HDR, not HDR from the console. Needs RTX Video HDR on in the NVIDIA app.'),
+                    ('fsr','AMD FidelityFX Super Resolution 1 enlarges the picture where the graphics card\'s super resolution is off or not on this card. Works on any graphics card.'),
+                    ('sharpen',''),('deband','Smooths the steps the stream\'s compression leaves in skies, fog and shadows, and leaves edges and textures as they are.')):
+    studio_vars[key]=ctk.BooleanVar(value=current[key]);switch(place,STUDIO_NAMES[key],studio_vars[key],lambda key=key:change_picture(key))
+    if text:note(place,text)
+   compare_on=ctk.BooleanVar(value=presenter.split)
+   switch(place,'Compare before and after',compare_on,lambda:setattr(presenter,'split',compare_on.get()))
+   note(place,'Left of the white line, the picture as the PS5 sends it. Right of it, with these settings. Only until PlayBridge closes. The Qt look can also keep these settings for one game.')
   # Captures.
   place=card(sections['captures'],'Instant replay')
   replay_lengths={'Off':0,'Last 30 seconds':30,'Last 60 seconds':60,'Last 2 minutes':120}
@@ -342,13 +348,33 @@ def run_ui(app):
   place=card(sections['live'],'Go live')
   services={name:key for key,name in live_broadcast.SERVICES.items()}
   saved=core.config();service=ctk.StringVar(value=live_broadcast.SERVICES.get(saved.get('live_service'),'Twitch'))
+  # Each service keeps its own key and server; the switch says whether Go live sends to it, with the others switched on.
+  live_summary=note(place,'')
+  live_on=ctk.BooleanVar(value=False)
+  live_switch=tk.Frame(place,bg=CARD)
   server_label=caption(place,'Server address')
   server_rim,server_field=entry(place,placeholder_text='rtmp://')
-  if isinstance(saved.get('live_server'),str):server_field.insert(0,saved['live_server'])
   key_label=caption(place,'Stream key')
   key_row=tk.Frame(place,bg=CARD)
   key_rim,key_field=entry(key_row,show='•');key_rim.pack(side='left',fill='x',expand=True)
-  key_field.insert(0,live_broadcast.unseal(saved.get('live_key','')))
+  shown_service=[services.get(service.get(),'twitch')]
+  def keep_fields():
+   """Keeps what is typed for the service shown, its key sealed for this Windows user."""
+   core.save_config(**live_broadcast.keep_target(core.config(),shown_service[0],key_field.get(),server_field.get()))
+  def fill_fields(kind):
+   targets,on=live_broadcast.saved_targets(core.config());target=targets.get(kind,{})
+   for field,value in ((server_field,target.get('server','')),(key_field,target.get('key',''))):field.delete(0,'end');field.insert(0,value)
+   live_on.set(kind in on);show_summary()
+  def show_summary():
+   chosen=live_broadcast.chosen_targets(core.config());names=[live_broadcast.SERVICES[name] for name,_,_ in chosen]
+   if not chosen:text='Switch on each service to go live on. Go live then sends to all of them at once.'
+   elif len(chosen)==1:text=f'Go live sends to {names[0]}. Switch on more services to go live on them at the same time.'
+   else:text=f'Go live sends to {live_broadcast.names_text(names)} at once, without encoding the stream again. Your upload needs {len(chosen)} times your profile\'s bitrate.'
+   live_summary.configure(text=text)
+  def switch_live():
+   if app.broadcast.active:live_on.set(not live_on.get());return
+   keep_fields();core.save_config(**live_broadcast.switch_target(core.config(),shown_service[0],live_on.get()));show_summary()
+  live_toggle=switch(live_switch,'Go live on this service',live_on,switch_live)
   def show_key():
    hidden=key_field.cget('show')!='';key_field.configure(show='' if hidden else '•');key_shown.restyle(text='Hide' if hidden else 'Show')
   key_shown=LuxButton(key_row,'Show',show_key,width=96,height=FIELD_HEIGHT,radius=FIELD_HEIGHT//2,text_size=15,behind=CARD);key_shown.pack(side='left',padx=(8,0))
@@ -370,10 +396,15 @@ def run_ui(app):
   def show_live_encoder(encoder):
    if encoder is None:compress_note.configure(text='This PC\'s graphics card makes neither HEVC nor AV1, so the stream always goes as the PS5 sent it.');return
    compress_note.configure(text=f'{video_encoders.NAMES.get(encoder,encoder)} makes the video again at about a quarter of the PS5\'s bitrate (4K at about {video_encoders.bitrate(encoder,2160,live=True)//1_000_000} Mbps), for a slower upload. It uses the graphics card\'s encoder, not the processor.')
-  hints={'twitch':'Twitch recommends at most 6 Mbps, so the Data saver profile suits it best. Higher profiles work on many channels.','youtube':'YouTube takes every 1080p profile. The key travels over an encrypted connection.','tiktok':'TikTok gives a new server address and stream key each time you go live, in LIVE Center on its website, once your account has LIVE access with a stream key. Paste both here. It takes H.264, about 2.5 to 6 Mbps: the Data saver profile suits it. A landscape stream shows with bars or cropped on phones.','custom':'Enter the server address and, if your service gives it separately, the stream key.','obs':f'In OBS, add a Media Source, untick Local File, and enter udp://127.0.0.1:{live_broadcast.OBS_PORT} as the input, with mpegts as its format. Then go live here.'}
+  hints={'kick':'In Kick, open your Creator Dashboard, then Settings and Stream URL & Key. Paste the Stream URL as the server address and the stream key here. Kick takes H.264 at up to 1080p: keep the bitrate at about 8 Mbps or less.','twitch':'Twitch recommends at most 6 Mbps, so the Data saver profile suits it best. Higher profiles work on many channels.','youtube':'YouTube takes every 1080p profile. The key travels over an encrypted connection.','tiktok':'TikTok gives a new server address and stream key each time you go live, in LIVE Center on its website, once your account has LIVE access with a stream key. Paste both here. It takes H.264, about 2.5 to 6 Mbps: the Data saver profile suits it. A landscape stream shows with bars or cropped on phones.','custom':'Enter the server address and, if your service gives it separately, the stream key.','obs':f'In OBS, add a Media Source, untick Local File, and enter udp://127.0.0.1:{live_broadcast.OBS_PORT} as the input, with mpegts as its format. Then go live here.'}
   def arrange(*_):
    kind=services.get(service.get(),'twitch')
-   for widget in (server_label,server_rim,key_label,key_row,smaller,live_go,live_status):widget.pack_forget()
+   if kind!=shown_service[0]:
+    if not app.broadcast.active:keep_fields()
+    shown_service[0]=kind;core.save_config(live_service=kind)
+   fill_fields(kind)
+   for widget in (live_switch,server_label,server_rim,key_label,key_row,smaller,live_go,live_status):widget.pack_forget()
+   live_switch.pack(fill='x')
    if kind in live_broadcast.WITH_SERVER:server_label.pack(anchor='w');server_rim.pack(fill='x',pady=(4,10))
    if kind!='obs':key_label.pack(anchor='w');key_row.pack(fill='x',pady=(4,10))
    if kind in live_broadcast.COMPRESSIBLE:smaller.pack(fill='x')
@@ -383,10 +414,10 @@ def run_ui(app):
   arrange()
   def start_live():
    if app.broadcast.active:app.end_live();return
-   kind=services[service.get()];key=key_field.get().strip();server=server_field.get().strip()
-   # The key is kept encrypted for this Windows user.
-   core.save_config(live_service=kind,live_server=server,live_key=live_broadcast.seal(key))
-   problem=app.go_live(kind,key,server)
+   # What is typed is kept, the key encrypted for this Windows user. With no service switched on, the one shown goes, as before.
+   keep_fields();saved=core.config()
+   if not live_broadcast.chosen_targets(saved):core.save_config(**live_broadcast.switch_target(saved,shown_service[0],True));live_on.set(True);show_summary()
+   problem=app.go_live_many(live_broadcast.chosen_targets(core.config()))
    if problem:live_status.configure(text=problem,text_color=ALERT)
    else:live_status.configure(text='Waiting for the next keyframe…',text_color=MUTED)
   page.live_controls=(live_go,live_status)
@@ -428,6 +459,15 @@ def run_ui(app):
   install_button=wide_button(place,'Restart and update',install_update,tone='main');install_button.pack_forget()
   automatic=ctk.BooleanVar(value=app.updates.automatic)
   switch(place,'Update automatically',automatic,lambda:(app.updates.set_automatic(automatic.get()),core.save_config(update_auto=automatic.get())))
+  beta=ctk.BooleanVar(value=app.updates.channel=='beta')
+  switch(place,'Beta versions',beta,lambda:(app.updates.set_channel('beta' if beta.get() else 'stable'),core.save_config(update_channel='beta' if beta.get() else 'stable')))
+  note(place,updater.BETA_NOTE)
+  note(place,perf_watch.line(app.perf_watch.check()))
+  def report_problem():
+   lines=app.report_details('tk');webbrowser.open(bug_report.issue_url(updater.REPOSITORY,lines))
+   win.clipboard_clear();win.clipboard_append('\n'.join(lines));app.notify('A new GitHub issue opened in your browser with PlayBridge\'s details. Nothing is sent until you submit it there.')
+  wide_button(place,'Report a problem',report_problem)
+  note(place,bug_report.NOTE)
   note(place,'PlayBridge looks for a new version on GitHub when it opens and every six hours. It downloads it slowly in the background, so a stream keeps its speed, checks it against the release\'s checksums, and then asks whether to restart and update now. Otherwise it goes in when you close PlayBridge.')
   seen=[-1]
   def follow_updates():
@@ -620,7 +660,7 @@ def run_ui(app):
   elif key=='fullscreen' and page=='live':full()
   else:page_actions[key]()
  strip=TopStrip(win,top_pressed);strip.grid(row=0,column=0,sticky='ew')
- pad=PadBridge(lambda:app.args.host,app.stop,companion=core.companion_bytes,send_elf=payload_sender.send_payload);console_pad=bool(core.config().get('console_pad',False))
+ pad=PadBridge(lambda:app.args.host,app.stop,companion=app.companion_payload,send_elf=payload_sender.send_payload,key=app.payload_pairing.pad_key);pad.reach=app.reach;pad.away=lambda:app.away_active;console_pad=bool(core.config().get('console_pad',False))
  Tooltip(session_button,'Session performance · Ctrl+I');Tooltip(screenshot_button,'Screenshot · F8');Tooltip(record_button,'Start / stop recording · F9');Tooltip(replay_button,'Save the last moments · F10');Tooltip(captures_button,'Your captures · Ctrl+L');Tooltip(mini_button,'Small window on top · Ctrl+M');Tooltip(live_button,'Go live · Ctrl+B')
  Tooltip(mute_button,'Mute / unmute');Tooltip(output,'Audio output');Tooltip(volume,'Volume')
  bottom=tk.Frame(win,bg=BG);bottom.grid(row=3,column=0,sticky='ew',padx=20,pady=(0,6));bottom.grid_columnconfigure(0,weight=1)
@@ -636,12 +676,15 @@ def run_ui(app):
   mic_on.set(on);core.save_config(mic_on=on)
   app.notify(f'Microphone on: {app.microphone.name}. Your voice goes into recordings, replays and Go live.' if on else 'Microphone off.')
  presenter=None;surface=None;direct=False
+ # Picture Studio's values for the picture: the usual ones, or a game's own once it is seen running.
+ studio=PictureStudio(core);usual=studio.usual();studio_vars={}
  if app.renderer=='d3d11':
   # A window of its own that Tk never paints, because a swap chain and anything drawn on the same window fight over it.
   surface=tk.Frame(stage,bg='',width=1,height=1)
   try:
    from d3d11_presenter import D3D11Presenter
-   presenter=D3D11Presenter(surface,core.config().get('sharpen',False),core.config().get('fsr',False),app.adapter,core.config().get('vrr',False),core.config().get('smooth_motion',True));direct=True
+   presenter=D3D11Presenter(surface,usual['sharpen'],usual['fsr'],app.adapter,core.config().get('vrr',False),core.config().get('smooth_motion',True),
+    super_resolution=usual['super_resolution'],video_hdr=usual['video_hdr'],deband=usual['deband']);direct=True
   except Exception:surface.destroy();surface=None;app.use_gdi()
  if app.renderer=='gdi':
   from gdi_presenter import GdiPresenter
@@ -728,11 +771,10 @@ def run_ui(app):
   elif not on_air and status.cget('text').startswith('Live on '):status.configure(text='The live stream ended.',text_color=MUTED)
  def toggle_live():
   if app.broadcast.active:app.end_live();return
-  saved=core.config();kind=saved.get('live_service');key=live_broadcast.unseal(saved.get('live_key',''));server=saved.get('live_server','')
-  ready=kind=='obs' or kind in ('twitch','youtube') and key or kind=='custom' and server or kind=='tiktok' and server and key
-  if not ready:
+  targets=live_broadcast.chosen_targets(core.config())
+  if not targets or not all(live_broadcast.ready(*target) for target in targets):
    show_page('settings');settings_page.open_section('live');say('Choose where to go live, then select Go live.');return
-  problem=app.go_live(kind,key,server)
+  problem=app.go_live_many(targets)
   if problem:say(problem)
  def small_window():
   """Only the picture, in a small window above every other one: Ctrl+M or its button, and again to come back."""
@@ -896,7 +938,7 @@ def run_ui(app):
   if app.link.status is not seen_status:seen_status=app.link.status;follow_console(now)
   # The video keeps arriving behind the other pages, so coming back shows a waiting screen only if no frame turns up.
   if not has_video and page=='live' and now-revealed_at>1:
-   waiting='Connecting to your console…' if app.worker.is_alive() else 'Open Payload Manager on your PS5, then connect.'
+   waiting=app.waiting_text() if app.worker.is_alive() else 'Open Payload Manager on your PS5, then connect.'
    if direct:surface.grid_remove()
    ambient.show(True,app.error or waiting,now)
   if now-rate_at>=1:
@@ -907,13 +949,20 @@ def run_ui(app):
    if direct:app.stats['present_timeouts']=presenter.timeouts;app.stats['cross_card']=presenter.cross;app.stats['frames_in_flight']=presenter.flight
    app.stats['screen_rate']=rate.label();app.stats['screen_rate_check']=rate.note;app.stats['controller_link']=pad.link(time.monotonic())
    app.stats['smooth_motion']=smooth.second(presenter,presenter.timeouts if direct else 0)
+   if direct:
+    presenter.check_screen();state=presenter.engine_state();app.stats['picture_engine']=state['scaling'];app.stats['video_hdr']=state['hdr']
+    title=running_title(app.link.status) if app.link.online else ''
+    # A game with its own values moves the switches too, when Settings has been opened.
+    if studio.see(title,app.link.game_name(title) if title else '',presenter):
+     for key,value in studio.current().items():
+      if key in studio_vars:studio_vars[key].set(value)
    app.repeats.wanted=direct and smooth.can_run(presenter);app.stats['repeat_frames']=app.repeats.state()
    # What the app cannot fix itself, it says, once a session and only when frames are really being lost.
    wanted_fps=core.PROFILES[app.args.profile].get('playback_fps') or (app.capture_info or {}).get('fps_target') or 60
    streaming=app.connection_state=='Connected' and app.worker.is_alive()
    hint=battery.second(streaming,app.stats['presented_fps'],wanted_fps);app.stats['on_battery']=battery.on
    if hint:app.notify(hint);app.notice_until=now+15
-   app.snapshot()
+   app.perf_watch.second(streaming and app.stats['presented_fps']>0,app.snapshot())
   if now-last_info>.25:
    last_info=now;app.poll_capture_events();record_button.restyle(icon=icons['disconnect'] if app.recorder.active else icons['record'],tone='danger' if app.recorder.active else 'plain');on_air=app.broadcast.active;live_button.restyle(icon=icons['on_air'] if on_air else icons['live']);show_live(on_air);active=app.worker.is_alive();linked=app.connection_state=='Connected' and active
    connect_button.restyle(text='Disconnect' if active else 'Connect',icon=on_white['disconnect'] if active else on_white['connect'])

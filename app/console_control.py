@@ -9,6 +9,8 @@ from performance import PerformanceLog
 
 CONTROL_PORT=9077
 STATUS,FILE,LAUNCH,CLOSE,REST,POWER_OFF,REBOOT,LIST,RANGE,FAN=1,2,3,4,6,7,8,9,10,11
+# Play away from home ends: the payload leaves once no stream is running (payload/away-rules.h).
+AWAY_END=12
 REQUEST=struct.Struct('<4sII');REPLY=struct.Struct('<4siI')
 SHORT_REPLY=4096;FILE_LIMIT=0x10000000
 # The most the payload returns for one request for part of a file, and the most the PC reads of one file inside a trophy set.
@@ -278,6 +280,8 @@ class ConsoleLink:
  def revision(self,value):
   more=self.more_trophies;self.own_revision=value-(more.shelf_changes if more is not None else 0)
  def __init__(self,folder,notify=lambda message:None):
+  # connect(host, port): the control connection, sealed when the payload holds this PC's key (secure_link.Pairing.connect).
+  self.connect=lambda host,port:socket.create_connection((host,port),2)
   self.folder=Path(folder);self.small_icons=self.folder/'icons';self.icons=self.folder/'covers';self.arts=self.folder/'art';self.tracks=self.folder/'music';self.notify=notify;self.status={};self.online=False;self.revision=0;self.refreshing=False;self.jobs=queue.SimpleQueue();self.session=None;self.want_library=True
   # checks: the icons already on the PC, read again once each session, since an app on the console can change its icon without the database saying so.
   self.browsing=False;self.focus='';self.extras=[];self.checks=[]
@@ -344,7 +348,7 @@ class ConsoleLink:
  def run(self,host,stop):
   while not stop.is_set():
    try:
-    with socket.create_connection((host,CONTROL_PORT),2) as sock:
+    with self.connect(host,CONTROL_PORT) as sock:
      sock.settimeout(15);sock.setsockopt(socket.IPPROTO_TCP,socket.TCP_NODELAY,1);self.serve(sock,stop)
    except (OSError,EOFError,ValueError,struct.error):pass
    if self.session is stop:self.online=False;self.status={}

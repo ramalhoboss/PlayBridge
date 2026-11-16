@@ -23,6 +23,7 @@ GetParent=com(6,HRESULT,c_char_p,OUT);GetAdapter=com(7,HRESULT,OUT);EnumAdapters
 Present=com(8,HRESULT,UINT,UINT);GetBuffer=com(9,HRESULT,UINT,c_char_p,OUT);ResizeBuffers=com(13,HRESULT,UINT,UINT,UINT,UINT,UINT);SetMaximumFrameLatency=com(31,HRESULT,UINT);GetMaximumFrameLatency=com(32,HRESULT,POINTER(UINT));GetFrameLatencyWaitableObject=com(33,wintypes.HANDLE)
 GetBlobPointer=com(3,c_void_p);GetBlobSize=com(4,c_size_t)
 CheckFeatureSupport=com(28,HRESULT,UINT,ANY,UINT)
+CheckColorSpaceSupport=com(37,HRESULT,UINT,POINTER(UINT));SetColorSpace1=com(38,HRESULT,UINT)
 CreateBlendState=com(20,HRESULT,ANY,OUT);OMSetBlendState=com(35,None,ANY,ANY,UINT)
 
 class Texture2DDesc(Structure):_fields_=[('Width',UINT),('Height',UINT),('MipLevels',UINT),('ArraySize',UINT),('Format',UINT),('SampleCount',UINT),('SampleQuality',UINT),('Usage',UINT),('BindFlags',UINT),('CPUAccessFlags',UINT),('MiscFlags',UINT)]
@@ -56,15 +57,20 @@ MISS_LIMIT=5;MISS_WINDOW=5
 # Frames in flight are never more than this: each one can add a refresh of delay.
 MOST_IN_FLIGHT=3
 VIEWS={NV12:(R8,R8G8),P010:(R16,R16G16)}
+# HDR10 for the window, from the graphics card's video engine: 10-bit buffers shown as BT.2020 with PQ. The usual buffers are sRGB.
+SRGB_SPACE=0;HDR10_SPACE=12;IID_SWAP3=iid('94d99bdb-f1f8-4ab0-b236-7da0170edab1');NVIDIA_VENDOR=0x10de
+# Debanding: how far off the neighbours are, in pixels of a 1080p picture, and how close in steps of 8-bit colour they must all be.
+DEBAND_RADIUS=14;DEBAND_STEPS=2.5
 # Each plane's texture format and how much smaller than the picture it is.
 PLANES={'yuv420p':((R8,1),(R8,2),(R8,2)),'yuvj420p':((R8,1),(R8,2),(R8,2)),'nv12':((R8,1),(R8G8,2))}
 CUBIC,BOX=0,1
+PIXEL_SHADERS=(b'ps',b'sharpen',b'rgb',b'easu',b'rcas',b'hud',b'plain',b'divider',b'copy_plane',b'deband',b'hud_pq')
 BLACK=(c_float*4)(0,0,0,1)
 # RCAS in stops below its strongest. 0.2 gives it about the strength of the sharpening after bicubic.
 RCAS_STOPS=.2
 
 SHADERS=b"""
-cbuffer Picture:register(b0){float2 size;float2 ratio;float4 rows[3];int luma_filter;int chroma_filter;int interleaved;int unused;};
+cbuffer Picture:register(b0){float2 size;float2 ratio;float4 rows[3];int luma_filter;int chroma_filter;int interleaved;int unused;float4 post;};
 Texture2D luma:register(t0);Texture2D blue:register(t1);Texture2D red:register(t2);SamplerState smooth:register(s0);
 struct Pixel{float4 at:SV_Position;float2 uv:TEXCOORD0;};
 Pixel vs(uint id:SV_VertexID){Pixel p;p.uv=float2(id<<1&2,id&2);p.at=float4(p.uv*float2(2,-2)+float2(-1,1),0,1);return p;}
@@ -151,6 +157,27 @@ float4 easu(Pixel p):SV_Target{
  easu_tap(sum,total,float2(1,2)-pp,dir,len2,lob,clp,float3(zzonR.z,zzonG.z,zzonB.z));easu_tap(sum,total,float2(0,2)-pp,dir,len2,lob,clp,float3(zzonR.w,zzonG.w,zzonB.w));
  return float4(min(high,max(low,sum/total)),1);
 }
+// The picture as the console sends it, only left of the comparison line, which is post.z pixels from the window's left.
+float4 plain(Pixel p):SV_Target{if(p.at.x>=post.z)discard;return ps(p);}
+// The comparison line itself.
+float4 divider(Pixel p):SV_Target{return float4(1,1,1,1);}
+// One plane of an in-between picture into the same plane of a surface the graphics card's video engine can take.
+float4 copy_plane(Pixel p):SV_Target{return luma.Load(int3(p.at.xy,0));}
+// Debanding, after the scaler. Where four neighbours post.x pixels off, in a direction that changes from pixel to pixel, all lie within
+// post.y of the pixel, it takes their average, so the steps compression leaves in skies and shadows smooth out. A little noise there
+// keeps the screen's 8 bits from stepping again. An edge or any texture has a neighbour further off, and stays as it was.
+float noise(float2 q){float3 r=frac(q.xyx*.1031);r+=dot(r,r.yzx+33.33);return frac((r.x+r.y)*r.z);}
+float4 deband(Pixel p):SV_Target{
+ uint2 d;luma.GetDimensions(d.x,d.y);int2 at=int2(p.at.xy),last=int2(d)-1;float3 c=luma.Load(int3(at,0)).rgb;
+ float a=noise(p.at.xy)*6.2831853,r=post.x*(.5+.5*noise(p.at.yx+17.3));int2 o=int2(round(float2(cos(a),sin(a))*r)),q=int2(-o.y,o.x);
+ float3 s1=luma.Load(int3(clamp(at+o,0,last),0)).rgb,s2=luma.Load(int3(clamp(at-o,0,last),0)).rgb,s3=luma.Load(int3(clamp(at+q,0,last),0)).rgb,s4=luma.Load(int3(clamp(at-q,0,last),0)).rgb;
+ float3 far=max(max(abs(s1-c),abs(s2-c)),max(abs(s3-c),abs(s4-c)));
+ if(all(far<post.y))c=(s1+s2+s3+s4)*.25+(noise(p.at.xy+.5)-.5)/255;
+ return float4(saturate(c),1);
+}
+// The overlay on an HDR10 screen: its colours as Windows shows SDR there, with white at about 200 nits, in BT.2020 and PQ.
+float3 pq(float3 nits){float3 y=pow(saturate(nits/10000),.1593017578125);return pow((.8359375+18.8515625*y)/(1+18.6875*y),78.84375);}
+float4 hud_pq(Pixel p):SV_Target{float4 c=luma.SampleLevel(smooth,p.uv,0);float3 l=mul(float3x3(.6274,.3293,.0433,.0691,.9195,.0114,.0164,.0880,.8956),pow(c.rgb,2.2));return float4(pq(l*200)*c.a,c.a);}
 // Sharpening as strong as it can be before the cross of neighbours would clip.
 float4 rcas(Pixel p):SV_Target{
  int3 at=int3(p.at.xy,0);float3 b=luma.Load(at,int2(0,-1)).rgb,d=luma.Load(at,int2(-1,0)).rgb,e=luma.Load(at).rgb,f=luma.Load(at,int2(1,0)).rgb,h=luma.Load(at,int2(0,1)).rgb;
@@ -210,7 +237,7 @@ def compiled():
  compiler=ctypes.WinDLL('d3dcompiler_47');compile_source=compiler.D3DCompile;compile_source.restype=ctypes.HRESULT
  compile_source.argtypes=[c_char_p,c_size_t,c_char_p,c_void_p,c_void_p,c_char_p,c_char_p,UINT,UINT,OUT,OUT]
  blobs={}
- for name,target in ((b'vs',b'vs_5_0'),(b'ps',b'ps_5_0'),(b'sharpen',b'ps_5_0'),(b'rgb',b'ps_5_0'),(b'easu',b'ps_5_0'),(b'rcas',b'ps_5_0'),(b'hud',b'ps_5_0')):
+ for name,target in ((b'vs',b'vs_5_0'),*((name,b'ps_5_0') for name in PIXEL_SHADERS)):
   code=c_void_p();errors=c_void_p()
   try:compile_source(SHADERS,len(SHADERS),None,None,None,name,target,1<<15,0,byref(code),byref(errors))
   except OSError as error:raise RuntimeError(ctypes.string_at(GetBlobPointer(errors.value),GetBlobSize(errors.value)).decode(errors='replace') if errors.value else str(error)) from error
@@ -345,7 +372,7 @@ def in_flight(cross,extra=0):
 
 class D3D11Presenter:
  """Draws on the thread of the refresh clock. Only resizing and hiding involve the window's own thread, which never waits for this one."""
- def __init__(self,window,sharpen=False,fsr=False,adapter=None,vrr=False,smooth=False):
+ def __init__(self,window,sharpen=False,fsr=False,adapter=None,vrr=False,smooth=False,super_resolution=True,video_hdr=False,deband=False):
   self.hwnd=window.winfo_id();self.frame=None;self.failed=None;self.failures=0;self.sharpen=sharpen;self.fsr=fsr;self.wanted=(max(1,window.winfo_width()),max(1,window.winfo_height()));self.pending=False
   # In-between pictures: wanted, and why they stopped for this session if they did. Their shaders are compiled the first time.
   self.smooth=smooth;self.smooth_failed=None;self.motion_blobs=None;self.serials=0;self.compiling=None
@@ -360,10 +387,18 @@ class D3D11Presenter:
   self.tearing=bool(vrr) and not self.fixed_screen and tearing_supported()
   # The overlay the window wants shown, (BGRA bytes, width, height) or None, and the one on the graphics card now.
   self.hud_wanted=None
+  # The graphics card's video engine (gpu_scaler.py): super resolution and RTX Video HDR as wanted; why the engine, its super resolution or
+  # HDR10 stopped for this session if they did; the maker of the card that draws; whether the last frame went through the engine; and
+  # whether Windows HDR is on for the window's screen, which the window's thread finds out.
+  self.super_resolution=bool(super_resolution);self.video_hdr=bool(video_hdr);self.engine_failed=None;self.scaling_refused=False;self.hdr_refused=None
+  self.vendor=0;self.engine_active=False;self.screen_hdr=False
+  # Debanding after the scaler, and the comparison: the console's picture left of the middle, this one's right of it.
+  self.deband=bool(deband);self.split=False
   self.blobs=compiled();self.own=new_device(adapter);self.forget()
  def forget(self):
   self.slots=[];self.motion=None;self.hud_texture=None;self.hud_view=None;self.hud_shown=None;self.hud_size=None;self.blend=None
   self.device=None;self.context=None;self.swap=None;self.flight=None;self.target=None;self.back=None;self.scaled=None;self.scaled_view=None;self.size=None;self.waitable=None;self.owned=[];self.surface=None;self.surface_shape=None;self.planes=None;self.plane_shape=None;self.views=None;self.arranged=None;self.viewport=None;self.converted=None;self.converted_shape=None;self.enlarging=False
+  self.engine=None;self.hdr=False;self.hdr_wanted=False;self.placement=None;self.colour=None;self.scaled_texture=None;self.second=None;self.nv12=None;self.nv12_failed=False
  def keep(self,pointer):
   self.owned.append(pointer.value);return pointer.value
  def attach(self,device):
@@ -371,7 +406,7 @@ class D3D11Presenter:
   self.detach();self.device=device;context=c_void_p();GetImmediateContext(device,byref(context));self.context=context.value
   shader=c_void_p();CreateVertexShader(device,self.blobs[b'vs'],len(self.blobs[b'vs']),None,byref(shader));self.vertex_shader=self.keep(shader)
   self.shaders={}
-  for name in (b'ps',b'sharpen',b'rgb',b'easu',b'rcas',b'hud'):shader=c_void_p();CreatePixelShader(device,self.blobs[name],len(self.blobs[name]),None,byref(shader));self.shaders[name]=self.keep(shader)
+  for name in PIXEL_SHADERS:shader=c_void_p();CreatePixelShader(device,self.blobs[name],len(self.blobs[name]),None,byref(shader));self.shaders[name]=self.keep(shader)
   sampler=c_void_p();CreateSamplerState(device,byref(SamplerDesc(Filter=FILTER_LINEAR,AddressU=ADDRESS_CLAMP,AddressV=ADDRESS_CLAMP,AddressW=ADDRESS_CLAMP,MaxLOD=1000)),byref(sampler));self.keep(sampler)
   buffers=[]
   for size in (96,80):buffer=c_void_p();CreateBuffer(device,byref(BufferDesc(ByteWidth=size,Usage=USAGE_DYNAMIC,BindFlags=BIND_CONSTANT,CPUAccessFlags=CPU_WRITE)),None,byref(buffer));buffers.append(self.keep(buffer))
@@ -379,6 +414,8 @@ class D3D11Presenter:
   target=BlendTarget(BlendEnable=1,SrcBlend=BLEND_ONE,DestBlend=BLEND_INV_SRC_ALPHA,BlendOp=BLEND_ADD,SrcBlendAlpha=BLEND_ONE,DestBlendAlpha=BLEND_INV_SRC_ALPHA,BlendOpAlpha=BLEND_ADD,RenderTargetWriteMask=WRITE_ALL)
   blend=c_void_p();CreateBlendState(device,byref(BlendDesc(0,0,(BlendTarget*8)(target))),byref(blend));self.blend=self.keep(blend)
   VSSetShader(self.context,self.vertex_shader,None,0);PSSetSamplers(self.context,0,1,byref(sampler));PSSetConstantBuffers(self.context,0,2,(c_void_p*2)(*buffers));IASetPrimitiveTopology(self.context,TRIANGLES)
+  from gpu_scaler import vendor_of
+  self.vendor=vendor_of(device)
  def detach(self):
   """A window takes one flip swap chain at a time, and the old one goes only once its device has been cleared and flushed."""
   if self.context:
@@ -390,6 +427,8 @@ class D3D11Presenter:
    if self.converted:self.release_converted()
    self.release_slots()
    if self.motion:self.motion.release();self.motion=None
+   self.release_nv12()
+   if self.engine:self.engine.release()
    Flush(self.context);Release(self.context)
   if self.device and self.device!=self.own:Release(self.device)
   self.forget()
@@ -400,32 +439,61 @@ class D3D11Presenter:
   # With one frame in flight, about 7 frames a second never reached the 3060 laptop's screen, and handing one over took up to 14 ms against under 3 here.
   try:self.cross=not drives(adapter.value,window_monitor(self.hwnd))
   except OSError:self.cross=False
-  width,height=self.wanted;desc=SwapChainDesc1(Width=width,Height=height,Format=BGRA8,SampleCount=1,BufferUsage=TARGET_OUTPUT,BufferCount=in_flight(self.cross,self.extra)+1,Scaling=SCALING_STRETCH,SwapEffect=FLIP_DISCARD,AlphaMode=ALPHA_IGNORE,Flags=self.swap_flags())
+  width,height=self.wanted;desc=SwapChainDesc1(Width=width,Height=height,Format=RGB10 if self.hdr_wanted else BGRA8,SampleCount=1,BufferUsage=TARGET_OUTPUT,BufferCount=in_flight(self.cross,self.extra)+1,Scaling=SCALING_STRETCH,SwapEffect=FLIP_DISCARD,AlphaMode=ALPHA_IGNORE,Flags=self.swap_flags())
   try:
    CreateSwapChainForHwnd(factory.value,self.device,self.hwnd,byref(desc),None,None,byref(first))
    MakeWindowAssociation(factory.value,self.hwnd,NO_WINDOW_CHANGES);QueryInterface(first.value,IID_SWAP2,byref(swap));Release(first.value)
   finally:Release(factory.value);Release(adapter.value);Release(dxgi.value)
-  self.flight=in_flight(self.cross,self.extra);self.swap=swap.value;SetMaximumFrameLatency(self.swap,self.flight);self.waitable=GetFrameLatencyWaitableObject(self.swap);self.size=self.wanted;self.open_target()
+  self.flight=in_flight(self.cross,self.extra);self.swap=swap.value;SetMaximumFrameLatency(self.swap,self.flight);self.waitable=GetFrameLatencyWaitableObject(self.swap);self.size=self.wanted
+  self.hdr=self.hdr_wanted;shown=self.set_colour_space();self.open_target();return shown
+ def set_colour_space(self):
+  """HDR10 for 10-bit buffers; the usual ones stay sRGB. False when Windows would not show HDR10 here, which ends HDR10 for the session."""
+  if not self.hdr:return True
+  newer=c_void_p();support=UINT(0)
+  try:QueryInterface(self.swap,IID_SWAP3,byref(newer))
+  except OSError:self.hdr_refused='Windows would not show HDR10 here';return False
+  try:
+   CheckColorSpaceSupport(newer.value,HDR10_SPACE,byref(support))
+   if support.value&1:SetColorSpace1(newer.value,HDR10_SPACE);return True
+  except OSError:pass
+  finally:Release(newer.value)
+  self.hdr_refused='Windows would not show HDR10 here';return False
  def open_target(self):
   back=c_void_p();view=c_void_p();GetBuffer(self.swap,0,IID_TEXTURE,byref(back));CreateRenderTargetView(self.device,back.value,None,byref(view));self.back=back.value;self.target=view.value;self.arranged=None
   width,height=self.size;texture=c_void_p();shown=c_void_p();drawn=c_void_p()
   CreateTexture2D(self.device,byref(Texture2DDesc(Width=width,Height=height,MipLevels=1,ArraySize=1,Format=BGRA8,SampleCount=1,BindFlags=BIND_SHADER|BIND_TARGET)),None,byref(texture))
-  CreateRenderTargetView(self.device,texture.value,None,byref(drawn));CreateShaderResourceView(self.device,texture.value,None,byref(shown));Release(texture.value);self.scaled=drawn.value;self.scaled_view=shown.value
+  CreateRenderTargetView(self.device,texture.value,None,byref(drawn));CreateShaderResourceView(self.device,texture.value,None,byref(shown));self.scaled_texture=texture.value;self.scaled=drawn.value;self.scaled_view=shown.value
+ def second_target(self):
+  """Another texture the size of the window, for a second pass after the scaler: (view, target, texture). Made when first wanted."""
+  if self.second is None:
+   width,height=self.size;texture=c_void_p();shown=c_void_p();drawn=c_void_p()
+   CreateTexture2D(self.device,byref(Texture2DDesc(Width=width,Height=height,MipLevels=1,ArraySize=1,Format=BGRA8,SampleCount=1,BindFlags=BIND_SHADER|BIND_TARGET)),None,byref(texture))
+   try:CreateRenderTargetView(self.device,texture.value,None,byref(drawn));CreateShaderResourceView(self.device,texture.value,None,byref(shown))
+   except OSError:
+    for pointer in (drawn.value,texture.value):
+     if pointer:Release(pointer)
+    raise
+   self.second=(shown.value,drawn.value,texture.value)
+  return self.second
  def release_target(self):
-  for pointer in (self.scaled_view,self.scaled,self.target,self.back):
+  # The video engine's views of these textures hold them too, and resizing the swap chain needs every hold on its buffers gone.
+  if self.engine:self.engine.release_outputs()
+  for pointer in (self.scaled_view,self.scaled,self.scaled_texture,self.target,self.back,*(self.second or ())):
    if pointer:Release(pointer)
-  self.scaled_view=self.scaled=self.target=self.back=None
+  self.scaled_view=self.scaled=self.scaled_texture=self.target=self.back=self.second=None
  def fit(self):
   """The swap chain, at the size the window has now. Until a new frame comes the system stretches the old one, so a resize never shows black."""
   if self.swap is None:
    # A swap chain made on a hidden window of one pixel sometimes showed the picture black, or enlarged from the middle of the window,
    # for the whole session. It waits until the window shows, and False tells the caller to keep the frame for later.
    if not showing(self.hwnd):return False
-   self.open_swap_chain()
-  elif self.size!=self.wanted or self.flight!=in_flight(self.cross,self.extra):
+   return self.open_swap_chain()
+  elif self.size!=self.wanted or self.flight!=in_flight(self.cross,self.extra) or self.hdr!=self.hdr_wanted:
    flight=in_flight(self.cross,self.extra)
-   OMSetRenderTargets(self.context,0,None,None);self.release_target();Flush(self.context);ResizeBuffers(self.swap,flight+1,*self.wanted,0,self.swap_flags())
-   SetMaximumFrameLatency(self.swap,flight);self.flight=flight;self.size=self.wanted;self.open_target()
+   OMSetRenderTargets(self.context,0,None,None);self.release_target();Flush(self.context);ResizeBuffers(self.swap,flight+1,*self.wanted,RGB10 if self.hdr_wanted else BGRA8,self.swap_flags())
+   SetMaximumFrameLatency(self.swap,flight);self.flight=flight;self.size=self.wanted;self.hdr=self.hdr_wanted;shown=self.set_colour_space();self.open_target()
+   # Buffers Windows will not show as HDR10 wait for the next frame, which goes back to sRGB.
+   return shown
   return True
  def release_surface(self):
   for pointer in self.surface:Release(pointer)
@@ -520,10 +588,12 @@ class D3D11Presenter:
   mapped=Mapped();Map(self.context,buffer,0,MAP_DISCARD,0,byref(mapped));ctypes.memmove(mapped.Data,data,len(data));Unmap(self.context,buffer,0)
  def arrange(self,frame,interleaved):
   """Sets where the picture goes and how it is filtered, when any of that has changed."""
-  key=(frame.width,frame.height,frame.colorspace,frame.color_range,interleaved,self.size,self.fsr)
+  key=(frame.width,frame.height,frame.colorspace,frame.color_range,interleaved,self.size,self.fsr,self.split)
   if key==self.arranged:return
   x,y,width,height=fitted(frame.width,frame.height,*self.size);across=frame.width/width;down=frame.height/height;ratio=max(across,down);rows=colour_rows(frame.colorspace,frame.color_range==2)
-  self.fill(self.constants,struct.pack('<16f4i',frame.width,frame.height,across,down,*rows[0],*rows[1],*rows[2],luma_filter(ratio),int(ratio>2.001),int(interleaved),0))
+  self.fill(self.constants,struct.pack('<16f4i4f',frame.width,frame.height,across,down,*rows[0],*rows[1],*rows[2],luma_filter(ratio),int(ratio>2.001),int(interleaved),0,
+   DEBAND_RADIUS*height/1080,DEBAND_STEPS/255,x+width//2 if self.split else 0,0))
+  self.placement=(x,y,width,height);self.colour=(frame.colorspace,frame.color_range==2)
   self.enlarging=self.fsr and enlarged(ratio)
   if self.enlarging:
    self.convert_into(frame.width,frame.height);self.source=Viewport(0,0,frame.width,frame.height,0,1)
@@ -536,15 +606,112 @@ class D3D11Presenter:
    if device.value==self.device:Release(device.value)
    else:self.attach(device.value)
   elif self.device!=self.own:self.attach(self.own)
+  engine=self.engine_for(frame) if on_gpu else None
+  self.hdr_wanted=engine is not None and self.hdr_possible()
   if not self.fit():self.pending=True;return False
   if self.kernel.WaitForSingleObject(self.waitable,WAIT_MS):self.pending=True;self.missed();return False
   self.pending=False
-  # While in-between pictures are wanted, frames from the GPU go to the ring of copies they are made from.
+  # While in-between pictures are wanted, frames from the GPU go to the ring of copies they are made from. The video engine reads the
+  # decoder's own surface, so it needs a copy only for the comparison.
   if on_gpu and self.smooth and self.smooth_failed is None:self.views=self.slot_for(frame)['views']
-  elif on_gpu:self.copy_surface(texture,index)
-  else:self.upload(frame)
+  elif on_gpu and (engine is None or self.split):self.copy_surface(texture,index)
+  elif not on_gpu:self.upload(frame)
   self.arrange(frame,on_gpu or frame.format.name=='nv12')
+  if engine is not None:
+   try:self.compose((texture,index));return True
+   except Exception as error:
+    self.stop_engine(error)
+    # HDR10 buffers wait for the next frame, in sRGB again. Otherwise the shaders draw this one.
+    if self.hdr:self.pending=True;return False
+    if not (self.smooth and self.smooth_failed is None):self.copy_surface(texture,index)
   self.compose();return True
+ def frame_ratio(self,frame):
+  """Texels of the frame to each pixel of the window, along the side that fills it."""
+  _,_,width,height=fitted(frame.width,frame.height,*self.wanted);return max(frame.width/width,frame.height/height)
+ def engine_for(self,frame):
+  """The video engine set up for this frame from the GPU, when it should draw it: to enlarge it with the maker's super resolution, or for
+  RTX Video HDR. None leaves the frame to the shaders, as on cards without either."""
+  if self.engine_failed is not None or self.device is None:self.engine_active=False;return None
+  from gpu_scaler import VideoEngine,can_enlarge
+  scale=self.super_resolution and not self.scaling_refused and can_enlarge(self.vendor) and enlarged(self.frame_ratio(frame))
+  hdr=self.video_hdr and self.vendor==NVIDIA_VENDOR and self.screen_hdr and self.hdr_refused is None
+  if not (scale or hdr):self.engine_active=False;return None
+  try:
+   if self.engine is None:self.engine=VideoEngine(self.device,self.context,self.vendor)
+   texture,_=surface_of(frame);desc=Texture2DDesc();GetTextureDesc(texture,byref(desc))
+   self.engine.prepare(frame.width,frame.height,*self.wanted,desc.Format,scale)
+  except Exception as error:self.stop_engine(error);return None
+  # A driver that says no to super resolution leaves the enlarging to the shaders, FSR 1 among them, for the session.
+  if scale and self.engine.scaling is None:self.scaling_refused=True;scale=False
+  if not (scale or (hdr and self.engine.hdr_offered and self.engine.context1)):self.engine_active=False;return None
+  self.engine_active=True;return self.engine
+ def hdr_possible(self):
+  engine=self.engine
+  return bool(self.video_hdr and self.screen_hdr and self.hdr_refused is None and self.vendor==NVIDIA_VENDOR and engine is not None and engine.hdr_offered and engine.context1)
+ def stop_engine(self,error):
+  """A fault in the video engine ends it for the session, not the video: the shaders take over from the next frame."""
+  self.engine_failed=f'{type(error).__name__}: {str(error)[:120]}';self.engine_active=False;self.hdr_wanted=False
+  try:
+   self.release_nv12()
+   if self.engine:self.engine.release()
+  except Exception:pass
+  self.engine=None
+ def turn_engine(self,super_resolution=None,video_hdr=None):
+  """A setting changed, from the window's thread. Turning one on again gives a session where it stopped another try."""
+  if super_resolution is not None:self.super_resolution=bool(super_resolution);self.scaling_refused=False
+  if video_hdr is not None:self.video_hdr=bool(video_hdr);self.hdr_refused=None
+  self.engine_failed=None
+ def check_screen(self):
+  """Once a second from the window's thread: whether Windows HDR is on for the window's screen, asked only while RTX Video HDR could use it."""
+  if self.video_hdr and self.vendor==NVIDIA_VENDOR:
+   from gpu_scaler import screen_hdr
+   self.screen_hdr=screen_hdr(self.hwnd)
+  else:self.screen_hdr=False
+ def engine_state(self):
+  """What the graphics card's video engine does for the picture now, in words for Settings and the stats: super resolution and HDR."""
+  from gpu_scaler import can_enlarge
+  engine=self.engine;failed=self.engine_failed and 'stopped: '+self.engine_failed.split(':')[0]
+  if not self.super_resolution:scaling='off'
+  elif self.vendor and not can_enlarge(self.vendor):scaling='not on this graphics card'+(', so FSR 1 enlarges' if self.fsr else '')
+  elif failed:scaling=failed
+  elif self.scaling_refused:scaling='the graphics driver said no'+(', so FSR 1 enlarges' if self.fsr else '')
+  elif self.engine_active and engine is not None and engine.scaling:scaling='on: '+engine.scaling
+  else:scaling='waiting for a window larger than the picture' if self.vendor else 'waiting for the stream'
+  if not self.video_hdr:hdr='off'
+  elif self.vendor and self.vendor!=NVIDIA_VENDOR:hdr='needs an NVIDIA RTX graphics card'
+  elif failed:hdr=failed
+  elif self.hdr_refused:hdr='stopped: '+self.hdr_refused
+  elif not self.screen_hdr:hdr='waiting for Windows HDR on this screen'
+  elif engine is not None and engine.shape and not engine.hdr_offered:hdr='this graphics driver does not offer it'
+  elif self.hdr:hdr='on: NVIDIA RTX Video HDR'
+  else:hdr='waiting for the stream'
+  return {'scaling':scaling,'hdr':hdr}
+ def release_nv12(self):
+  if self.nv12:
+   view=self.engine.inputs.pop((self.nv12['texture'],0),None) if self.engine else None
+   if view:Release(view)
+   for key in ('chroma','luma','texture'):Release(self.nv12[key])
+  self.nv12=None
+ def between_source(self,luma,chroma,shape):
+  """An in-between picture copied into a surface of the decoder's own format, as (texture, slice), so the video engine draws it as it
+  draws frames. None where the card cannot draw into that format: the in-between pictures then go through the shaders."""
+  width,height,format=shape
+  if self.nv12_failed or format not in VIEWS:return None
+  if self.nv12 is None or self.nv12['shape']!=shape:
+   self.release_nv12();made=[]
+   try:
+    texture=c_void_p();CreateTexture2D(self.device,byref(Texture2DDesc(Width=width,Height=height,MipLevels=1,ArraySize=1,Format=format,SampleCount=1,BindFlags=BIND_TARGET|BIND_SHADER)),None,byref(texture));made.append(texture.value)
+    for plane in VIEWS[format]:view=c_void_p();CreateRenderTargetView(self.device,texture.value,byref(ViewDesc(Format=plane,ViewDimension=TEXTURE2D_VIEW)),byref(view));made.append(view.value)
+   except OSError:
+    for pointer in reversed(made):Release(pointer)
+    self.nv12_failed=True;return None
+   self.nv12=dict(texture=made[0],luma=made[1],chroma=made[2],shape=shape)
+  context=self.context;empty=c_void_p()
+  for target,view,size in ((self.nv12['luma'],luma,(width,height)),(self.nv12['chroma'],chroma,(width//2,height//2))):
+   into=c_void_p(target);source=c_void_p(view)
+   OMSetRenderTargets(context,1,byref(into),None);RSSetViewports(context,1,byref(Viewport(0,0,*size,0,1)));PSSetShader(context,self.shaders[b'copy_plane'],None,0);PSSetShaderResources(context,0,1,byref(source));Draw(context,3,0);PSSetShaderResources(context,0,1,byref(empty))
+  OMSetRenderTargets(context,0,None,None)
+  return self.nv12['texture'],0
  def between(self,a,b,t):
   """The in-between picture at t from frame a (0) to frame b (1), both decoded on this device's GPU at the same size. True once it is
   on its way to the screen; False leaves the screen as it is. A fault here stops in-between pictures for the session, not the video."""
@@ -564,28 +731,50 @@ class D3D11Presenter:
    size=(a.width,a.height);width,height,_=first['shape'];planes=((width,height),(width//2,height//2))
    luma,chroma=self.motion_work().render(Frame(first['serial'],first['luma'],first['chroma'],size,*planes),Frame(second['serial'],second['luma'],second['chroma'],size,*planes),t)
    # A frame that could not show before is behind this picture now, so it is not shown again after it.
-   self.views=(c_void_p*3)(luma,chroma,chroma);self.arrange(a,True);self.compose();self.pending=False;return True
+   self.views=(c_void_p*3)(luma,chroma,chroma);self.arrange(a,True)
+   source=self.between_source(luma,chroma,first['shape']) if self.engine_active and self.engine is not None else None
+   # The shaders draw in sRGB, so HDR10 buffers show the frame again rather than an in-between picture the engine cannot take.
+   if source is None and self.hdr:return False
+   self.compose(source);self.pending=False;return True
   except Exception as error:
    self.smooth_failed=f'{type(error).__name__}: {str(error)[:120]}'
    try:
     if self.motion:self.motion.release()
    except Exception:pass
    self.motion=None;return False
- def compose(self):
-  """Draws the picture in self.views into the window, scaled, enlarged and sharpened as asked, and presents it."""
-  context=self.context;first=c_void_p(self.scaled if self.sharpen else self.target);empty=c_void_p()
-  if self.enlarging:
+ def compose(self,source=None):
+  """Draws the picture into the window and presents it: the one in self.views through the shaders, or slice source=(texture, index)
+  through the graphics card's video engine. Then debanding and sharpening as asked, the comparison and the overlay."""
+  context=self.context;empty=c_void_p()
+  # HDR10 comes from the video engine alone, and the passes after the scaler work in SDR.
+  passes=[] if self.hdr else [name for name,on in ((b'deband',self.deband),(b'rcas' if self.enlarging and source is None else b'sharpen',self.sharpen)) if on]
+  textures=[(self.scaled_view,self.scaled,self.scaled_texture)]+([self.second_target()] if len(passes)>1 else [])
+  first=c_void_p(textures[0][1] if passes else self.target)
+  if source is not None:
+   if not self.engine.set_hdr(self.hdr):self.hdr_refused='the graphics driver would not turn RTX Video HDR on'
+   # The engine writes outside the pipeline, so nothing there may still hold the texture it writes.
+   OMSetRenderTargets(context,0,None,None);PSSetShaderResources(context,0,3,(c_void_p*3)())
+   self.engine.draw(*source,textures[0][2] if passes else self.back,self.placement,self.size,*self.colour,self.hdr)
+  elif self.enlarging:
    # FSR works on RGB, so the colours are worked out first at the picture's own size, then enlarged.
    picture,drawn=(c_void_p(pointer) for pointer in self.converted)
    PSSetShaderResources(context,0,3,self.views);OMSetRenderTargets(context,1,byref(drawn),None);RSSetViewports(context,1,byref(self.source));PSSetShader(context,self.shaders[b'rgb'],None,0);Draw(context,3,0)
    OMSetRenderTargets(context,1,byref(first),None);ClearRenderTargetView(context,first,BLACK);RSSetViewports(context,1,byref(self.viewport));PSSetShader(context,self.shaders[b'easu'],None,0);PSSetShaderResources(context,0,1,byref(picture));Draw(context,3,0);PSSetShaderResources(context,0,1,byref(empty))
   else:
    OMSetRenderTargets(context,1,byref(first),None);ClearRenderTargetView(context,first,BLACK);RSSetViewports(context,1,byref(self.viewport));PSSetShader(context,self.shaders[b'ps'],None,0);PSSetShaderResources(context,0,3,self.views);Draw(context,3,0)
-  if self.sharpen:
-   last=c_void_p(self.target);view=c_void_p(self.scaled_view)
-   OMSetRenderTargets(context,1,byref(last),None);RSSetViewports(context,1,byref(self.whole));PSSetShader(context,self.shaders[b'rcas' if self.enlarging else b'sharpen'],None,0);PSSetShaderResources(context,0,1,byref(view));Draw(context,3,0);PSSetShaderResources(context,0,1,byref(empty))
+  # Each pass reads what the one before drew, and the last draws into the window.
+  for number,name in enumerate(passes):
+   into=c_void_p(self.target if number==len(passes)-1 else textures[(number+1)%2][1]);view=c_void_p(textures[number%2][0])
+   OMSetRenderTargets(context,1,byref(into),None);RSSetViewports(context,1,byref(self.whole));PSSetShader(context,self.shaders[name],None,0);PSSetShaderResources(context,0,1,byref(view));Draw(context,3,0);PSSetShaderResources(context,0,1,byref(empty))
+  if self.split and not self.hdr:self.draw_split()
   self.draw_hud()
   self.present()
+ def draw_split(self):
+  """The comparison: left of the middle, the picture as the console sends it with the usual scaling, and a line between the two."""
+  context=self.context;target=c_void_p(self.target);x,y,width,height=self.placement
+  OMSetRenderTargets(context,1,byref(target),None);RSSetViewports(context,1,byref(self.viewport));PSSetShader(context,self.shaders[b'plain'],None,0);PSSetShaderResources(context,0,3,self.views);Draw(context,3,0)
+  RSSetViewports(context,1,byref(Viewport(x+width//2-1,y,2,height,0,1)));PSSetShader(context,self.shaders[b'divider'],None,0);Draw(context,3,0)
+  PSSetShaderResources(context,0,3,(c_void_p*3)())
  def set_overlay(self,image):
   """The overlay to draw over the picture from the next frame on: (BGRA bytes, width, height), or None for none. From any thread:
   the graphics card only gets it on the thread that draws."""
@@ -614,7 +803,7 @@ class D3D11Presenter:
   if x+width>self.size[0] or y+height>self.size[1]:return
   context=self.context;target=c_void_p(self.target);view=c_void_p(self.hud_view);empty=c_void_p()
   OMSetRenderTargets(context,1,byref(target),None);RSSetViewports(context,1,byref(Viewport(x,y,width,height,0,1)));OMSetBlendState(context,self.blend,None,0xffffffff)
-  PSSetShader(context,self.shaders[b'hud'],None,0);PSSetShaderResources(context,0,1,byref(view));Draw(context,3,0)
+  PSSetShader(context,self.shaders[b'hud_pq' if self.hdr else b'hud'],None,0);PSSetShaderResources(context,0,1,byref(view));Draw(context,3,0)
   # The in-between pictures and the next frame draw without blending.
   OMSetBlendState(context,None,None,0xffffffff);PSSetShaderResources(context,0,1,byref(empty))
  def swap_flags(self):return FRAME_LATENCY_WAITABLE|(ALLOW_TEARING if self.tearing else 0)
@@ -628,6 +817,7 @@ class D3D11Presenter:
   Fresh misses are needed before the next step."""
   now=time.perf_counter() if now is None else now;self.timeouts+=1;self.misses.append(now)
   while self.misses and now-self.misses[0]>MISS_WINDOW:self.misses.popleft()
+  if len(self.misses)>=MISS_LIMIT and self.engine_active and self.engine_failed is None:self.engine_failed='the screen kept waiting for pictures';self.engine_active=False;self.misses.clear();return
   if len(self.misses)>=MISS_LIMIT and in_flight(self.cross,self.extra)<MOST_IN_FLIGHT:self.extra+=1;self.misses.clear()
  def attempt(self,frame):
   try:

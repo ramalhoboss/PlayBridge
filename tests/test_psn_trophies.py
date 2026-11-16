@@ -106,6 +106,29 @@ class BookTests(unittest.TestCase):
   book['user']='1a2b3c4d';book['earned']['1a2b3c4d']={'NPWR99999_00':{0:1700000000}}
   self.assertEqual(link.trophy_set('CUSA01234')['name'],'From the console','what the console read stays first')
   asked=len(self.sony.trophy_calls());self.book.want_titles(['PPSA00001']);self.poll(2);self.assertEqual(len(self.sony.trophy_calls()),asked,'a game with no trophies on PSN is not asked about again')
+ def test_next_up_lists_the_trophies_most_players_have_from_games_in_progress(self):
+  self.sony.sets['NPWR22222_00']=[dict(row) for row in DEFINED];self.sony.sets['NPWR22222_00'][3]['trophyDetail']='Win a race in chapter 3.'
+  self.sony.earned[('me','NPWR22222_00')]=earned({1})
+  self.poll();self.book.watch(True);calls=len(self.sony.trophy_calls());self.poll(2)
+  self.assertEqual(len(self.sony.trophy_calls()),calls,'nothing is read for Next up until it shows')
+  self.book.hunt(True);shown=self.page('Next up')
+  self.assertTrue(shown['hunting']);self.assertEqual(shown['titles'],[]);self.assertEqual(shown['huntLine'],'Reading your game in progress…')
+  self.poll(3);shown=self.page('Next up')
+  # Only Old Racer is started and unfinished; its platinum and the trophy already earned are left out, the most common first.
+  self.assertEqual([(row['name'],row['rare'],row['watch'],row['game']) for row in shown['hunt']],
+   [('Fast','8.5% of players have it','it belongs to Chapter 3','Old Racer'),('Hidden trophy','7.5% of players have it','','Old Racer')])
+  self.assertIn('Watch out marks',shown['huntLine']);self.assertEqual(shown['hunt'][1]['detail'],'Keep playing to find out what it is.')
+  self.assertEqual([row['name'] for row in self.page('All')['titles']],['Astro Bot','Puzzle Days','Old Racer'],'the other filters are as before')
+  calls=len(self.sony.trophy_calls());self.poll(3);self.assertEqual(len(self.sony.trophy_calls()),calls,'read once, then kept')
+  self.book.hunt(False);self.assertIsNone(self.book.view()['hunt'])
+ def test_watch_out_reads_the_trophys_own_words(self):
+  cases={('Lost Relic','Find the relic in Chapter 4 before the bridge falls.'):'it belongs to Chapter 4',('Ghost','Finish a mission without being seen.'):'it has to be done without being seen',
+   ('Iron Will','Complete the game on Hard.'):'it needs Hard difficulty',('Speedy','Finish the game in a single playthrough.'):'it has to be done in one playthrough',
+   ('Veteran','Reach level 50.'):'',('Gone','This one is missable.'):'its description says it can be missed',('Curtain','Finish Act ii.'):'it belongs to Act II',
+   ('Early bird','Open the gate before the guards arrive.'):'it has to happen before something else in the game',('Collector','Find every coin.'):''}
+  for (name,detail),why in cases.items():self.assertEqual(pt.watch_out(name,detail),why,name)
+  self.assertEqual(pt.hunt_view([]),([],'Start a game with trophies, and the trophies you have left that most players earned show here.'))
+  self.assertEqual(pt.hunt_view(None),([],''))
  def test_an_answer_in_an_odd_shape_is_a_problem_not_the_end_of_the_thread(self):
   original=TrophySony.__call__
   def odd(sony,method,url,headers,body):

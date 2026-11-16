@@ -17,9 +17,13 @@ static const struct{int hq,type,rate,system;}mic_ways[]={
    sceAudioInGetSilentState (16 bits each), then the samples, 16-bit mono. */
 #define MIC_HEAD 20u
 #define MIC_BLOCK_HEAD 4u
+/* Measured on the PS5 on 2026-11-16: sceAudioInOpen called from a payload makes the system stop the whole process (signal 0xa0020101 in
+   the kernel log): the picture, the control port and the rest stop with it, and the process keeps its ports until the console restarts.
+   So the payload never opens the microphone, and the PC gets this answer in place of a handle. */
+#define MIC_STAYS_CLOSED 0x8eb00001u
 static void mic_head(unsigned char out[MIC_HEAD],int handle,int rate,int way){
  int32_t v[4]={handle,rate,MIC_GRAIN,way};memcpy(out,MIC_MAGIC,4);memcpy(out+4,v,sizeof v);
 }
-static void mic_block_head(unsigned char out[MIC_BLOCK_HEAD],int silent){
+static inline void mic_block_head(unsigned char out[MIC_BLOCK_HEAD],int silent){
  uint16_t v[2]={MIC_GRAIN,(uint16_t)(silent<0?0:silent)};memcpy(out,v,sizeof v);
 }

@@ -219,6 +219,16 @@ FocusScope {
                             anchors.right: parent.right; anchors.rightMargin: 8
                             anchors.verticalCenter: parent.verticalCenter
                             spacing: 6
+                            // Play this too: the game the friend plays, started on the PS5, or found in the Store when it is not there.
+                            GlyphButton {
+                                readonly property var too: row.modelData.playToo || null
+                                visible: !!too
+                                enabled: !!too && too.kind !== "running"
+                                glyph: too && too.kind === "store" ? "" : ""
+                                lit: !!too && too.kind !== "store"
+                                tip: too ? too.tip : ""
+                                onClicked: shell.act("friend_play", row.modelData.id)
+                            }
                             GlyphButton { glyph: row.modelData.favourite ? "" : ""; lit: row.modelData.favourite; tip: row.modelData.favourite ? "Remove from favourites" : "Add to favourites"; onClicked: shell.act("friend_favourite", row.modelData.id) }
                             GlyphButton { tip: "Compare trophies"; onClicked: shell.act("friend_trophies", row.modelData.id)
                                 TrophyCup { anchors.centerIn: parent; width: 18; height: 18; colour: Theme.text } }

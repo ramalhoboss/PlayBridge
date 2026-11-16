@@ -23,6 +23,8 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include "pad-rules.h"
+#include "secure-link.h"
+#include "away-rules.h"
 typedef int(*load_fn)(const char*,size_t,const void*,uint32_t,void*,int*);
 static FILE*logf;
 #define LOG(...) do{if(logf){fprintf(logf,__VA_ARGS__);fflush(logf);}}while(0)
@@ -125,7 +127,7 @@ static void*start_pad(void*unused){(void)unused;
  started(PAD_READY,0);return 0;
 }
 static uint64_t sender_key(const struct sockaddr_in*a){return (uint64_t)ntohl(a->sin_addr.s_addr)<<16|ntohs(a->sin_port);}
-static int receive(unsigned char*w,size_t cap,int timeout_ms,uint64_t*sender){
+static int receive_datagram(unsigned char*w,size_t cap,int timeout_ms,uint64_t*sender){
  struct pollfd p={pad_socket,POLLIN,0};int ready=poll(&p,1,timeout_ms);
  if(ready==0)return 0;
  if(ready<0)return errno==EINTR?0:-1;
@@ -134,9 +136,47 @@ static int receive(unsigned char*w,size_t cap,int timeout_ms,uint64_t*sender){
  *sender=sender_key(&from);
  return (int)n;
 }
-static void answer(uint64_t sender,const unsigned char*w,size_t n){
+static void send_datagram(uint64_t sender,const unsigned char*w,size_t n){
  struct sockaddr_in to={0};to.sin_len=sizeof to;to.sin_family=AF_INET;to.sin_addr.s_addr=htonl((uint32_t)(sender>>16));to.sin_port=htons((uint16_t)sender);
  sendto(pad_socket,w,n,MSG_DONTWAIT,(struct sockaddr*)&to,sizeof to);
+}
+/* With the PC's key (secure-link.h), each sender says hello and gets keys of its own; the newest hello replaces that sender's, and with
+   every place taken the one quiet the longest makes room. Nothing else from a sender without keys is read or answered. Hellos are
+   answered at most SECURE_HELLOS_PER_SECOND times a second, so the answer, larger than the hello, cannot be used to flood anyone. */
+#define SECURE_SENDERS 8
+#define SECURE_HELLOS_PER_SECOND 20
+static struct{int used;uint64_t sender,at;struct secure_dir from_pc,to_pc;}secured[SECURE_SENDERS];
+/* A new copy of the companion asks from this console itself, in the plain (running_copy_answers). */
+static int from_this_console(uint64_t sender){return ((sender>>40)&0xff)==127;}
+static int secured_sender(uint64_t sender){for(int i=0;i<SECURE_SENDERS;i++)if(secured[i].used&&secured[i].sender==sender)return i;return -1;}
+static void secure_hello_from(uint64_t sender,const unsigned char*d,size_t n){
+ static uint64_t window;static int answered;uint64_t now=now_us();
+ if(now-window>=1000000){window=now;answered=0;}
+ if(answered>=SECURE_HELLOS_PER_SECOND)return;
+ int slot=secured_sender(sender);
+ for(int i=0;slot<0&&i<SECURE_SENDERS;i++)if(!secured[i].used)slot=i;
+ if(slot<0){slot=0;for(int i=1;i<SECURE_SENDERS;i++)if(secured[i].at<secured[slot].at)slot=i;}
+ unsigned char ns[16],reply[SECURE_PAD_REPLY_SIZE];secure_fresh(ns);
+ if(!secure_pad_hello(secure_key,d,n,ns,reply,&secured[slot].from_pc,&secured[slot].to_pc))return;
+ secured[slot].used=1;secured[slot].sender=sender;secured[slot].at=now;answered++;
+ send_datagram(sender,reply,sizeof reply);
+}
+static int receive(unsigned char*w,size_t cap,int timeout_ms,uint64_t*sender){
+ /* Without a key, only a home address plays: a port left forwarded never opens the console to the internet. */
+ if(!secure_on){int n=receive_datagram(w,cap,timeout_ms,sender);return n>0&&!away_local((uint32_t)(*sender>>16))?0:n;}
+ unsigned char d[128];int n=receive_datagram(d,sizeof d,timeout_ms,sender);
+ if(n<=0)return n;
+ if(from_this_console(*sender)&&is_pad_probe(d,(size_t)n)){memcpy(w,d,(size_t)n);return n;}
+ if(secure_is_pad_hello(d,(size_t)n)){secure_hello_from(*sender,d,(size_t)n);return 0;}
+ int slot=secured_sender(*sender);if(slot<0)return 0;
+ long m=secure_open_datagram(&secured[slot].from_pc,d,(size_t)n);
+ if(m<0||(size_t)m>cap)return 0;
+ memcpy(w,d+12,(size_t)m);secured[slot].at=now_us();return (int)m;
+}
+static void answer(uint64_t sender,const unsigned char*w,size_t n){
+ if(!secure_on||from_this_console(sender)){send_datagram(sender,w,n);return;}
+ int slot=secured_sender(sender);if(slot<0||n>64)return;
+ unsigned char d[64+SECURE_DATAGRAM_EXTRA];send_datagram(sender,d,secure_seal_datagram(&secured[slot].to_pc,w,n,d));
 }
 /* No SO_REUSEADDR: a second copy must find the port taken and leave, so the one already running keeps the controller. */
 static int open_socket(void){
@@ -187,6 +227,9 @@ int main(void){
  logf=fopen("/data/playbridge-pad.txt","w");
  LOG("PlayBridge controller v2 (/dev/hid) pid=%d fw=%08x\n",getpid(),kernel_get_fw_version());
  if(kernel_get_fw_version()!=0x13600007u){LOG("unsupported firmware\nend=firmware\n");if(logf)fclose(logf);return 9;}
+ secure_start();LOG("Secured: %s\n",secure_on?"yes, only the PC that sent this payload plays":"no, a payload loaded by hand");
+ /* Sent for play away from home: it waits the away hours for a controller, not ten minutes. */
+ if(away_on(secure_on,secure_flags)){pad_idle_us=away_wait_ms(secure_flags)*1000u;LOG("Away: waits %u hours for a controller\n",away_hours(secure_flags));}
  pad_socket=open_socket();
  /* The port taken: a copy that answers keeps it and its controllers. One that never answers is a copy that stopped (a crash on the PS5
     freezes the process and it keeps the port), so it is ended and the port taken over. */

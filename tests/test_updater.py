@@ -41,12 +41,19 @@ class UpdaterTest(unittest.TestCase):
   self.assertIsNone(updater.parse_version('latest'))
   self.assertTrue(updater.is_newer('v1.6.1','1.6.0'));self.assertTrue(updater.is_newer('1.10.0','1.9.9'))
   self.assertFalse(updater.is_newer('v1.6.0','1.6.0'));self.assertFalse(updater.is_newer('v1.5.2','1.6.0'));self.assertFalse(updater.is_newer('nightly','1.6.0'))
+  # Betas: before their final version, after the one before, in their own order.
+  self.assertEqual(updater.version_key('v1.8.0-beta.2'),(1,8,0,1,2));self.assertEqual(updater.version_name('V1.8-RC1'),'1.8.0-rc.1');self.assertEqual(updater.version_name('1.7.1'),'1.7.1')
+  self.assertTrue(updater.is_newer('1.8.0','1.8.0-beta.3'));self.assertTrue(updater.is_newer('1.8.0-beta.1','1.7.1'));self.assertFalse(updater.is_newer('1.8.0-beta.1','1.8.0'))
+  self.assertTrue(updater.is_newer('1.8.0-beta.10','1.8.0-beta.9'));self.assertTrue(updater.is_newer('1.8.0-rc.1','1.8.0-beta.9'))
  def test_release_needs_the_program_and_its_checksums(self):
   good=dict(tag_name='v2.0.0',assets=[dict(name='PlayBridge.exe',browser_download_url='x',size=3),dict(name='SHA256SUMS.txt',browser_download_url='y')])
   self.assertEqual(updater.read_release(good)['version'],'2.0.0')
   self.assertIsNone(updater.read_release(dict(good,draft=True)));self.assertIsNone(updater.read_release(dict(good,prerelease=True)))
   self.assertIsNone(updater.read_release(dict(good,assets=good['assets'][:1])));self.assertIsNone(updater.read_release(dict(good,tag_name='nightly')))
   self.assertIsNone(updater.read_release(None))
+  beta=dict(good,tag_name='v2.1.0-beta.1',prerelease=True)
+  self.assertEqual(updater.read_release(beta,beta=True)['version'],'2.1.0-beta.1');self.assertIsNone(updater.read_release(beta))
+  self.assertIsNone(updater.read_release(dict(beta,prerelease=False)),'a beta tag stays off the final channel even when not marked')
  def test_checksum_lines(self):
   text=f'{"a"*64}  PlayBridge.elf\n{"B"*64} *PlayBridge.exe\n'
   self.assertEqual(updater.checksum_for(text),'b'*64);self.assertIsNone(updater.checksum_for('nothing here'))
@@ -146,9 +153,19 @@ class UpdaterTest(unittest.TestCase):
   self.assertEqual(updater.finish(self.folder/'gone'/'PlayBridge.exe',True,source=source,wait=0,start=self.fail,say=said.append),1)
   self.assertIn(str(source),said[0])
  def test_tidy_keeps_only_newer_downloads(self):
-  for name in ('PlayBridge-1.0.0.exe',f'PlayBridge-{VERSION}.exe','PlayBridge-99.0.0.exe','PlayBridge-99.0.0.exe.partial'):(self.folder/name).write_bytes(b'x')
+  for name in ('PlayBridge-1.0.0.exe',f'PlayBridge-{VERSION}.exe','PlayBridge-99.0.0.exe','PlayBridge-99.0.0.exe.partial','PlayBridge-99.1.0-beta.1.exe','PlayBridge-1.0.0-beta.1.exe'):(self.folder/name).write_bytes(b'x')
   self.assertTrue(updater.tidy(self.folder,tries=1))
-  self.assertEqual(sorted(p.name for p in self.folder.iterdir()),['PlayBridge-99.0.0.exe'])
+  self.assertEqual(sorted(p.name for p in self.folder.iterdir()),['PlayBridge-99.0.0.exe','PlayBridge-99.1.0-beta.1.exe'])
+ def test_the_beta_channel_takes_the_newest_release_betas_included(self):
+  self.publish('v99.0.0');final=json.loads(Release.files['/latest']);beta=dict(final,tag_name='v99.1.0-beta.2',prerelease=True)
+  Release.files['/releases']=json.dumps([beta,final,dict(final,tag_name='v99.2.0-beta.1',draft=True)]).encode()
+  with mock.patch.object(updater,'RELEASES',self.base+'/releases'):
+   updates=updater.Updater(self.folder,rate=None,channel='beta');updates.run();status=updates.status()
+   self.assertEqual((status['state'],status['version'],status['channel']),('ready','99.1.0-beta.2','beta'));self.assertEqual(Path(updates.file).name,'PlayBridge-99.1.0-beta.2.exe')
+   # Off again: the waiting beta is dropped, and the final channel's newest is taken.
+   updates.set_channel('stable');self.assertEqual(updates.status()['state'],'idle');updates.run()
+   self.assertEqual((updates.status()['state'],updates.status()['version']),('ready','99.0.0'))
+   self.assertEqual(updater.Updater(self.folder,channel='nightly').channel,'stable')
 
  def test_the_version_matches_the_exe_details(self):
   details=(Path(__file__).resolve().parents[1]/'app'/'version.txt').read_text(encoding='utf8')

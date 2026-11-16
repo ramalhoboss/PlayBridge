@@ -88,6 +88,8 @@ class Microphone:
  console(): the PS5's address, for the DualSense's microphone through it. notify(text): tells the window how that one stands."""
  def __init__(self,mix,sd=None,console=None):
   self.mix=mix;self.sd=sd;self.console=console;self.notify=lambda text:None;self.stream=None;self.name='';self.error=''
+  # connect(host, port) for the DualSense's microphone, set by the app: sealed when the payload holds this PC's key.
+  self.connect=None
  @property
  def on(self):return self.stream is not None
  def state(self):
@@ -98,7 +100,7 @@ class Microphone:
   if wanted==console_mic.NAME:
    self.close();self.error=''
    if self.console is None:self.error='No PS5 to hear the DualSense through';return False
-   self.stream=console_mic.ConsoleMic(self.console,self.mix.voice,self.notify);self.name=console_mic.NAME;return True
+   self.stream=console_mic.ConsoleMic(self.console,self.mix.voice,self.notify,self.connect);self.name=console_mic.NAME;return True
   sd=self.sd
   if sd is None:import sounddevice as sd;self.sd=sd
   self.close();self.error=''

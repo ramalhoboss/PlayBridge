@@ -10,6 +10,7 @@ from pathlib import Path
 import av
 from media_capture import HEVC,codec_headers,is_idr,strip_adts
 import pad_input as pad
+import secure_link
 
 PORT=9080
 MAX_PHONES=4
@@ -446,32 +447,39 @@ class PhonePad:
  PC's, it is on the PS5 only while the phone plays: from its first press until two minutes with nothing pressed. A page left open
  on a phone never holds a controller there."""
  IDLE=pad.PadBridge.IDLE
- def __init__(self,host):
+ def __init__(self,host,key=None,reach=None):
+  # reach(host, port): where the companion's port is from here, away from home too.
+  self.reach=reach or (lambda host,port:(host,port))
   self.host=host;self.udp=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);self.udp.setblocking(False);self.sequence=0;self.answer=None
+  # Its datagrams, sealed once the companion proves it holds this PC's key (secure_link.PadLink).
+  self.wire_link=secure_link.PadLink(key)
   self.used_at=None;self.joined=False;self.spread=ArrivalSpread()
  def in_use(self,now):return self.used_at is not None and now-self.used_at<self.IDLE
  def send(self,state,now):
   if not pad.at_rest(state):self.used_at=now
   if not self.in_use(now):self.leave();return
-  try:self.udp.sendto(pad.wire(self.sequence,state),(self.host(),pad.PAD_PORT));self.sequence+=1;self.joined=True
-  except OSError:pass
+  if self.put(pad.wire(self.sequence,state)):self.sequence+=1;self.joined=True
+ def put(self,data):
+  try:
+   for datagram in self.wire_link.datagrams(data):self.udp.sendto(datagram,self.reach(self.host(),pad.PAD_PORT))
+  except OSError:return False
+  return True
  def leave(self):
   """Its controller leaves the PS5 at once; the next press brings it back. Nothing neutral goes first (see PadBridge.quit)."""
   if self.joined:
-   for _ in range(pad.PadBridge.QUIT_COPIES):
-    try:self.udp.sendto(pad.QUIT,(self.host(),pad.PAD_PORT))
-    except OSError:pass
+   for _ in range(pad.PadBridge.QUIT_COPIES):self.put(pad.QUIT)
   self.joined=False;self.used_at=None;self.answer=None
  def heard(self):
   """The companion's newest answer to this phone, or None. A socket that never sent has no port yet, and Windows answers every read
   on it with an error, so it is not read; the reads are counted as well, so no error can keep this from returning."""
   if not self.sequence:return self.answer
   for _ in range(32):
-   try:data,_=self.udp.recvfrom(64)
+   try:data,_=self.udp.recvfrom(128)
    except (BlockingIOError,InterruptedError):break
    # A closed port on the console is reported as an error on the next read; the reads after it go on.
    except OSError:continue
-   answer=pad.read_status(data)
+   data=self.wire_link.take(data)
+   answer=pad.read_status(data) if data is not None else None
    if answer is not None:self.answer=answer
   return self.answer
  def close(self):self.leave();self.udp.close()
@@ -563,6 +571,10 @@ class PhoneServer:
  """The page, pairing and the phones' WebSockets. play(): whether phones may play (Play on your PS5 is on and the PS5 is connected)."""
  def __init__(self,feed,pairing,host,play,port=PORT,log=None):
   self.feed=feed;self.pairing=pairing;self.host=host;self.play=play;self.port=port;self.server=None;self.phones=0;self.lock=threading.Lock();self.error=''
+  # The PS5 payloads' key for the phones' controllers (secure_link.Pairing.pad_key), set by the app; None sends them as they are.
+  self.pad_key=None
+  # Where the companion's port is from here (app.reach), set by the app too.
+  self.pad_reach=None
   # The phone log (a PhoneLog), and a number for each phone that connects, so its lines can be told apart.
   self.log=log;self.connected=0
   # The controllers, and a way to close and to tell something to each phone connected now.
@@ -604,7 +616,8 @@ class PhoneServer:
    def do_GET(self):
     if not self.allowed():return
     # The page also opens with a choice after it (?player=media picks the browser's own player).
-    if self.path.split('?',1)[0] in ('/','/index.html'):
+    # /tv is the same page for a big screen: a TV, a Steam Deck or a PC browser, played with a remote, a controller or a keyboard.
+    if self.path.split('?',1)[0] in ('/','/index.html','/tv'):
      try:self.reply(200,PAGE.read_bytes(),'text/html; charset=utf-8')
      except OSError:self.reply(500,b'{"error":"page"}')
     elif self.path=='/api/check':self.reply(200 if owner.pairing.knows(self.headers.get('X-Token','')) else 401,b'{}')
@@ -657,7 +670,7 @@ class PhoneServer:
     except OSError:pass
     return
    self.phones+=1;self.connected+=1;number=self.connected
-  viewer=self.feed.join();phone=PhonePad(self.host);done=threading.Event();told=None;key=object()
+  viewer=self.feed.join();phone=PhonePad(self.host,self.pad_key,self.pad_reach);done=threading.Event();told=None;key=object()
   def close_now():
    # The page hears why, then the read below stops at once.
    done.set()

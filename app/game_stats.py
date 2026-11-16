@@ -11,6 +11,7 @@ from pathlib import Path
 GAP=90;SHORTEST=60;SAVE_EVERY=60;KEEP=5000
 DAY=86400
 MONTHS=('January','February','March','April','May','June','July','August','September','October','November','December')
+WEEKDAYS=('Mondays','Tuesdays','Wednesdays','Thursdays','Fridays','Saturdays','Sundays')
 
 class PlayLog:
  def __init__(self,path,clock=time.time):
@@ -114,9 +115,17 @@ def year(sessions,trophies,which,now):
  longest=max(picked,key=lambda item:item[3]-item[2]) if picked else None
  month=max(by_month.items(),key=lambda item:item[1])[0] if by_month else None
  earned=sum(count for _,_,at,count in trophies if time.localtime(at).tm_year==which)
+ # The most days in a row with play, and the day of the week with the most hours.
+ best=0;run=0;before=None
+ for day in sorted(days):
+  run=run+1 if before is not None and day_start(before+DAY+3600)==day else 1;best=max(best,run);before=day
+ by_weekday=defaultdict(float)
+ for _,_,start,end in picked:
+  for day,seconds in split_days(start,end):by_weekday[time.localtime(day).tm_wday]+=seconds
+ weekday=max(by_weekday.items(),key=lambda item:item[1])[0] if by_weekday else None
  return dict(year=which,hours=hours(total) if total else '0 h',days=len(days),sessions=len(picked),games=len(by_game),top=top,trophies=earned,
   longest=dict(name=longest[1],text=hours(longest[3]-longest[2]),when=time.strftime('%d %b',time.localtime(longest[2])).lstrip('0')) if longest else None,
-  month=MONTHS[month-1] if month else '',soFar=which==time.localtime(now).tm_year)
+  month=MONTHS[month-1] if month else '',soFar=which==time.localtime(now).tm_year,streak=best,weekday=WEEKDAYS[weekday] if weekday is not None else '')
 
 def page(log,console_games,chosen_year,now):
  """What the Stats page shows."""

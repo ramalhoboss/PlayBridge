@@ -1,7 +1,8 @@
 """The Friends page and the PlayStation Network card in Settings, in words: plain functions of psn_link.Psn.view(), so they are tested
 without a window. picture(name) turns a picture kept beside the friends' names into an address Qt can show ('' when there is none)."""
-import time
+import re,time
 from pathlib import Path
+from urllib.parse import quote
 from psn_link import DELETE_WITHIN,MOST_MEMBERS
 
 FILTERS=('All','Online','Favourites')
@@ -35,6 +36,25 @@ def friend_line(friend,now):
  return 'Offline'
 
 def tone(friend):return 'playing' if friend.get('online') and friend.get('game') else 'online' if friend.get('online') else 'off'
+
+# Play this too: the game a friend plays, found among the console's games by its title id, or by its name when the two players have
+# different versions of it (the PS4 one and the PS5 one). A game not on the console is searched for in the PlayStation Store instead.
+STORE_SEARCH='https://store.playstation.com/search/'
+def plain_name(name):
+ words=re.sub(r'[^0-9a-z]+',' ',re.sub('[™®©]','',str(name or '').lower())).split()
+ return ' '.join(word for word in words if word not in ('ps4','ps5','edition'))
+def play_too(friend,games,running=''):
+ """What can be done with the game a friend plays: {kind: play|running|store, title, game, tip}, or None when they play nothing.
+ games: the console's games [{title, name}]; running: the title open on the PS5."""
+ game=friend.get('game') or ''
+ if not friend.get('online') or not game:return None
+ wanted=str(friend.get('title_id') or '')[:9];name=plain_name(game)
+ found=next((g for g in games or [] if not g.get('app') and g.get('title')==wanted),None) if wanted else None
+ if found is None and name:found=next((g for g in games or [] if not g.get('app') and plain_name(g.get('name'))==name),None)
+ if found is None:return dict(kind='store',title='',game=game,tip=f'Find {game} in the PlayStation Store')
+ if found['title']==running:return dict(kind='running',title=found['title'],game=game,tip=f'You are playing {game} too')
+ return dict(kind='play',title=found['title'],game=game,tip=f'Play {game} too')
+def store_url(game):return STORE_SEARCH+quote(' '.join(str(game or '').split()))
 
 # Where a player found by online ID stands with the player, and what can be done about it: (words, [(action, label, tone)]).
 RELATIONS=dict(none=('Not your friend yet',[('add','Send friend request','main')]),sent=('You sent them a friend request',[('cancel','Take back request','plain')]),
@@ -78,13 +98,14 @@ def face(person,friends):
  known=friends.get(person.get('id')) or {};name=person.get('name') or known.get('name') or ''
  return dict(id=person.get('id',''),name=name or 'Player',initial=(name or '?')[:1].upper(),picture=known.get('picture',''),line=known.get('line',''),tone=known.get('tone','off'))
 
-def page(view,now,chosen='All',picture=lambda name:'',running='',chat=lambda name:'',playing=''):
+def page(view,now,chosen='All',picture=lambda name:'',running='',chat=lambda name:'',playing='',games=(),running_title=''):
  """What the Friends page shows. The player at the top stands as in the top bar (standing), running being the game open on the PS5.
- chat turns a kept picture of a conversation into an address Qt shows; playing is the voice message playing now."""
+ chat turns a kept picture of a conversation into an address Qt shows; playing is the voice message playing now. games are the
+ console's games and running_title the one open, for Play this too."""
  voice=playing
  me=view.get('me') or {};mine=(me.get('name') or '').lower();friends=view.get('friends') or []
  rows=[dict(id=f['id'],name=f.get('name') or 'Loading…',initial=(f.get('name') or '?')[:1].upper(),line=friend_line(f,now),tone=tone(f),picture=picture(f.get('picture')),
-  favourite=bool(f.get('favourite')),known=bool(f.get('name'))) for f in friends]
+  favourite=bool(f.get('favourite')),known=bool(f.get('name')),playToo=play_too(f,games,running_title)) for f in friends]
  online=sum(1 for row in rows if row['tone']!='off');playing=sum(1 for row in rows if row['tone']=='playing')
  shown=[row for row in rows if chosen=='All' or chosen=='Online' and row['tone']!='off' or chosen=='Favourites' and row['favourite']]
  asking=set(view.get('asking') or [])

@@ -21,6 +21,10 @@ def guide_query(game,trophy=None):
 def guide_url(game,trophy=None):
  return SEARCH+quote_plus(guide_query(game,trophy))
 
+def missable_url(game):
+ """A search for the game's missable trophies, which PSN does not mark."""
+ return SEARCH+quote_plus(f'{plain(game) or "PS5"} missable trophies')
+
 def guide_line(game,trophy=None):
  """What the window says once the guide is open."""
  name=plain((trophy or {}).get('name'));return f'Opened a guide for {name} in your browser.' if name else f'Opened the trophy guide for {plain(game) or "the game"} in your browser.'

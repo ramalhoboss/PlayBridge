@@ -4,6 +4,7 @@ video payload) adds a controller on the PS5 for each PC or phone that sends to i
 import ctypes,queue,socket,struct,threading,time
 from ctypes import wintypes
 from typing import NamedTuple
+from secure_link import PadLink
 
 PAD_PORT=9078
 L3,R3,OPTIONS,UP,RIGHT,DOWN,LEFT,L2,R2,L1,R1=0x2,0x4,0x8,0x10,0x20,0x40,0x80,0x100,0x200,0x400,0x800
@@ -189,7 +190,12 @@ class PadBridge:
  # The companion is sent at most this many times in a row, this far apart: one that fails says why, and resending it every few
  # seconds would only fill the PS5 with processes. Once one has started well, it may be sent again after it ends.
  COMPANION_TRIES=2;COMPANION_AGAIN=60.0
- def __init__(self,host,stop,pads=None,companion=None,send_elf=None,wanted=None):
+ def __init__(self,host,stop,pads=None,companion=None,send_elf=None,wanted=None,key=None):
+  # The datagrams to the companion: sealed once it proves it holds this PC's key (key() gives it), as they are for one without.
+  self.wire_link=PadLink(key)
+  # reach(host, port): where the companion's port is from here (away from home, through the way Settings keeps). away(): this PC is away,
+  # so nothing can be sent to the loader.
+  self.reach=lambda host,port:(host,port);self.away=lambda:False
   self.host=host;self.stop=stop;self.pads=pads;self.events=queue.SimpleQueue();self.name='';self.sending=False;self.navigating=False;self.ps_leaves=False
   self.navigator=Navigator();self.combo=HomeCombo();self.sequence=0;self.sent=None;self.sent_at=0;self.pressed=0;self.thread=None
   self.live=False;self.playing=False;self.joined=False;self.used_at=None;self.since=0.0;self.answer=None;self.heard_at=None
@@ -197,7 +203,7 @@ class PadBridge:
   # companion: the ELF's bytes, or None when it is missing. send_elf(host, data): the loader on 9021. wanted(now): a phone plays.
   self.companion=companion;self.send_elf=send_elf;self.wanted=wanted;self.companion_tries=0;self.companion_at=None;self.companion_note=''
   # The last reading, so a page can follow the right stick without taking any of its events.
-  self.state=NEUTRAL
+  self.state=NEUTRAL;self.presses=0
   # The mouse while you aim (mouse_aim.MouseAim), set by the window: it plays with the keyboard.
   self.mouse=None
   # The game's controller profile (pad_profiles.apply bound to it), set by the window; None plays the controller as it is.
@@ -238,7 +244,11 @@ class PadBridge:
   # Leaving the live view lets go of the keyboard, and this PC's controller leaves the PS5 below: the next press there brings it back.
   if self.live and not live:self.keyboard.clear();self.used_at=None
   self.live=live
-  ps_pressed=state.buttons&PS and not self.pressed&PS;self.pressed=state.buttons
+  ps_pressed=state.buttons&PS and not self.pressed&PS
+  # Buttons that went down while playing, counted for a recording's highlights.
+  fresh=state.buttons&~self.pressed
+  if live and fresh:self.presses+=bin(fresh).count('1')
+  self.pressed=state.buttons
   if self.combo.update(state,now):self.events.put('leave')
   if self.navigating:
    for event in self.navigator.update(state,now):self.events.put(event)
@@ -256,16 +266,19 @@ class PadBridge:
   self.playing=playing
   if playing and (state!=self.sent or now-self.sent_at>=self.KEEP_ALIVE):self.send(state,now,udp)
  def send(self,state,now,udp):
-  try:udp.sendto(wire(self.sequence,state),(self.host(),PAD_PORT))
-  except OSError:return
+  if not self.put(udp,wire(self.sequence,state)):return
   self.sequence+=1;self.sent=state;self.sent_at=now;self.joined=True
+ def put(self,udp,data):
+  """Sends data to the companion, sealed when it holds this PC's key. False when the network refused it."""
+  try:
+   for datagram in self.wire_link.datagrams(data):udp.sendto(datagram,self.reach(self.host(),PAD_PORT))
+  except OSError:return False
+  return True
  def quit(self,udp):
   """This PC's controller leaves the PS5 at once. Nothing neutral goes first: the companion lets go of what was held itself, and a
   state arriving after the leave message would only make a new controller."""
   if not self.joined:return
-  for _ in range(self.QUIT_COPIES):
-   try:udp.sendto(QUIT,(self.host(),PAD_PORT))
-   except OSError:pass
+  for _ in range(self.QUIT_COPIES):self.put(udp,QUIT)
   self.joined=False;self.sent=None
  def watch_companion(self,now,udp):
   """Sends the companion when one is needed and nothing answers: just after attaching, so the first press plays at once, and
@@ -276,9 +289,8 @@ class PadBridge:
    self.attached_at=None;self.warm=False;self.missing_since=None;self.probed_at=None;self.companion_tries=0;self.companion_at=None;return
   if self.attached_at is None:self.attached_at=now;self.warm=True
   if not self.playing and (self.probed_at is None or now-self.probed_at>=self.PROBE_EVERY):
-   self.probed_at=now
-   try:udp.sendto(PROBE,(self.host(),PAD_PORT))
-   except OSError:pass
+   self.probed_at=now;self.put(udp,PROBE)
+  if self.wire_link.foreign:self.companion_note='The controller payload on your PS5 was sent by another PC. It ends after ten minutes without use.'
   if self.heard_at is not None and now-self.heard_at<=self.SILENT:
    self.warm=False;self.missing_since=None
    if self.answer[0]==READY:self.companion_tries=0
@@ -286,6 +298,8 @@ class PadBridge:
   if not (self.warm or self.playing or (self.wanted is not None and self.wanted(now))):self.missing_since=None;return
   if self.missing_since is None:self.missing_since=now
   if not self.wants_companion(now):return
+  if self.away():
+   self.companion_note='Away from home the controller payload cannot be sent: it goes when away play is turned on at home.';self.companion_at=now;return
   data=self.companion() if self.companion else None
   self.companion_tries+=1;self.companion_at=now;self.warm=False
   if not data:self.companion_note='PlayBridge-Controller.elf is missing. Reinstall the complete PlayBridge package.';return
@@ -301,11 +315,13 @@ class PadBridge:
  def listen(self,udp,now):
   """Takes the console side's answers that are waiting, without waiting for any."""
   for _ in range(32):
-   try:data,_=udp.recvfrom(64)
+   # 128: the companion's answer to a hello is 68 bytes, and Windows drops a datagram larger than the read.
+   try:data,_=udp.recvfrom(128)
    except (BlockingIOError,InterruptedError):return
    # Windows reports a closed port on the console as an error on the next read; the reads after it go on.
    except OSError:continue
-   answer=read_status(data)
+   data=self.wire_link.take(data)
+   answer=read_status(data) if data is not None else None
    if answer is not None:self.answer=answer;self.heard_at=now
  def player(self):
   """Which of the console's controllers is this PC's, 1 to 4, or 0 before it has one."""

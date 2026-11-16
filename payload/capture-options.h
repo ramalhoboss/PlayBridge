@@ -11,7 +11,9 @@
 /* The options' third word: the resolution in its low byte, the codec in the next and flags above them. Receivers before a flag
    send 0 there, and a payload refuses a flag it does not know, so the PC sets one only while its setting is on. */
 #define OPTION_NOTIFY 1u
-#define OPTION_FLAGS OPTION_NOTIFY
+/* The picture and sound over UDP (video-udp.h), for play away from home. Only taken over a connection that proved the key. */
+#define OPTION_UDP 2u
+#define OPTION_FLAGS (OPTION_NOTIFY|OPTION_UDP)
 static int split_target(uint32_t word,uint32_t*resolution,uint32_t*codec,uint32_t*flags){
  *resolution=word&0xffu;*codec=(word>>8)&0xffu;*flags=word>>16;return !(*flags&~OPTION_FLAGS);
 }
@@ -90,11 +92,12 @@ static uint32_t open_when_ready(const struct capture_calls*c,int64_t*h,unsigned 
 #define OPTIONS_DROPPED (-2)
 #define NO_VIEWER (-1)
 #define VIEWER_INVALID (-2)
-struct viewer_calls{int(*accept)(int timeout_ms);int(*options)(int fd);void(*drop)(int fd);uint64_t(*now_ms)(void);};
+/* wait_ms: how long to wait, VIEWER_WAIT_MS when 0. */
+struct viewer_calls{int(*accept)(int timeout_ms);int(*options)(int fd);void(*drop)(int fd);uint64_t(*now_ms)(void);uint64_t wait_ms;};
 /* Returns the socket of the first viewer whose options were read, or NO_VIEWER when none came within the wait. A viewer whose options
    are not valid ends the wait with VIEWER_INVALID, and its socket is left in *invalid for the caller to close. */
 static int first_viewer(const struct viewer_calls*c,int*dropped,int*invalid){
- uint64_t end=c->now_ms()+VIEWER_WAIT_MS;
+ uint64_t end=c->now_ms()+(c->wait_ms?c->wait_ms:VIEWER_WAIT_MS);
  for(;;){
   uint64_t now=c->now_ms();if(now>=end)return NO_VIEWER;
   int fd=c->accept((int)(end-now));if(fd<0)return NO_VIEWER;

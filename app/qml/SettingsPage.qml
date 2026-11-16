@@ -144,6 +144,32 @@ FocusScope {
                     Note { text: "The PS5 shows a notice when PlayBridge starts streaming to this PC and when it stops. A PlayBridge.elf you load yourself has to be from this version, or it refuses the connection while this is on." }
                 }
                 Card {
+                    id: awayCard
+                    title: "Away from home"
+                    visible: page.s.section === "console"
+                    property var a: page.s.away || ({})
+                    Toggle { width: parent.width; text: awayCard.a.busy ? (awayCard.a.on ? "Ending away play…" : "Getting ready…") : "Play away from home"; checked: !!awayCard.a.on; enabled: !awayCard.a.busy; onToggled: function(on) { shell.act("away", on) } }
+                    Note { visible: !!awayCard.a.now; text: awayCard.a.now || ""; tone: "news" }
+                    Note { text: awayCard.a.text || "" }
+                    Note { visible: !!awayCard.a.problem; text: awayCard.a.problem || ""; tone: "error" }
+                    Caption { visible: !!awayCard.a.typed; text: "Your home address" }
+                    Row {
+                        visible: !!awayCard.a.typed
+                        width: parent.width
+                        spacing: 8
+                        Field { id: awayAddress; width: parent.width - 118; placeholderText: "Your home IP or a name such as home.example.net"; onEntered: shell.act("away_address", text) }
+                        PillButton { text: "Save"; tone: "main"; width: 110; height: 46; onClicked: shell.act("away_address", awayAddress.text) }
+                    }
+                    Caption { text: "The PS5 waits for this PC" }
+                    Choice { width: parent.width; model: awayCard.a.hoursList || []; value: awayCard.a.hours || ""; enabled: !awayCard.a.on && !awayCard.a.busy; onPicked: function(v) { shell.act("away_hours", v) } }
+                    Note { visible: !!awayCard.a.on; text: "Turn away play off to change how long the PS5 waits." }
+                    Caption { text: "Quality away from home" }
+                    Choice { width: parent.width; model: awayCard.a.profiles || []; value: awayCard.a.profile || ""; enabled: !awayCard.a.busy; onPicked: function(v) { shell.act("away_profile", v) } }
+                    Caption { text: "How the picture travels" }
+                    Choice { width: parent.width; model: awayCard.a.transports || []; value: awayCard.a.transport || ""; enabled: !awayCard.a.busy; onPicked: function(v) { shell.act("away_transport", v) } }
+                    Note { text: "Turn it on at home, with the PS5 on and nothing streaming: PlayBridge opens the way in and sends the payload that waits for this PC. Away, connect as usual. The stream starts at the quality above and steps down when the line loses too much, then back up after a few minutes without loss. Only this PC opens it: everything is encrypted with this PC's key, and nothing can be sent to the PS5 from outside, as the ELF loader's port stays closed." }
+                }
+                Card {
                     title: "Controller"
                     visible: page.s.section === "console"
                     Toggle { width: parent.width; text: "Play on your PS5"; checked: !!page.s.consolePad; onToggled: function(on) { shell.act("console_pad", on) } }
@@ -370,13 +396,30 @@ FocusScope {
                     Note { text: "The graphics card decodes and draws the video, which uses far less of the processor and keeps playing while the window is busy. Applies the next time PlayBridge opens." }
                     Toggle { width: parent.width; text: "Match the screen to the stream"; checked: !!page.s.matchRefresh; onToggled: function(on) { shell.act("match", on) } }
                     Note { text: "60 fps judders on a 144 or 165 Hz screen, because some frames stay up longer than others. While a game streams, PlayBridge switches the screen to 120 or 60 Hz, and back when the stream ends." }
-                    Toggle { visible: !!page.s.direct; width: parent.width; text: "Sharpen picture"; checked: !!page.s.sharpen; onToggled: function(on) { shell.act("sharpen", on) } }
-                    Toggle { visible: !!page.s.direct; width: parent.width; text: "FSR 1 upscaling"; checked: !!page.s.fsr; onToggled: function(on) { shell.act("fsr", on) } }
-                    Note { visible: !!page.s.direct; text: "When the screen is larger than the picture, such as 1080p on a 1440p or 4K monitor, AMD FidelityFX Super Resolution 1 enlarges it, and Sharpen picture uses its sharpening. Works on any graphics card." }
                     Toggle { visible: !!page.s.direct; width: parent.width; text: "Smooth motion"; checked: !!page.s.smooth; onToggled: function(on) { shell.act("smooth", on) } }
                     Note { visible: !!page.s.direct; text: (page.s.smoothNote || "") + (page.s.smoothState ? "\n" + page.s.smoothState : "") }
                     Toggle { visible: !!page.s.vrrSupported; width: parent.width; text: "Variable refresh rate"; checked: !!page.s.vrr; onToggled: function(on) { shell.act("vrr", on) } }
                     Note { visible: !!page.s.vrrSupported; text: "For screens with G-Sync, FreeSync or Adaptive-Sync: each frame shows the moment it is due, so 60 fps plays evenly on a 144 Hz screen without switching it to 60 Hz. Works best in full screen (F11), and other screens may show tearing. While it is on, PlayBridge leaves the screen rate alone. Applies the next time PlayBridge opens." }
+                }
+                Card {
+                    title: "Picture Studio"
+                    visible: page.s.section === "picture"
+                    Note { visible: !page.s.direct; text: "Picture Studio needs the GPU video output, above." }
+                    Toggle { visible: !!page.s.direct; width: parent.width; text: "Graphics card super resolution"; checked: !!page.s.superResolution; onToggled: function(on) { shell.act("super_resolution", on) } }
+                    Note { visible: !!page.s.direct; text: "When the window is larger than the picture, such as 1080p on a 1440p or 4K screen, the graphics card's own video engine enlarges it: NVIDIA RTX Video Super Resolution on an RTX card, Intel's video super resolution on Intel Arc and recent Intel graphics. On an NVIDIA card it also needs RTX Video super resolution on in the NVIDIA app. Other cards use FSR 1 instead." + (page.s.engineScaling && page.s.engineScaling !== "off" ? "\nNow: " + page.s.engineScaling + "." : "") }
+                    Toggle { visible: !!page.s.direct; width: parent.width; text: "RTX Video HDR"; checked: !!page.s.videoHdr; onToggled: function(on) { shell.act("video_hdr", on) } }
+                    Note { visible: !!page.s.direct; text: "On an NVIDIA RTX card with Windows HDR on for this screen, the graphics card turns the PS5's SDR picture into HDR, with brighter highlights and deeper colour. It is the card's own estimate of HDR, not HDR from the console. Needs RTX Video HDR on in the NVIDIA app. While it is on, Deband, Sharpen picture and the comparison wait." + (page.s.engineHdr && page.s.engineHdr !== "off" ? "\nNow: " + page.s.engineHdr + "." : "") }
+                    Toggle { visible: !!page.s.direct; width: parent.width; text: "FSR 1 upscaling"; checked: !!page.s.fsr; onToggled: function(on) { shell.act("fsr", on) } }
+                    Note { visible: !!page.s.direct; text: "AMD FidelityFX Super Resolution 1 enlarges the picture where the graphics card's super resolution is off or not on this card. Works on any graphics card." }
+                    Toggle { visible: !!page.s.direct; width: parent.width; text: "Sharpen picture"; checked: !!page.s.sharpen; onToggled: function(on) { shell.act("sharpen", on) } }
+                    Toggle { visible: !!page.s.direct; width: parent.width; text: "Deband"; checked: !!page.s.deband; onToggled: function(on) { shell.act("deband", on) } }
+                    Note { visible: !!page.s.direct; text: "Smooths the steps the stream's compression leaves in skies, fog and shadows, and leaves edges and textures as they are." }
+                    Toggle { visible: !!page.s.direct; width: parent.width; text: "Compare before and after"; checked: !!page.s.compare; onToggled: function(on) { shell.act("compare", on) } }
+                    Note { visible: !!page.s.direct; text: "Left of the white line, the picture as the PS5 sends it. Right of it, with these settings. Only until PlayBridge closes." }
+                    Caption { visible: !!page.s.direct && !!page.s.studioGame; text: page.s.studioOwn ? "These settings are " + page.s.studioGame + "'s own" : "For " + page.s.studioGame }
+                    PillButton { visible: !!page.s.direct && !!page.s.studioGame && !page.s.studioOwn; width: parent.width; height: 48; text: "Keep these for " + (page.s.studioGame || "this game"); onClicked: shell.act("studio_keep", null) }
+                    PillButton { visible: !!page.s.direct && !!page.s.studioOwn; width: parent.width; height: 48; text: "Use my usual settings for this game"; onClicked: shell.act("studio_forget", null) }
+                    Note { visible: !!page.s.direct; text: (page.s.studioGame ? "A game's own settings come back each time it runs, and the switches above change them while it does." : "While a game runs you can keep these settings as its own, and they come back each time it runs.") + ((page.s.studioGames || []).length ? "\nGames with their own: " + page.s.studioGames.join(", ") + "." : "") }
                 }
 
                 // Captures.
@@ -426,9 +469,13 @@ FocusScope {
                 Card {
                     title: "Go live"
                     visible: page.s.section === "live"
-                    Choice { width: parent.width; model: page.s.services || []; value: page.s.service || ""; onPicked: function(v) { shell.act("live_service", v) } }
-                    Caption { visible: page.s.serviceKey === "custom" || page.s.serviceKey === "tiktok"; text: "Server address" }
-                    Field { id: server; visible: page.s.serviceKey === "custom" || page.s.serviceKey === "tiktok"; width: parent.width; placeholderText: "rtmp://"; onTextEdited: shell.act("live_check", { key: key.text, server: server.text }) }
+                    Note { text: page.s.liveSummary || ""; tone: (page.s.liveCount || 0) > 1 ? "news" : "plain" }
+                    Note { visible: !!page.s.liveMissing; text: page.s.liveMissing || ""; tone: "error" }
+                    Caption { text: "Service" }
+                    Choice { width: parent.width; model: page.s.services || []; value: page.s.service || ""; onPicked: function(v) { shell.act("live_service", { label: v, key: key.text, server: server.text }) } }
+                    Toggle { width: parent.width; text: "Go live on " + (page.s.service || ""); checked: !!page.s.liveOn; enabled: !page.s.liveActive; onToggled: function(on) { shell.act("live_target", { on: on, key: key.text, server: server.text }) } }
+                    Caption { visible: page.s.serviceKey === "custom" || page.s.serviceKey === "tiktok" || page.s.serviceKey === "kick"; text: "Server address" }
+                    Field { id: server; visible: page.s.serviceKey === "custom" || page.s.serviceKey === "tiktok" || page.s.serviceKey === "kick"; width: parent.width; placeholderText: "rtmp://"; onTextEdited: shell.act("live_check", { key: key.text, server: server.text }) }
                     Caption { visible: page.s.serviceKey !== "obs"; text: "Stream key" }
                     Row {
                         visible: page.s.serviceKey !== "obs"
@@ -441,13 +488,14 @@ FocusScope {
                     Note { visible: page.s.serviceKey !== "obs"; text: "Your viewers see the game's real frame rate, temperatures and power, the speedrun timer, each trophy as it unlocks and the buttons you press on this PC's controller. The graphics card makes the video again to draw them in, as H.264 unless Smaller stream is on." }
                     Toggle { visible: !!page.s.compressible; width: parent.width; text: "Smaller stream (HEVC or AV1)"; checked: !!page.s.compress; onToggled: function(on) { shell.act("live_compress", on) } }
                     Note { visible: !!page.s.compressible; text: page.s.compressNote || "" }
-                    PillButton { width: parent.width; height: 48; text: page.s.liveActive ? "End live stream" : "Go live"; tone: page.s.liveActive ? "danger" : "main"; onClicked: shell.act("live_go", { key: key.text, server: server.text }) }
+                    PillButton { width: parent.width; height: 48; text: page.s.liveEnding ? "Ending the live stream…" : page.s.liveActive ? "End live stream" : "Go live"; tone: page.s.liveActive ? "danger" : "main"; enabled: !page.s.liveEnding; onClicked: shell.act("live_go", { key: key.text, server: server.text }) }
                     Note { text: (page.s.liveStatus || {}).text || ""; tone: (page.s.liveStatus || {}).tone || "plain" }
                 }
                 Card {
                     title: "How it works"
                     visible: page.s.section === "live"
                     Note { text: "PlayBridge sends on the video and sound the PS5 already made, without encoding them again, so it costs this PC almost nothing. The stream uses your quality profile, as H.264 and AAC, so check that its bitrate suits your channel." }
+                    Note { text: "Switch on several services and Go live sends the same stream to each at once, through a queue of its own: one that is slow or refuses the stream never holds up the others, and one that drops it is called again. Your upload carries the stream once for each service." }
                     Note { text: "For YouTube and other RTMP servers, Smaller stream makes the video again as AV1 or HEVC on the graphics card, so 4K fits a slower upload. Twitch takes those only in its Enhanced Broadcasting beta, so it always gets H.264." }
                     Note { text: "Ctrl+B or the button beside the small window starts and ends it with these settings. Recording and instant replay keep working while you are live." }
                 }
@@ -606,6 +654,7 @@ FocusScope {
                     Toggle { width: parent.width; text: "Phone access"; checked: !!page.s.phoneOn; onToggled: function(on) { shell.act("phone", on) } }
                     Note { text: "Watch the game on your phone and play with touch controls, or with a controller paired to the phone, in its browser: nothing to install. Only phones on this PC's network can open it, and only after pairing once with a code." }
                     Note { visible: !!page.s.phoneOn; text: page.s.phoneAddress ? "On your phone, on the same Wi-Fi, open " + page.s.phoneAddress : ""; tone: "news" }
+                    Note { visible: !!page.s.phoneOn && !!page.s.phoneAddress; text: page.s.phoneAddress ? "On a TV, a Steam Deck or another computer, open " + page.s.phoneAddress + "/tv in its browser, and play with a controller, the TV remote or a keyboard. It pairs like a phone." : "" }
                     Note { visible: !!page.s.phoneOn; text: "Chrome on Android 17 opens it only with its Nearby devices permission: Settings › Apps › Chrome › Permissions › Nearby devices › Allow. Other browsers may not need it." }
                     Note { visible: !page.s.phoneOn && !!page.s.phoneState; text: page.s.phoneState || ""; tone: "error" }
                     Note { visible: !!page.s.phoneOn; text: page.s.phoneState || "" }
@@ -662,6 +711,11 @@ FocusScope {
                     }
                     Toggle { width: parent.width; text: "Update automatically"; checked: !!updates.up.automatic; onToggled: function(on) { shell.act("update_auto", on) } }
                     Note { text: "PlayBridge looks for a new version on GitHub when it opens and every six hours. It downloads it slowly in the background, so a stream keeps its speed, checks it against the release's checksums, and then asks whether to restart and update now. Otherwise it goes in when you close PlayBridge." }
+                    Toggle { width: parent.width; text: "Beta versions"; checked: updates.up.channel === "beta"; onToggled: function(on) { shell.act("update_beta", on) } }
+                    Note { text: "Beta versions come out before the final ones: new things sooner, and sometimes bugs. Turned off again, PlayBridge waits for the next final version and never goes back to an older one." }
+                    Note { text: updates.up.check || ""; tone: updates.up.slower ? "error" : "plain" }
+                    PillButton { width: parent.width; height: 48; text: "Report a problem"; onClicked: shell.act("bug_report", null) }
+                    Note { text: "Opens a new issue on PlayBridge's GitHub page with this PC's details filled in: the version, Windows, the graphics card, the stream settings and how long each frame takes. No addresses, names or files. Nothing is sent until you submit it there; the details are also copied, to paste anywhere." }
                 }
             }
         }
@@ -686,6 +740,7 @@ FocusScope {
     // The fields take what is saved when the page comes up, and are never reset while someone types in them.
     property int filled: 0
     property bool loaded: false
+    property string awayAddressSeen: ""
     function load() {
         var s = shell.settings || {}
         if (s.host === undefined) return
@@ -699,6 +754,7 @@ FocusScope {
         if (!chatChannel.activeFocus) chatChannel.text = s.chatChannel || ""
         if (!psnWatch.activeFocus) psnWatch.text = s.psnWatch || ""
         if (!payloadRepo.activeFocus) payloadRepo.text = s.payloadRepo || ""
+        if (!awayAddress.activeFocus) awayAddress.text = (s.away || {}).address || ""
     }
     onVisibleChanged: if (visible) load()
     Connections {
@@ -711,6 +767,8 @@ FocusScope {
                 if (fill.host) host.text = fill.host
                 if (fill.name) consoleName.text = fill.name
             }
+            var away = (shell.settings || {}).away || {}
+            if (!awayAddress.activeFocus && away.address !== undefined && away.address !== page.awayAddressSeen) { page.awayAddressSeen = away.address; awayAddress.text = away.address }
         }
     }
 

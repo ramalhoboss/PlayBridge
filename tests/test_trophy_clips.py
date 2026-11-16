@@ -45,7 +45,7 @@ class ClipTests(unittest.TestCase):
 class MomentTests(unittest.TestCase):
  def unlocked(self,at,since,now,settings=None,seconds=60):
   moments=[];notes=[];done=threading.Event()
-  me=SimpleNamespace(replay=SimpleNamespace(seconds=seconds),notify=notes.append,trophy_events=queue.SimpleQueue(),save_trophy_clip=lambda earned,moment:(moments.append(moment),done.set()))
+  me=SimpleNamespace(replay=SimpleNamespace(seconds=seconds),notify=notes.append,trophy_events=queue.SimpleQueue(),recorder=SimpleNamespace(active=False),save_trophy_clip=lambda earned,moment:(moments.append(moment),done.set()))
   with patch.object(core,'config',return_value=settings or {}),patch.object(core,'CLIP_AFTER',0),patch.object(core.time,'time',return_value=now):
    core.Player.trophy_unlocked(me,'PPSA00001',[dict(id=3,name='Trophy 3',grade='bronze',at=at)],since)
    done.wait(2)
@@ -60,5 +60,10 @@ class MomentTests(unittest.TestCase):
  def test_turned_off_the_trophy_is_still_heard_but_no_clip_is_kept(self):
   moments,notes,events=self.unlocked(995,990.0,1000.0,settings=dict(trophy_clips=False))
   self.assertEqual((moments,notes),([],[]));self.assertFalse(events.empty())
+ def test_while_recording_each_trophy_is_noted_for_the_highlights(self):
+  noted=[];me=SimpleNamespace(trophy_events=queue.SimpleQueue(),recorder=SimpleNamespace(active=True),moments=SimpleNamespace(trophy=lambda name,at:noted.append((name,at))))
+  with patch.object(core,'config',return_value=dict(trophy_clips=False)),patch.object(core.time,'time',return_value=1000.0):
+   core.Player.trophy_unlocked(me,'PPSA00001',[dict(id=3,name='Trophy 3',grade='bronze',at=995),dict(id=4,name='',grade='silver',at=996)],990.0)
+  self.assertEqual(noted,[('Trophy 3',996),('Trophy',996)])
 
 if __name__=='__main__':unittest.main()

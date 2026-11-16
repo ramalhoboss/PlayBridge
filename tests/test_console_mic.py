@@ -72,6 +72,11 @@ class MicTests(unittest.TestCase):
   console=StandIn(handle=-2139029502);mic,voice=self.listen(console)
   self.assertTrue(wait_for(lambda:'did not open' in mic.state));self.assertIn('80810002',mic.state)
   time.sleep(.5);self.assertEqual(console.served,1)
+ def test_the_payload_keeps_it_closed_and_says_to_use_usb(self):
+  self.assertEqual(int(re.search(r'#define MIC_STAYS_CLOSED (0x[0-9a-f]+)u',RULES).group(1),16),cm.STAYS_CLOSED)
+  console=StandIn(handle=cm.STAYS_CLOSED-(1<<32));mic,voice=self.listen(console)
+  self.assertTrue(wait_for(lambda:mic.state==cm.STAYS_CLOSED_NOTE));self.assertIn('USB',mic.state);self.assertEqual(voice.held,0)
+  time.sleep(.5);self.assertEqual(console.served,1)
  def test_the_silent_flags_are_told(self):
   console=StandIn(blocks=40,silent=lambda n:cm.PRIORITY_LOW if n>=10 else 0);mic,voice=self.listen(console)
   self.assertTrue(wait_for(lambda:'Another app' in mic.state));self.assertTrue(any('party chat' in note for note in self.notes))

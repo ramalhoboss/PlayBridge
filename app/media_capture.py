@@ -80,7 +80,7 @@ class CaptureRecorder:
      video_template=av.open(io.BytesIO(video_first),format='hevc' if self.codec==HEVC else 'h264');audio_template=av.open(io.BytesIO(audio_first),format='aac');templates=[video_template,audio_template]
      out=av.open(str(temporary),'w',format='mp4',options={'movflags':'+faststart'})
      vs=out.add_stream_from_template(video_template.streams.video[0]);aus=out.add_stream_from_template(audio_template.streams.audio[0]);aus.codec_context.extradata=strip_adts(audio_first)[1]
-     started=True
+     started=True;self.began=time.time()
      if not self.ending.is_set():self.state='recording'
      self.events.put(('status',self.started,str(self.path)))
     for k,b,p,d,_ in pending:

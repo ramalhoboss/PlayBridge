@@ -15,6 +15,8 @@ class TrophyGuideTests(unittest.TestCase):
   host,query=searched(tg.guide_url("Demon's Souls™",dict(id=3,name='  Penetrator  Slayer ',grade='gold')))
   self.assertEqual((host,query),('duckduckgo.com',"Demon's Souls Penetrator Slayer trophy guide"))
   self.assertEqual(tg.guide_line("Demon's Souls",dict(name='Penetrator Slayer')),'Opened a guide for Penetrator Slayer in your browser.')
+ def test_missable_trophies_of_a_game(self):
+  self.assertEqual(searched(tg.missable_url('Uncharted™ 4'))[1],'Uncharted 4 missable trophies');self.assertEqual(searched(tg.missable_url(''))[1],'PS5 missable trophies')
  def test_a_trophy_without_a_name_searches_for_the_game(self):
   self.assertEqual(searched(tg.guide_url('Astro Bot®',dict(id=12,name='')))[1],'Astro Bot trophy guide')
   self.assertEqual(searched(tg.guide_url('',None))[1],'PS5 trophy guide')

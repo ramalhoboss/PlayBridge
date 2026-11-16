@@ -30,11 +30,14 @@ from phone_link import PhoneFeed
 from compact_video import Compactor,recycle
 from save_backup import SaveBackup
 from fan_target import FanProfiles
-from console_control import ConsoleLink,POWER_OFF,REBOOT,REST,call as console_call,running_title
+from console_control import AWAY_END,CONTROL_PORT,ConsoleLink,POWER_OFF,REBOOT,REST,call as console_call,running_title
 import discord_link,twitch_chat
+from highlights import MomentLog
 from console_discovery import SUPPORTED_FIRMWARE,firmware_name,locate,supported
 from stream_metrics import StreamMetrics,export_diagnostics
-import graphics_card,network_link,updater
+from perf_watch import PerfWatch,line as perf_line
+import bug_report
+import away_play,graphics_card,network_link,secure_link,udp_video,updater
 from audio_output import candidates,check_report,default_output,describe,output_name,output_settings
 from mic_mix import LEVEL_MAX,MicMix,Microphone
 from av.codec.hwaccel import HWAccel
@@ -82,11 +85,20 @@ def connect_capture(host,give_up,wait=CAPTURE_WAIT_SECONDS,clock=time.monotonic)
   except OSError:
    if clock()>=end or give_up(.1):return None
 NOTIFY_FLAG=1<<16
-def capture_request(profile,notices=False):
+# The picture and sound over UDP with error correction (udp_video), asked only of a payload that proved this PC's key.
+UDP_FLAG=1<<17
+# Away from home a connection crosses the internet, so it may take longer than on the home network.
+AWAY_CONNECT_SECONDS=6
+# Rest mode: how often a resting PS5 is asked whether it woke up, and how long its ELF loader gets to answer once it has.
+WAKE_LOOK=3.0;LOADER_BACK=20.0
+LOADER_GONE='Your PS5 woke up, but its ELF loader did not come back from rest mode. Run your exploit again, then connect.'
+class AwayStep(Exception):
+ """The line away from home carries another quality now: the stream starts again with that profile."""
+def capture_request(profile,notices=False,udp=False):
  # 1080p H.264 keeps sending 0 so an older manually loaded ELF can still stream. The second byte is the codec, and the bits above it
  # flags: notices asks the PS5 to show one when the stream starts and ends. A payload before 1.6 refuses any flag, so it is sent
  # only while its setting is on.
- p=PROFILES[profile];return struct.pack('<4sIII',b'PBO1',p['fps'],p['bitrate'],p.get('resolution',0)|p.get('codec',0)<<8|(NOTIFY_FLAG if notices else 0))
+ p=PROFILES[profile];return struct.pack('<4sIII',b'PBO1',p['fps'],p['bitrate'],p.get('resolution',0)|p.get('codec',0)<<8|(NOTIFY_FLAG if notices else 0)|(UDP_FLAG if udp else 0))
 def video_threads(resolution):
  # The console sends one slice per frame, so only frame threads can share the work. Each extra thread adds a frame of delay.
  return ('FRAME',3) if resolution>=6 else ('FRAME',2) if resolution==5 else ('SLICE',1)
@@ -132,8 +144,9 @@ class Timings:
   return result
 class Player:
  def __init__(self,args):
-  self.metrics=StreamMetrics();self.metrics_lock=threading.Lock();self.recorder=CaptureRecorder();self.broadcast=LiveBroadcast();self.phone_feed=PhoneFeed();self.last_native_frame=None;self.capture_info=None;self.notice='';self.notice_until=0;self.screenshot_thread=None;self.retry_at=0;self.intentional_disconnect=False;self.follow=config().get('host_auto',True);self.elsewhere=None;self.renderer=(('gdi' if args.headless or not config().get('direct_video',True) else 'd3d11') if sys.platform=='win32' else 'tk') if args.renderer=='auto' else args.renderer;self.timings=Timings();self.args=args;self.stop=threading.Event();self.session_done=threading.Event();self.render_size=(1280,720);self.volume=1.0;self.muted=False;self.save_at=0;self.connection_state='Connecting…';self.lock=threading.Lock();self.pcm=bytearray();self.frames=collections.deque();self.last_drawn=None;self.audio=None;self.sock=None;self.error='';self.stats=collections.Counter();self.peak=0;self.output_name='';self.first_video=None;self.first_audio=None;self.first_arrival=None;self.latest_pts={};self.events=collections.deque(maxlen=60);self.arrival_origin=None;self.transport_growth_ms=0;self.decode_failure=None;self.started=time.perf_counter();self.pacer=FramePacer(self.stats);self.repeats=RepeatFrames(self.stats);self.motion=MotionMeter();self.decoder_name='software';self.decoder_on_gpu=False;self.codec=0;self.console=None;self.video_hidden=False;self.sound_hidden=False;self.replay=ReplayBuffer(config().get('replay_seconds',60));self.replay_thread=None;self.link=ConsoleLink(STATE/'library',self.notify);self.link.on_trophy=self.trophy_unlocked;self.trophy_events=queue.SimpleQueue();self.gaps=collections.deque(maxlen=30)
-  self.update_state='idle';self.updates=updater.Updater(STATE/'update',automatic=bool(config().get('update_auto',True)),on_change=self.update_changed);self.restart_after_update=False
+  self.metrics=StreamMetrics();self.metrics_lock=threading.Lock();self.recorder=CaptureRecorder();self.broadcast=LiveBroadcast();self.phone_feed=PhoneFeed();self.last_native_frame=None;self.capture_info=None;self.notice='';self.notice_until=0;self.screenshot_thread=None;self.retry_at=0;self.intentional_disconnect=False;self.follow=config().get('host_auto',True);self.elsewhere=None;self.renderer=(('gdi' if args.headless or not config().get('direct_video',True) else 'd3d11') if sys.platform=='win32' else 'tk') if args.renderer=='auto' else args.renderer;self.timings=Timings();self.args=args;self.stop=threading.Event();self.session_done=threading.Event();self.render_size=(1280,720);self.volume=1.0;self.muted=False;self.save_at=0;self.connection_state='Connecting…';self.lock=threading.Lock();self.pcm=bytearray();self.frames=collections.deque();self.last_drawn=None;self.audio=None;self.sock=None;self.error='';self.stats=collections.Counter();self.peak=0;self.output_name='';self.first_video=None;self.first_audio=None;self.first_arrival=None;self.latest_pts={};self.events=collections.deque(maxlen=60);self.arrival_origin=None;self.transport_growth_ms=0;self.decode_failure=None;self.started=time.perf_counter();self.pacer=FramePacer(self.stats);self.repeats=RepeatFrames(self.stats);self.motion=MotionMeter();self.decoder_name='software';self.decoder_on_gpu=False;self.codec=0;self.console=None;self.video_hidden=False;self.sound_hidden=False;self.replay=ReplayBuffer(config().get('replay_seconds',60));self.moments=MomentLog();self.replay_thread=None;self.link=ConsoleLink(STATE/'library',self.notify);self.link.on_trophy=self.trophy_unlocked;self.trophy_events=queue.SimpleQueue();self.gaps=collections.deque(maxlen=30)
+  self.update_state='idle';self.updates=updater.Updater(STATE/'update',automatic=bool(config().get('update_auto',True)),on_change=self.update_changed,channel=config().get('update_channel','stable'));self.restart_after_update=False
+  self.perf_watch=PerfWatch(STATE/'perf-history.json')
   # The payload's logs from this run, for finding out why a stream ended. They stay on this PC and the next start clears them.
   self.link.log_folder=STATE/'ps5-logs'
   # Each game's saves, copied to the PC when it closes: read only, from the console's own files.
@@ -143,6 +156,15 @@ class Player:
   self.link.fans=FanProfiles(STATE/'library'/'fans.json')
   # Your voice in what is saved or sent, only while the microphone is on.
   self.mic_mix=MicMix(av);self.microphone=Microphone(self.mic_mix,sd,console=lambda:self.args.host);self.microphone.notify=self.notify
+  # This PC's key, written into each payload it sends (secure_link): the video payload's ports and the controller companion then take
+  # this PC only, and everything between them is encrypted. A payload loaded by hand holds no key and stays open, as before.
+  # Whether the last video connection was sealed; None until one is made, so a report never claims either before then.
+  self.link_secured=None
+  self.payload_pairing=secure_link.Pairing(lambda:config().get('pairing_key',''),lambda sealed:save_config(pairing_key=sealed),seal,unseal)
+  self.link.connect=lambda host,port:self.payload_pairing.connect(*self.reach(host,port),secure_link.CONTROL,self.reach_seconds())
+  self.microphone.connect=lambda host,port:self.payload_pairing.connect(*self.reach(host,port),secure_link.MIC,self.reach_seconds())
+  # Play away from home (away_play): whether this session runs away from home, the way there, the quality steps and the stream over UDP.
+  self.away_active=False;self.away_route=None;self.away_rate=None;self.away_profile=None;self.udp_video=None;self.udp_lost_seen=0;self.step_again=False
   try:self.mic_mix.level=min(LEVEL_MAX,max(0.0,float(config().get('mic_level',1.0))))
   except (TypeError,ValueError):pass
   # Discord: the game on your profile, and your captures in a channel of yours. Both stay off until set in Settings.
@@ -294,26 +316,70 @@ class Player:
    self.console=None;self.elsewhere=found['ip'];return
   self.console=found
   if self.console is None:return
-  if self.console['resting']:raise RuntimeError('Your PS5 is in rest mode. Turn it on, then connect.')
+  if self.console['resting'] and not self.wait_awake():return
   if not supported(self.console):raise RuntimeError(f"Your PS5 runs firmware {firmware_name(self.console['firmware'])}. PlayBridge works on {firmware_name(SUPPORTED_FIRMWARE)} only, so nothing was sent to it.")
   if self.console['ip']!=self.args.host:self.args.host=self.console['ip'];save_config(host=self.args.host)
+ def wait_awake(self):
+  """The PS5 answers its discovery in rest mode too, so PlayBridge waits for it to wake (with its own controller, or the PlayStation
+  App) and then connects. True once it is on, False when the player stopped waiting."""
+  self.connection_state='Waiting for your PS5 to wake up…';self.event('The PS5 is in rest mode: waiting for it to wake up');ip=self.console['ip']
+  while not self.stop.wait(WAKE_LOOK):
+   if self.intentional_disconnect:return False
+   found=locate(ip)
+   if found and found['ip']==ip and not found['resting']:
+    self.console=found;self.woke=True;self.connection_state='Connecting…';self.event('The PS5 woke up');return True
+  return False
+ def waiting_text(self):
+  """What the live view says while no picture has come yet."""
+  if self.connection_state.startswith('Waiting for your PS5'):return 'Your PS5 is in rest mode. Wake it with its controller or the PlayStation App, and PlayBridge connects.'
+  return 'Connecting to your console…'
+ def loader_connection(self):
+  """The ELF loader's port. Just after the PS5 wakes from rest mode it can take a few seconds to answer; one that never does did not
+  come back with the console, and that is said rather than a wrong address."""
+  until=time.monotonic()+(LOADER_BACK if self.woke else 0)
+  while True:
+   try:return socket.create_connection((self.args.host,9021),5)
+   except OSError:
+    if time.monotonic()>=until or self.stop.wait(1) or self.intentional_disconnect:
+     if self.woke:raise RuntimeError(LOADER_GONE) from None
+     raise
  def console_label(self):
   if not self.console:return self.args.host
   return '  ·  '.join(part for part in (self.console['name'],firmware_name(self.console.get('firmware','')),self.args.host) if part)
  def network_session(self):
   try:
+   self.away_active=False;self.away_route=None;self.udp_video=None;self.udp_lost_seen=0;reused=False;away=self.away_settings();self.woke=False
    if not self.args.connect_only:
     self.find_console()
-    if not PAYLOAD_FILE.is_file():raise RuntimeError('The bundled PlayBridge.elf is missing. Reinstall the complete PlayBridge package.')
-    payload=PAYLOAD_FILE.read_bytes()
-    with socket.create_connection((self.args.host,9021),5) as loader:loader.sendall(payload);loader.shutdown(socket.SHUT_WR)
-   self.sock=connect_capture(self.args.host,lambda wait:self.stop.wait(wait) or self.intentional_disconnect)
-   if self.sock is None:
     if self.stop.is_set() or self.intentional_disconnect:return
-    raise RuntimeError('PS5 listener did not start on 9076')
+    if away.get('on') and self.away_needed():
+     # The PS5 is not on this PC's network: away from home, the payload waiting there is reached the way Settings keeps. Nothing is
+     # sent to it.
+     self.away_route=away_play.route_of(away)
+     if self.away_route is None:raise RuntimeError('Away from home: type your home address in Settings › Console › Away from home.')
+     self.away_active=True
+    elif away.get('on'):reused=self.reuse_waiting()
+    if not self.away_active and not reused:
+     if not PAYLOAD_FILE.is_file():raise RuntimeError('The bundled PlayBridge.elf is missing. Reinstall the complete PlayBridge package.')
+     payload,self.payload_pairing.video=self.payload_pairing.stamp(PAYLOAD_FILE.read_bytes(),self.away_flags())
+     with self.loader_connection() as loader:loader.sendall(payload);loader.shutdown(socket.SHUT_WR)
+   # A payload loaded by hand holds no key.
+   else:self.payload_pairing.video=False
+   if self.away_active:self.sock=self.connect_away()
+   elif not reused:
+    self.sock=connect_capture(self.args.host,lambda wait:self.stop.wait(wait) or self.intentional_disconnect)
+    if self.sock is None:
+     if self.stop.is_set() or self.intentional_disconnect:return
+     raise RuntimeError('PS5 listener did not start on 9076')
+    self.sock=self.payload_pairing.wrap(self.sock,secure_link.VIDEO)
+   self.link_secured=self.payload_pairing.video
+   self.event('Connection secured: only this PC, encrypted' if self.payload_pairing.video else 'Connection open: the payload holds no key')
    try:self.stats['network_link']=network_link.link(self.sock.getpeername()[0])
    except OSError:self.stats['network_link']=None
-   self.sock.sendall(capture_request(self.args.profile,bool(config().get('ps5_notices',False))))
+   udp=self.away_active and away.get('transport','udp')!='tcp' and isinstance(self.sock,secure_link.SecureSocket)
+   self.sock.sendall(capture_request(self.session_profile(),bool(config().get('ps5_notices',False)),udp))
+   # Its reports start at once, so the payload knows where to send before its first picture.
+   if udp:self.udp_video=udp_video.UdpVideo(self.sock,self.away_route.address(9076),self.sock.udp_keys(),keyframe=lambda packet:is_idr(packet,self.codec),watch=False)
    self.connection_state='Starting capture…';self.sock.settimeout(5);self.sock.setsockopt(socket.IPPROTO_TCP,socket.TCP_NODELAY,1)
    audio=av.CodecContext.create('aac','r');resampler=av.AudioResampler(format='s16',layout='stereo',rate=48000)
    record=(STATE/'av3-test.wire').open('wb') if self.args.record else None
@@ -321,7 +387,7 @@ class Player:
    decoder_thread=threading.Thread(target=self.decode_video,args=(decode_queue,decode_done),name='PlayBridge video decode',daemon=True);decoder_thread.start()
    # When each packet arrived and when PlayBridge was done with it, for the last seconds of the session: if the PS5 ends a stream,
    # this says whether it stopped sending or PlayBridge stopped reading (the payload gives up after 1 s without being read).
-   steps=collections.deque(maxlen=1000);pending=None
+   steps=collections.deque(maxlen=1000);pending=None;rate_at=time.perf_counter()+1
    try:
     while not self.stop.is_set():
      if pending:steps.append((*pending,time.perf_counter()));pending=None
@@ -334,6 +400,10 @@ class Player:
       info=json.loads(payload.decode('utf8'))
       if not isinstance(info,dict) or info.get('protocol')!=2:raise ValueError('Unsupported capture acknowledgement')
       self.capture_info=info;self.codec=self.recorder.codec=self.broadcast.codec=self.phone_feed.codec=1 if info.get('codec')==1 else 0
+      if self.udp_video is not None and self.sock is not self.udp_video:
+       if info.get('transport')=='udp':
+        self.udp_video.take_over();self.udp_video.settimeout(self.sock.gettimeout());self.sock=self.udp_video;self.event('Picture and sound over UDP, with error correction')
+       else:self.udp_video.detach();self.udp_video=None;self.event('The PS5 kept the stream on TCP')
       # A payload that says nothing about it has no control port to look for.
       if info.get('control') and self.link.session is None:self.link.begin(self.args.host)
       continue
@@ -343,6 +413,11 @@ class Player:
      if kind==2 and self.microphone.on:self.feed_mixed(payload,pts)
      else:self.recorder.feed(kind,payload,pts,dts);self.replay.feed(kind,payload,pts,dts);self.broadcast.feed(kind,payload,pts,dts);self.phone_feed.feed(kind,payload,pts,dts)
      self.latest_pts[kind]=pts;self.stats['received_bytes']+=size
+     # Away from home, once a second: a line that loses too much steps the quality down, and minutes without loss step it back up.
+     if self.away_active and self.away_rate is not None and now>=rate_at:
+      rate_at=now+1;loss,lost=self.away_loss()
+      change=self.away_rate.second(loss,lost,self.transport_growth_ms if self.udp_video is None else 0)
+      if change:self.away_profile=change;raise AwayStep(change)
      with self.metrics_lock:self.metrics.packet(size,kind==1)
      if kind==1:
       if self.first_video is None:self.first_video=pts;self.first_arrival=now
@@ -374,12 +449,16 @@ class Player:
     self.ending=last_seconds(steps,ended)
     decode_done.set();decoder_thread.join(timeout=2)
     if record:record.close()
+  except AwayStep as step:
+   self.step_again=True;self.event(f'Away from home: the stream starts again at {PROFILES[str(step)]["name"]} for this line')
   except Exception as e:
    self.event(f'Stream ended: {type(e).__name__}: {str(e)[:100]}')
    if getattr(self,'ending',''):self.event(self.ending);self.ending=''
    if not self.stop.is_set() and not self.intentional_disconnect:self.error=('The PS5 closed the connection before streaming. In manual mode, load the current PlayBridge.elf.' if isinstance(e,(EOFError,ConnectionResetError)) and self.capture_info is None and self.args.connect_only else 'The PS5 connection ended. You can reconnect.' if isinstance(e,EOFError) else 'The PS5 stopped sending data.' if isinstance(e,socket.timeout) else unreachable(self.args.host,self.elsewhere) if isinstance(e,OSError) else str(e));(STATE/'av3-error.log').write_text(traceback.format_exc(),encoding='utf8')
   finally:
    self.link.last_look();self.link.end()
+   # A UDP side the payload never took gives the TCP connection back before it closes.
+   if self.udp_video is not None and self.sock is not self.udp_video:self.udp_video.detach()
    if self.sock:self.sock.close()
    self.connection_state='Disconnected' if not self.error else 'Not connected'
  def update_changed(self):
@@ -399,8 +478,9 @@ class Player:
     self.recorder.reset_session();self.replay.reset();self.broadcast.reset_session();self.phone_feed.reset_session();self.mic_mix.reset();self.codec=0
     with self.metrics_lock:self.metrics.reset()
     with self.lock:self.pcm.clear();self.frames.clear();self.pacer.clear();self.last_native_frame=None
-    streamed=self.stats['sessions_connected'];self.network_session();self.recorder.stop(wait=True)
-    if self.stop.is_set() or self.intentional_disconnect or not self.args.auto_reconnect:break
+    streamed=self.stats['sessions_connected'];self.network_session();self.recorder.stop(wait=True);self.perf_watch.finish()
+    again=self.step_again;self.step_again=False
+    if self.stop.is_set() or self.intentional_disconnect or not (self.args.auto_reconnect or again):break
     self.stats['reconnection_attempts']+=1
     # A stream that was playing comes back at once, as when closing a game changes the console's picture.
     # Only attempts that never streamed wait longer each time.
@@ -459,6 +539,8 @@ class Player:
   falls between the two reads that found it, as it does when the two clocks agree, and otherwise the clip ends at the second read."""
   now=time.time();at=max(trophy['at'] for trophy in earned);moment=at if since-CLOCK_SLACK<=at<=now+CLOCK_SLACK else now
   self.trophy_events.put((title,earned))
+  if self.recorder.active:
+   for trophy in earned:self.moments.trophy(trophy.get('name') or 'Trophy',moment)
   if not config().get('trophy_clips',True):return
   if not self.replay.seconds:self.notify('Trophy earned. Turn on instant replay in Settings to keep a clip of the moment.');return
   timer=threading.Timer(max(0,moment+CLIP_AFTER-now),self.save_trophy_clip,args=(earned,moment));timer.daemon=True;timer.start()
@@ -498,6 +580,10 @@ class Player:
    try:kind,message,path=self.recorder.events.get_nowait()
    except queue.Empty:break
    self.notify(message+(': '+path if path else ''))
+   # The moments noted while it recorded go beside the file, for its highlights.
+   if kind=='status' and path and message==self.recorder.started:self.moments.begin(path,getattr(self.recorder,'began',time.time()))
+   elif kind in ('saved','error') and path:self.moments.finish(path)
+   elif not self.recorder.active:self.moments.drop()
    # Discord hears first, so a file that is also made smaller waits for its copy to be made.
    if kind=='saved' and path:self.discord_hook.share(message.rsplit(' saved',1)[0],path)
    if kind=='saved' and path and config().get('compact_recordings',False):self.compactor.add(path)
@@ -544,38 +630,180 @@ class Player:
    save_config(**{kind:bool(on)})
   return ''
  def go_live(self,service,key,server=''):
-  """Starts sending the stream on. Returns what stopped it, in words, or ''."""
-  from live_broadcast import COMPRESSIBLE,SERVICES,destination
+  """Starts sending the stream on to one service. Returns what stopped it, in words, or ''."""
+  return self.go_live_many([(service,key,server)])
+ def go_live_many(self,targets):
+  """Starts sending the stream on to each of targets, [(service, key, server)], at once. Returns what stopped it, in words, or ''."""
+  from live_broadcast import COMPRESSIBLE,SERVICES,destination,names_text
   if self.broadcast.active:return 'You are already live.'
-  try:address,container=destination(service,key,server)
-  except ValueError as problem:return str(problem)
+  if not targets:return 'Switch on at least one service to go live on.'
+  destinations=[]
+  for service,key,server in targets:
+   try:address,container=destination(service,key,server)
+   except ValueError as problem:return str(problem) if len(targets)==1 else f'{SERVICES.get(service,"A service")}: {problem}'
+   destinations.append((SERVICES[service],address,container))
   if self.connection_state!='Connected':return 'Connect to your PS5 before going live.'
-  # Smaller stream: only where the service takes HEVC and AV1 over RTMP, and only on a graphics card's encoder.
+  # Smaller stream: only where every service takes HEVC and AV1 over RTMP, and only on a graphics card's encoder.
   encoder=None
   import video_encoders
-  if config().get('live_compress',False) and service in COMPRESSIBLE:
+  if config().get('live_compress',False) and all(service in COMPRESSIBLE for service,_,_ in targets):
    encoder=video_encoders.for_live()
    if encoder is None:self.notify('This PC\'s graphics card makes neither HEVC nor AV1, so the stream goes as the PS5 sent it.')
   # The overlay and the chat can only be drawn into a video made again, so without Smaller stream the graphics card makes it again as H.264.
   if (config().get('live_overlay',False) or (config().get('chat_stream',False) and self.chat_channel)) and encoder is None:
    encoder=video_encoders.for_live_h264()
    if encoder is None:self.notify('This PC\'s graphics card cannot make the video again, so the live stream goes without the overlay.')
-  try:self.broadcast.start(address,container,SERVICES[service],encoder=encoder)
+  # One service gets the stream as it always did; several get it through one tee, made again at most once.
+  try:self.broadcast.start_many(destinations,encoder=encoder)
   except ValueError as problem:return str(problem)
-  self.notify(f'Going live on {SERVICES[service]} at the next keyframe…');return ''
+  self.notify(f'Going live on {names_text(name for name,_,_ in destinations)} at the next keyframe…');return ''
  def end_live(self):
   if self.broadcast.active:self.broadcast.stop();self.notify('Ending the live stream…')
  def open_captures(self):
   try:os.startfile(str(self.capture_folder()))
   except OSError:self.notify('Unable to open the capture folder.')
+ def away_needed(self):
+  """With away play on: whether the PS5 is away from this PC. No PS5 answering here is away; one that answers through a router or a
+  tunnel (a Tailscale route home) is away too, so the stream takes the away quality and the payload already waiting."""
+  if self.console is None:return self.elsewhere is None
+  return network_link.nearby(self.args.host) is False
+ def at_home(self):
+  """The PS5 on this PC's own network, as console_discovery finds it, or None when this PC is away from it."""
+  found=locate(self.args.host)
+  if found is None or network_link.nearby(found['ip']) is False:return None
+  return found
+ def reach(self,host,port):
+  """Where one of the console's ports is from here: through the away route while this session runs away from home, else as it is."""
+  route=self.away_route if self.away_active else None
+  return route.address(port) if route is not None else (host,port)
+ def reach_seconds(self):return AWAY_CONNECT_SECONDS if self.away_active else 2.0
+ def away_settings(self):
+  away=config().get('away');return away if isinstance(away,dict) else {}
+ def away_flags(self):
+  """The flags for a payload sent from here: with away play on, it waits for this PC after each stream, for the away hours."""
+  away=self.away_settings()
+  if not away.get('on'):return 0
+  hours=away.get('hours') if away.get('hours') in away_play.HOURS else away_play.USUAL_HOURS
+  return secure_link.FLAG_AWAY|hours<<8
+ def session_profile(self):
+  """The quality asked for: the chosen one at home; away, the away quality, or the step the line allows."""
+  if not self.away_active:self.away_rate=None;self.away_profile=None;return self.args.profile
+  away=self.away_settings();chosen=away.get('profile') if away.get('profile') in PROFILES else away_play.USUAL_PROFILE
+  if self.away_rate is None or self.away_rate.top!=chosen:self.away_rate=away_play.AwayRate(PROFILES,chosen);self.away_profile=None
+  return self.away_profile or chosen
+ def away_loss(self):
+  """Over UDP, the share of datagrams lost in the last second and the records lost since the last look; over TCP, none."""
+  if self.udp_video is None or self.sock is not self.udp_video:return 0.0,0
+  stats=self.udp_video.stats();lost=stats['records_lost']-self.udp_lost_seen;self.udp_lost_seen=stats['records_lost']
+  return (self.udp_video.losses[-1] if self.udp_video.losses else 0.0),lost
+ def reuse_waiting(self):
+  """At home with away play on, the payload of an earlier stream may still be waiting: this PC's key opens it, and nothing is sent."""
+  try:sock=socket.create_connection((self.args.host,9076),.6)
+  except OSError:return False
+  try:self.sock=secure_link.SecureSocket(sock,self.payload_pairing.key(),secure_link.VIDEO,2.0)
+  except (OSError,EOFError,secure_link.SecureError):
+   sock.close();return False
+  self.payload_pairing.video=True;self.event('The payload waiting on the PS5 took this PC again');return True
+ def connect_away(self):
+  """The video connection away from home, through the way Settings keeps. Only the payload that holds this PC's key answers there."""
+  host,port=self.away_route.address(9076);self.payload_pairing.video=True
+  try:sock=socket.create_connection((host,port),AWAY_CONNECT_SECONDS)
+  except OSError:
+   raise RuntimeError(f'Nothing answered at your home address ({host}, port {port}). Check that the PS5 is on, not in rest mode, and that away play was turned on at home.') from None
+  try:return secure_link.SecureSocket(sock,self.payload_pairing.key(),secure_link.VIDEO,AWAY_CONNECT_SECONDS)
+  except (OSError,EOFError,secure_link.SecureError) as error:
+   sock.close()
+   if isinstance(error,secure_link.SecureError) and 'another PC' in str(error):raise RuntimeError(str(error)) from None
+   raise RuntimeError('The PS5 is not waiting for this PC: its PlayBridge payload was not sent with away play on, or its hours ran out. Start it again at home.') from None
+ def send_away_payloads(self,console):
+  """At home, with no stream running: the payload and the controller companion go now, with the away flags, so they wait for this
+  PC even after PlayBridge closes. A payload already waiting is told to leave first, as the new one could not take its port."""
+  if self.tell_away_end():
+   time.sleep(1.2);until=time.monotonic()+5
+   while time.monotonic()<until:
+    try:socket.create_connection((console,9076),.5).close();time.sleep(.3)
+    except OSError:break
+  flags=self.away_flags();sent=[]
+  for name,data in (('PlayBridge.elf',PAYLOAD_FILE.read_bytes() if PAYLOAD_FILE.is_file() else None),('PlayBridge-Controller.elf',companion_bytes())):
+   if data is None:continue
+   stamped,keyed=self.payload_pairing.stamp(data,flags)
+   if not keyed:continue
+   try:
+    with socket.create_connection((console,9021),5) as loader:loader.sendall(stamped);loader.shutdown(socket.SHUT_WR)
+    sent.append(name);time.sleep(.5)
+   except OSError:break
+  return sent
+ def prepare_away(self,hours,done=None):
+  """At home, with no stream running: finds the way in from outside and keeps it (away_play.prepare), then sends the payloads that
+  wait for this PC. done(result, sent, problem) says how it went: result None with the problem when nothing was changed."""
+  def work():
+   result=None;sent=[];problem=''
+   try:
+    found=self.at_home() if self.connection_state!='Connected' else None
+    if self.connection_state=='Connected':problem='Disconnect first: the payload that waits for you cannot start while a stream runs.'
+    elif found is None:problem='Turn this on at home, with the PS5 on: no PS5 answered on this network.'
+    elif found['resting']:problem='Your PS5 is in rest mode. Turn it on, then turn this on.'
+    elif not supported(found):problem=f"Your PS5 runs firmware {firmware_name(found['firmware'])}. PlayBridge works on {firmware_name(SUPPORTED_FIRMWARE)} only."
+    else:
+     keep=self.away_settings();first=keep.get('first') if isinstance(keep.get('first'),int) else None
+     result=away_play.prepare(found['ip'],hours,first=first)
+     for name in ('profile','transport'):
+      if name in keep:result[name]=keep[name]
+     if result.get('method')=='manual' and keep.get('address'):result['address']=keep['address']
+     save_config(away=result);sent=self.send_away_payloads(found['ip'])
+     if 'PlayBridge.elf' not in sent:problem='The PS5\'s ELF loader did not take the payload. Start it, then connect once here at home before you leave: the payload sent then waits for you.'
+     self.event(f"Away play prepared: {result.get('method')}"+(f", sent {', '.join(sent)}" if sent else ', nothing sent'))
+   except Exception as error:
+    problem=f'That did not work: {error}';self.event(f'Away play prepare failed: {type(error).__name__}: {str(error)[:100]}')
+   if done:done(result,sent,problem)
+  threading.Thread(target=work,name='PlayBridge away prepare',daemon=True).start()
+ def tell_away_end(self):
+  """Tells the payload waiting on the PS5 to leave once no stream runs: over the control link when it is open, else on its own."""
+  if self.link.online:return self.link.send(AWAY_END)
+  away=self.away_settings();places=[(self.args.host,CONTROL_PORT)];route=away_play.route_of(away)
+  if route is not None:places.append(route.address(CONTROL_PORT))
+  for host,port in places:
+   try:sock=socket.create_connection((host,port),3)
+   except OSError:continue
+   try:
+    with secure_link.SecureSocket(sock,self.payload_pairing.key(),secure_link.CONTROL) as link:
+     result,_=console_call(link,AWAY_END);return result==0
+   except (OSError,EOFError,ValueError,struct.error,secure_link.SecureError):sock.close()
+  return False
+ def end_away(self,done=None):
+  """Away play ends: the payload waiting is told to leave, the router's forwards go when this PC is at home, and the settings keep only
+  the choices."""
+  def work():
+   away=self.away_settings();told=self.tell_away_end();removed=False
+   # Only the home router holds the forwards: away from home another router answers, and nothing of it is touched.
+   if away.get('method')=='router' and isinstance(away.get('first'),int) and not self.away_active and self.at_home() is not None:
+    try:router=away_play.Router.find()
+    except OSError:router=None
+    if router is not None:away_play.remove_all(router,away['first']);removed=True
+   save_config(away={k:away[k] for k in ('hours','profile','transport','address','first') if k in away}|{'on':False})
+   self.event(f'Away play ended: payload told {told}, forwards removed {removed}')
+   if done:done(told,removed)
+  threading.Thread(target=work,name='PlayBridge away end',daemon=True).start()
+ def companion_payload(self):
+  """The controller companion to send, with this PC's key in it when this PC can seal its datagrams; None when it is missing."""
+  data=companion_bytes()
+  if data is None:return None
+  return self.payload_pairing.stamp(data,self.away_flags())[0]
  def snapshot(self):
   with self.lock:
    s=dict(self.stats);s['audio_queue_ms']=round(len(self.pcm)/192,1)
+  if self.link_secured is not None:s['secured']=self.link_secured
+  # Away from home: no address, only how the stream travels and what the line loses.
+  over_udp=self.udp_video is not None and self.sock is self.udp_video
+  s['away']=dict(active=self.away_active,transport='udp' if over_udp else 'tcp',profile=self.away_profile or '',udp=self.udp_video.stats() if over_udp else None)
   with self.metrics_lock:s['stream']=self.metrics.summary()
   voice=self.mic_mix.voice;s.update(microphone=self.microphone.on,mic_mixed=self.mic_mix.mixed,mic_short_ms=round(voice.short/48),mic_dropped_ms=round(voice.dropped/48))
   s['timings_ms']=self.timings.summary();s['events']=list(self.events);s['gap_log']=list(self.gaps);s['latency_scope']='PC stages only; transport growth is relative to first video packet, not total HDMI-to-PC latency'
   s.update(recording_state=self.recorder.state,live_state=self.broadcast.state,capture_info=self.capture_info,profile_requested=self.args.profile,renderer=self.renderer,video_decoder=self.decoder_name,**graphics_card.report(self.graphics()),output=self.output_name,error=self.error,observed_seconds=round(time.perf_counter()-self.started,2),transport_delay_growth_ms=self.transport_growth_ms)
   (STATE/'av3-stats.json').write_text(json.dumps(s,indent=2),encoding='utf8');return s
+ def report_details(self,look):
+  """Report a problem: the details for a new GitHub issue (see bug_report)."""
+  return bug_report.details(self.snapshot(),look,perf_line(self.perf_watch.check()))
  def export_diagnostics(self,path):
   try:
    export_diagnostics(path,self.snapshot());self.notify("Diagnostics exported.")

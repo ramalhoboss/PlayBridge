@@ -36,6 +36,9 @@ class PlayLogTests(unittest.TestCase):
   year=game_stats.year(log.sessions,log.trophies,2026,now)
   self.assertEqual((year['hours'],year['days'],year['sessions'],year['games'],year['trophies'],year['month']),('5.5 h',4,4,2,4,'November'));self.assertEqual(year['top'][0]['name'],'Astro Bot')
   self.assertEqual(year['longest']['text'],'2.0 h');self.assertEqual(game_stats.years(log.sessions),[2026])
+  # 13, 14 and 15 November in a row; Monday the 9th has the most hours.
+  self.assertEqual((year['streak'],year['weekday']),(3,'Mondays'))
+  self.assertEqual((game_stats.year([],[],2025,now)['streak'],game_stats.year([],[],2025,now)['weekday']),(0,''))
   page=game_stats.page(log,[],None,now);self.assertEqual((page['weekText'],page['weekSessions'],page['weekTrophies'],page['streak'],page['year']['year']),('5.5 h',4,3,3,2026))
   self.assertTrue(game_stats.page(game_stats.PlayLog(self.folder/'none.json'),[],None,now)['empty'])
  def test_hours_in_words(self):
