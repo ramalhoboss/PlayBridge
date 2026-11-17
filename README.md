@@ -1,6 +1,6 @@
 <p align="center"><img src="docs/images/banner.png" alt="PlayBridge: your PS5 games, video and audio on your Windows PC" width="100%"></p>
 <p align="center">
-  <a href="https://github.com/ramalhoboss/PlayBridge/releases/latest"><img alt="Download v1.8.0" src="docs/images/badge-download.png" height="36"></a>
+  <a href="https://github.com/ramalhoboss/PlayBridge/releases/latest"><img alt="Download v1.9.0" src="docs/images/badge-download.png" height="36"></a>
   <img alt="Windows x64" src="docs/images/badge-windows.png" height="36">
   <img alt="PS5 firmware 13.60" src="docs/images/badge-ps5.png" height="36">
   <img alt="Up to 4K60" src="docs/images/badge-4k.png" height="36">
@@ -20,6 +20,21 @@ No HDMI capture card. No official Remote Play client or PSN Remote Play pairing.
 <p align="center"><img src="docs/images/playbridge-games.jpg" alt="PlayBridge Games page with a row of game and homebrew tiles, the selected app's art filling the window, its title, a Play button and cards for play time, size, a 4K 60 fps stream and console temperature, and the signed-in PSN player in the top bar" width="100%"></p>
 
 > Screenshots show the real application. The Games page above shows a real PS5 library: covers and music come from your own console when you connect, and none are included in the download. The Friends page further down shows a real PSN conversation, with the friend's name, their photo and a real name blurred. The game pictures are PS5 recordings copied from the console with **From your PS5**; the one on the Live page was played back to the app on the PC to take the screenshot, and the Settings page shows an example IP address. PlayBridge is in English; the console's own language remains whatever you selected on the PS5.
+
+## New in v1.9.0
+
+- **Pair a phone with its camera:** **Settings → Phone** shows a QR code. Point the phone's camera at it and the page opens already paired.
+- **More, on your phone:** a paired phone lists your games and starts one on the PS5, shows the screenshots and recordings on the PC to watch and save, and shows PlayBridge's log for the session. It works on a TV or a Steam Deck at **/tv** too, with a remote or a controller.
+- **Play time:** a daily limit on playing through PlayBridge, kept with a PIN, in **Settings → Console**. PlayBridge warns ten minutes and one minute before the limit, ends the stream at it, and the PIN can add time.
+- **Go back:** **Settings → Updates → Go back** returns to the version the last update replaced. Updating from 1.8.0 keeps 1.8.0.
+- **Check setup:** on the first start, and whenever you like in **Settings → Console**, PlayBridge checks the network link, the PS5 and its ELF loader, the graphics card and the sound, and says what to change.
+- **Settings → Appearance:** larger text in two sizes, **high contrast**, and an **accent colour** (Gold, Sky, Teal, Coral, Violet or Silver) with a darker **backdrop** if you like. A search box at the top of Settings finds any setting.
+- **Your settings in one file:** save them and restore them on this PC or another. Sign-ins and keys stay out of the file.
+- After a crash or a power cut, PlayBridge opens on the page it was on and offers to report the problem.
+- Parts of Settings not yet tried on every setup are marked **Beta**, and a new [Privacy and security](#privacy-and-security) section says what leaves your PC and when.
+- **Fixed:** a controller could stay on the PS5 after you stopped playing, when Windows was briefly too busy to send its last message.
+
+The payload is the same as in v1.8.0, so there is nothing new to load on the PS5.
 
 ## New in v1.8.0
 
@@ -85,14 +100,14 @@ Earlier versions are described in the [changelog](CHANGELOG.md).
 
 | File | What it contains |
 |---|---|
-| [PlayBridge.exe](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.8.0/PlayBridge.exe) | Portable Windows application, including Python dependencies and the embedded ELF. |
-| [PlayBridge.elf](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.8.0/PlayBridge.elf) | Standalone PS5 payload for manual loading. |
-| [PlayBridge-Windows-v1.8.0.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.8.0/PlayBridge-Windows-v1.8.0.zip) | Windows EXE and quick-start instructions. |
-| [PlayBridge-Payload-v1.8.0.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.8.0/PlayBridge-Payload-v1.8.0.zip) | Both ELFs (the stream and the controllers) and manual-mode instructions. |
-| [PlayBridge-Complete-v1.8.0.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.8.0/PlayBridge-Complete-v1.8.0.zip) | The EXE, both ELFs, quick-start instructions and component notices. |
-| [Third-party-licenses.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.8.0/Third-party-licenses.zip) | Component notices for standalone downloads. |
-| [PlayBridge-Source-v1.8.0.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.8.0/PlayBridge-Source-v1.8.0.zip) | Application and payload source, assets, tests and build instructions. |
-| [SHA256SUMS.txt](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.8.0/SHA256SUMS.txt) | Checksums for the release downloads. |
+| [PlayBridge.exe](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.9.0/PlayBridge.exe) | Portable Windows application, including Python dependencies and the embedded ELF. |
+| [PlayBridge.elf](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.9.0/PlayBridge.elf) | Standalone PS5 payload for manual loading. |
+| [PlayBridge-Windows-v1.9.0.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.9.0/PlayBridge-Windows-v1.9.0.zip) | Windows EXE and quick-start instructions. |
+| [PlayBridge-Payload-v1.9.0.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.9.0/PlayBridge-Payload-v1.9.0.zip) | Both ELFs (the stream and the controllers) and manual-mode instructions. |
+| [PlayBridge-Complete-v1.9.0.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.9.0/PlayBridge-Complete-v1.9.0.zip) | The EXE, both ELFs, quick-start instructions and component notices. |
+| [Third-party-licenses.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.9.0/Third-party-licenses.zip) | Component notices for standalone downloads. |
+| [PlayBridge-Source-v1.9.0.zip](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.9.0/PlayBridge-Source-v1.9.0.zip) | Application and payload source, assets, tests and build instructions. |
+| [SHA256SUMS.txt](https://github.com/ramalhoboss/PlayBridge/releases/download/v1.9.0/SHA256SUMS.txt) | Checksums for the release downloads. |
 
 Download the release assets above to run the application. To inspect or build it, browse [app/](app/), [payload/](payload/) and [tools/](tools/), or download the source archive. GitHub's source archives contain source files, not the Windows EXE.
 
@@ -252,7 +267,7 @@ PlayBridge sends on the H.264 video and AAC sound the PS5 already made, without 
 
 ### Play on your PS5
 
-**Settings → Console → Controller → Play on your PS5** sends up to four controllers connected to the PC to the console, through a small companion payload, PlayBridge-Controller.elf, that PlayBridge sends by itself. Each controller appears on the PS5 only while it is used, and the stream never waits for it. **Controller profile** changes buttons, sticks, turbo or one-hand play for every game or for one. **Mouse aim** turns the mouse into the right stick: click the picture to aim, and **Escape** lets go. **Settings → Phone** shows a six-digit code; a phone on the same network that enters it gets the picture, the sound and a controller in its browser. On a TV, a Steam Deck or another computer, open the same address followed by **/tv** to play with a controller, a TV remote or a keyboard.
+**Settings → Console → Controller → Play on your PS5** sends up to four controllers connected to the PC to the console, through a small companion payload, PlayBridge-Controller.elf, that PlayBridge sends by itself. Each controller appears on the PS5 only while it is used, and the stream never waits for it. **Controller profile** changes buttons, sticks, turbo or one-hand play for every game or for one. **Mouse aim** turns the mouse into the right stick: click the picture to aim, and **Escape** lets go. **Settings → Phone** shows a six-digit code and a QR code; a phone on the same network that enters the code, or scans the QR code, gets the picture, the sound and a controller in its browser. Its **More** button starts a game on the PS5, opens the PC's screenshots and recordings, and shows PlayBridge's log. On a TV, a Steam Deck or another computer, open the same address followed by **/tv** to play with a controller, a TV remote or a keyboard.
 
 ### Play away from home
 
@@ -298,13 +313,14 @@ The standalone ELF waits for one viewer per execution. After ending a manual ses
 | Game close | When the console stops the capture, for example while a game closes from its menu, the payload waits for it and opens the capture again, so the session continues after a short pause. |
 | Send a payload | Any ELF up to 64 MB sent to the loader on port 9021, after a question. |
 | Small window | The game in a small window that stays above other windows (Ctrl+M). |
-| Diagnostics | Session panel and status line, plus an exported ZIP without IP addresses, device names, file paths or logs. |
-| Interface | English, drawn with Qt Quick on the graphics card: frosted glass panels, the focused game's art behind the page and gold as a small accent, in a window with rounded corners and no Windows title bar. The Games page keeps the classic library drawing. Settings flows into columns that use the window's width. Animations are optional, and nothing moves while a game is on screen. **Glass look** off, or a PC where Qt cannot start, gives the classic window. |
-| Updates | Looks for a new release on GitHub when it opens and every six hours, downloads PlayBridge.exe in the background at about 1.5 MB/s, keeps it only when it matches the release's SHA256SUMS.txt, then asks whether to restart and update now; otherwise it goes in when the app closes. Never asks over the game's picture. Can be turned off. Optional beta versions, **Report a problem** and a performance check against the version before. |
+| Diagnostics | Session panel and status line, plus an exported ZIP without IP addresses, device names, file paths or logs. **Check setup** looks at the network link, the PS5 and its loader, the graphics card and the sound. After a crash, PlayBridge opens where it was and offers a report. |
+| Interface | English, drawn with Qt Quick on the graphics card: frosted glass panels, the focused game's art behind the page and a small accent colour, gold unless you choose another, in a window with rounded corners and no Windows title bar. The Games page keeps the classic library drawing. Settings flows into columns that use the window's width. Animations are optional, and nothing moves while a game is on screen. Text in three sizes, high contrast, a darker backdrop and a search box in Settings. **Glass look** off, or a PC where Qt cannot start, gives the classic window. |
+| Updates | Looks for a new release on GitHub when it opens and every six hours, downloads PlayBridge.exe in the background at about 1.5 MB/s, keeps it only when it matches the release's SHA256SUMS.txt, then asks whether to restart and update now; otherwise it goes in when the app closes. Never asks over the game's picture. Can be turned off. Optional beta versions, **Report a problem** and a performance check against the version before. **Go back** returns to the version the last update replaced. |
+| Play time | A daily limit on streaming through PlayBridge, kept with a PIN stored as a salted PBKDF2 hash, with warnings ten minutes and one minute before it. |
 | Controllers | **Play on your PS5**: up to four PC controllers (XInput or standard Windows game controllers), the mouse as the right stick and the keyboard play on the console through a companion payload on UDP port 9078, with per-game profiles. Otherwise a PC controller moves around PlayBridge's pages. |
 | PlayStation Network | Friends with their status and game, friend requests, direct and group messages with pictures, reactions, delete and remove, alerts, and the player in the top bar. The sign-in is kept encrypted with Windows DPAPI. |
 | Trophies and stats | Trophies from the console's own files and from PSN, compared with a friend's, with guides, **Next up** and a clip kept when one unlocks. Play time by session, week, game and year, **Performance Lab** and **PlayBridge Wrapped**. |
-| Phone | The picture, the sound and a controller in a paired phone's browser, on port 9080 of this PC, and a big-screen page at /tv for TVs and the Steam Deck. |
+| Phone | The picture, the sound and a controller in a paired phone's browser, on port 9080 of this PC, and a big-screen page at /tv for TVs and the Steam Deck. Paired with a six-digit code or a QR code. **More** starts a game, opens the PC's captures and shows the session's log. |
 | Away from home | A payload that waits up to 72 hours for this PC, reached through the router's forwards (UPnP), Tailscale or ports forwarded by hand, with UDP and error correction and a quality that steps down and back up with the line. |
 | Encrypted link | A key made on each PC and put into the payload it sends: video, sound, control and controllers sealed with AES-256-GCM, and the payload answers only that PC. An ELF loaded by hand stays open, as before. |
 | Smooth motion | In-between pictures made on the graphics card for 120 and 144 Hz screens. |
@@ -312,7 +328,7 @@ The standalone ELF waits for one viewer per execution. After ending a manual ses
 | Connections | Discord Rich Presence and a Discord channel for captures, Twitch chat read anonymously, and a control address and OBS overlay on 127.0.0.1:9095 that need a secret made on this PC. |
 | PS5 tools | Payload shelf from a GitHub repository you choose, PS5 files over a homebrew FTP server, saves copied when a game closes, and a fan target. |
 | Distribution | A portable single-file Windows EXE; no separate Python installation. |
-| Preferences | Saved console, favourites, quality profile, audio output, capture folder, replay length, video output, sounds and Gaming Mode. |
+| Preferences | Saved console, favourites, quality profile, audio output, capture folder, replay length, video output, sounds and Gaming Mode. Saved to one file and restored on this PC or another, without sign-ins or keys. |
 | Runtime | No artificial stream time limit. Long sessions still need wider stability testing. |
 
 ## How it works
@@ -343,6 +359,32 @@ For v1.5.0, the stream ended whenever a game was closed from the PS5 menu. The p
 For v1.8.0, the first run of the encrypted payload on the PS5 froze it whole. The console's log showed that the PS5 stops a payload that opens the DualSense's microphone, so the payload no longer opens it. Each encrypted channel, away play over the home network and the UDP stream with parity were then tried again on the owner's PS5. That run also showed the first keyframe over UDP was lost before the PC had been heard, so the payload now waits for the PC's first report before it starts.
 
 This project does **not** distribute the console's firmware dumps, extracted proprietary system modules or extracted console artwork. Game covers and music shown on the Games page are read from your own console while you use the app, and stay on your PC. Native console modules remain on the user's PS5. The PC receiver, UI, conversion code, native C payload and build scripts are published in this repository. See [Building from source](docs/BUILDING.md). The matching homebrew SDK and third-party libraries are external dependencies; console firmware dumps are not required to build these sources.
+
+## Privacy and security
+
+PlayBridge has no account of its own, no analytics and no advertising. Nothing about you, your PC or your games leaves the PC unless you turn on something that needs it:
+
+| What | Where it goes | When |
+|---|---|---|
+| New versions | PlayBridge's releases on GitHub | When PlayBridge opens and every six hours while **Update automatically** is on, or when you select **Check now**. Only the version you have is sent, as with any download. |
+| PlayStation Network | Sony's own servers | Only after you sign in under **Settings › Connections**. PlayBridge never sees your password; the sign-in is kept encrypted with Windows DPAPI for your Windows account. |
+| Go live | The services you switch on: Twitch, YouTube, TikTok, Kick or your own server | Only while you are live. Stream keys are kept encrypted with Windows DPAPI. |
+| Discord | The Discord app on this PC, and a channel's webhook if you add one | Only when you switch it on under **Settings › Connections**. |
+| Twitch chat | Twitch's chat server, as an anonymous reader | Only when you add a channel to show. |
+| Report a problem | A new GitHub issue, opened in your browser | Only when you submit it there. It holds the version, Windows, the graphics card and the stream settings: no addresses, names or files. |
+| Trophy guides and the PlayStation Store | Your web browser | Only when you open a guide or a store page. |
+
+Between the PC and the PS5:
+
+- The stream stays on your home network unless you turn on **Away from home**.
+- Since v1.8.0 PlayBridge puts a key made on this PC into the payload it sends, and the payload then answers only this PC. The picture, sound, console control and controller are encrypted with AES-256-GCM. The key is kept with Windows DPAPI. A PlayBridge.elf you load by hand has no key and stays open to your home network, as in earlier versions.
+- **Away from home** asks your router, through UPnP, to forward the payload's ports to the PS5 for the hours you choose, and removes them when you turn it off. The ELF loader's port is never forwarded.
+- The phone page only answers addresses on your own network, and each phone pairs once with a six-digit code, or its QR code, shown on the PC. A paired phone can start a game and open the screenshots and recordings in your capture folder.
+- Local control for Stream Deck and OBS only answers this PC (127.0.0.1), and each address starts with a secret made on this PC.
+
+Your settings, sign-ins, keys and logs stay in `%LOCALAPPDATA%\PlayBridge`. Recordings and screenshots go to the capture folder you choose.
+
+Parts marked **Beta** in Settings work on the PCs and the PS5 they were tried on, but not yet on every setup: away play from outside the home network, Picture Studio's super resolution and RTX Video HDR on NVIDIA and Intel cards, Go live to several services at once and to Kick, and the encrypted controller. If one goes wrong, **Settings › Updates › Report a problem** opens an issue with the details, and **Go back** returns to the version the last update replaced.
 
 ## Source code
 
@@ -469,6 +511,7 @@ Preferences, the game library and local diagnostic files are stored in <code>%LO
 
 ## Release history
 
+- **v1.9.0:** pairing a phone by QR code, games, captures and the log on the phone, a daily play-time limit with a PIN, Go back to the version before, Check setup, search, text size, contrast and accent colours in Settings, settings backups and crash recovery.
 - **v1.8.0:** play away from home, an encrypted link to the PS5, Picture Studio, Go live to several services and Kick, highlights and vertical clips, Performance Lab and Wrapped, Play this too and Next up, beta versions and Report a problem, a big-screen page for TVs, and fixes for the DualSense microphone and the full-screen edges.
 - **v1.7.1:** a question before each update, with Restart and update or Later, never over the game, and new README screenshots.
 - **v1.7.0:** PSN friends and messages, trophies and stats, PC controllers and your phone playing on the PS5, smooth motion for fast screens, a performance overlay and speedrun timer, a clip editor, Discord, Twitch chat, Stream Deck and OBS, PS5 files, saves and fans, and the classic Games page in three views.
