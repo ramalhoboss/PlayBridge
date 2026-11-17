@@ -41,7 +41,7 @@ Item {
         text: tool.tip
         popupType: Popup.Window
         y: -height - 8
-        contentItem: Text { text: tool.tip; color: Theme.text; font.family: Theme.face; font.pixelSize: 12 }
+        contentItem: Text { text: tool.tip; color: Theme.text; font.family: Theme.face; font.pixelSize: Theme.px(12) }
         background: Rectangle { color: Theme.raised; radius: 6; border.color: Theme.line }
     }
 }

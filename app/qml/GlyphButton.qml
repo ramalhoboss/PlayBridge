@@ -25,7 +25,7 @@ Item {
     Rectangle {
         anchors.fill: parent
         radius: width / 2
-        color: button.danger && button.hot ? Qt.rgba(1, 0.35, 0.39, 0.2) : button.lit ? Qt.rgba(0.83, 0.69, 0.22, button.hot ? 0.32 : 0.22) : button.hot ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(1, 1, 1, 0.06)
+        color: button.danger && button.hot ? Qt.rgba(1, 0.35, 0.39, 0.2) : button.lit ? Theme.glow(button.hot ? 0.32 : 0.22) : button.hot ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(1, 1, 1, 0.06)
         border.width: 1
         border.color: button.danger && button.hot ? Theme.danger : button.lit ? Theme.gold : Qt.rgba(1, 1, 1, button.hot ? 0.3 : 0.1)
         scale: area.pressed ? 0.92 : 1
@@ -47,7 +47,7 @@ Item {
         delay: 500
         popupType: Popup.Window
         y: button.height + 8
-        contentItem: Text { text: button.tip; color: Theme.text; font.family: Theme.face; font.pixelSize: 12 }
+        contentItem: Text { text: button.tip; color: Theme.text; font.family: Theme.face; font.pixelSize: Theme.px(12) }
         background: Rectangle { color: Theme.raised; radius: 6; border.color: Theme.line }
     }
 }

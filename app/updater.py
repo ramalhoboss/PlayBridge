@@ -6,6 +6,10 @@ it in the same release's SHA256SUMS.txt. A running EXE cannot be replaced on Win
 with --finish-update and the old EXE's path, it waits for the old one to close, copies itself over it and, when asked, opens it.
 A copy run from source only says that a new version is out.
 
+The EXE it replaces is kept in the update folder's previous folder under its version, so Settings can go back to it: the kept EXE
+is then started the same way, with --no-keep, and puts itself back. Going back turns automatic updates off, or the newer version
+would come straight back.
+
 On the beta channel the newest release counts whether or not GitHub marks it a pre-release (tags such as v1.8.0-beta.2); a final
 version is newer than its own betas. Leaving the channel never goes back to an older version: the next final one is waited for."""
 import hashlib,json,os,re,subprocess,sys,threading,time,traceback,urllib.request
@@ -18,7 +22,7 @@ RELEASES=os.environ.get('PLAYBRIDGE_RELEASES_URL') or f'https://api.github.com/r
 CHANNELS=('stable','beta')
 BETA_NOTE=('Beta versions come out before the final ones: new things sooner, and sometimes bugs. Turned off again, PlayBridge waits for the '
  'next final version and never goes back to an older one.')
-EXE='PlayBridge.exe';SUMS='SHA256SUMS.txt'
+EXE='PlayBridge.exe';SUMS='SHA256SUMS.txt';PREVIOUS='previous'
 CHECK_EVERY=6*3600;FIRST_CHECK=8
 # About 12 Mbps: a 4K stream at 80 Mbps over Wi-Fi keeps its room.
 DOWNLOAD_RATE=1_500_000
@@ -92,9 +96,12 @@ class Updater:
   self.folder=Path(folder);self.automatic=automatic;self.on_change=on_change;self.rate=rate;self.channel=channel if channel in CHANNELS else 'stable'
   self.state='idle';self.version=None;self.page=None;self.progress=0.0;self.reason='';self.checked_at=None;self.file=None;self.revision=0
   self.lock=threading.Lock();self.stop=threading.Event();self.wake=threading.Event();self.busy=False;self.thread=None
+  # Only an update run by another EXE changes what is kept, so it is looked at once.
+  self.previous=kept_previous(self.folder/PREVIOUS)
  def status(self):
   with self.lock:return dict(state=self.state,version=self.version,progress=self.progress,reason=self.reason,checked_at=self.checked_at,current=VERSION,
-   automatic=self.automatic,installable=self.state=='ready' and frozen(),page=self.page,revision=self.revision,channel=self.channel)
+   automatic=self.automatic,installable=self.state=='ready' and frozen(),page=self.page,revision=self.revision,channel=self.channel,
+   previous=self.previous[0] if self.previous and frozen() else None)
  def set_automatic(self,on):
   """Update automatically on or off; turned on, it looks at once."""
   with self.lock:self.automatic=bool(on);self.revision+=1
@@ -205,6 +212,14 @@ class Updater:
   try:start_program(command)
   except OSError as error:self.set(state='failed',reason=f'The new version did not start: {error}.');return False
   return True
+ def go_back(self):
+  """Starts the kept older EXE, which puts itself back in place of this one once it has closed, and opens it. The caller turns
+  automatic updates off first and closes PlayBridge right after."""
+  if not frozen() or not self.previous or not Path(self.previous[1]).is_file():return False
+  command=[str(self.previous[1]),'--finish-update',str(Path(sys.executable).resolve()),'--relaunch','--no-keep']
+  try:start_program(command)
+  except OSError as error:self.set(state='failed',reason=f'PlayBridge {self.previous[0]} did not start: {error}.');return False
+  return True
  def close(self):self.stop.set();self.wake.set()
 
 def digest(path):
@@ -213,10 +228,12 @@ def digest(path):
   for chunk in iter(lambda:f.read(1048576),b''):hasher.update(chunk)
  return hasher.hexdigest()
 
-def finish(target,relaunch=False,source=None,wait=WAIT_FOR_CLOSE,start=None,say=None):
- """Run by the new EXE: waits for the old one at target to close, puts this EXE in its place and, when asked, opens it.
- Returns 0 when it did, 1 when the old file could not be replaced in time."""
+def finish(target,relaunch=False,source=None,wait=WAIT_FOR_CLOSE,start=None,say=None,keep=None,old_version=None):
+ """Run by the new EXE: waits for the old one at target to close, puts this EXE in its place and, when asked, opens it. With keep,
+ a folder, the old EXE is copied there first under its version, for Go back. Returns 0 when it did, 1 when the old file could
+ not be replaced in time."""
  source=Path(source or sys.executable);target=Path(target);partial=target.with_name(target.name+'.update')
+ kept=keep_copy(target,keep,old_version) if keep else None
  try:
   # The copy goes next to the old EXE first, so the swap itself is one rename once the old one lets go.
   with open(source,'rb') as src,open(partial,'wb') as out:
@@ -228,14 +245,83 @@ def finish(target,relaunch=False,source=None,wait=WAIT_FOR_CLOSE,start=None,say=
     if time.monotonic()>=deadline:raise
     time.sleep(.25)
  except OSError as error:
-  try:partial.unlink(missing_ok=True)
-  except OSError:pass
+  for path in (partial,kept):
+   try:path and path.unlink(missing_ok=True)
+   except OSError:pass
   (say or alert)(f'PlayBridge could not replace {target}:\n{error}\n\nThe new version is saved as {source}. Close PlayBridge and copy it over the old file.')
   return 1
+ if kept:settle_copy(kept)
  if relaunch:
   try:(start or (lambda path:start_program([path])))(target)
   except OSError as error:(say or alert)(f'PlayBridge was updated but did not open again: {error}');return 1
  return 0
+
+def exe_version(path):
+ """The version a Windows program's details give ('1.8.0', '1.9.0-beta.1'), or None."""
+ try:
+  import ctypes
+  from ctypes import wintypes
+  dll=ctypes.WinDLL('version')
+  dll.GetFileVersionInfoSizeW.argtypes=(wintypes.LPCWSTR,ctypes.POINTER(wintypes.DWORD));dll.GetFileVersionInfoSizeW.restype=wintypes.DWORD
+  dll.GetFileVersionInfoW.argtypes=(wintypes.LPCWSTR,wintypes.DWORD,wintypes.DWORD,ctypes.c_void_p);dll.GetFileVersionInfoW.restype=wintypes.BOOL
+  dll.VerQueryValueW.argtypes=(ctypes.c_void_p,wintypes.LPCWSTR,ctypes.POINTER(ctypes.c_void_p),ctypes.POINTER(wintypes.UINT));dll.VerQueryValueW.restype=wintypes.BOOL
+  size=dll.GetFileVersionInfoSizeW(str(path),None)
+  if not size:return None
+  data=ctypes.create_string_buffer(size)
+  if not dll.GetFileVersionInfoW(str(path),0,size,data):return None
+  pointer=ctypes.c_void_p();length=wintypes.UINT()
+  # The written version first, which keeps a beta's name, in the language the details name; the four numbers otherwise.
+  tables=[]
+  if dll.VerQueryValueW(data,'\\VarFileInfo\\Translation',ctypes.byref(pointer),ctypes.byref(length)) and length.value>=4:
+   language,page=(ctypes.c_uint16*2).from_address(pointer.value);tables.append(f'{language:04X}{page:04X}')
+  for table in tables+['040904B0']:
+   if dll.VerQueryValueW(data,f'\\StringFileInfo\\{table}\\ProductVersion',ctypes.byref(pointer),ctypes.byref(length)) and length.value:
+    named=version_name(ctypes.wstring_at(pointer.value,length.value).rstrip('\0'))
+    if named:return named
+  if not dll.VerQueryValueW(data,'\\',ctypes.byref(pointer),ctypes.byref(length)) or length.value<52:return None
+  info=(ctypes.c_uint32*13).from_address(pointer.value)
+  if info[0]!=0xFEEF04BD:return None
+  return f'{info[2]>>16}.{info[2]&0xFFFF}.{info[3]>>16}'
+ except (OSError,AttributeError,ValueError):return None
+
+def keep_copy(target,folder,version=None):
+ """Copies the EXE about to be replaced into folder as PlayBridge-<version>.exe.partial; the path, or None when its version is
+ unknown or the copy failed. A running EXE can be read, so this happens while the old one is still closing."""
+ version=version_name(version or exe_version(target))
+ if not version:return None
+ folder=Path(folder);partial=folder/f'PlayBridge-{version}.exe.partial'
+ try:
+  folder.mkdir(parents=True,exist_ok=True)
+  with open(target,'rb') as src,open(partial,'wb') as out:
+   for chunk in iter(lambda:src.read(1048576),b''):out.write(chunk)
+  return partial
+ except OSError:
+  try:partial.unlink(missing_ok=True)
+  except OSError:pass
+  return None
+
+def settle_copy(partial):
+ """The replaced EXE is kept for good: the copy gets its name and whatever was kept before goes."""
+ final=partial.with_name(partial.name[:-len('.partial')])
+ try:os.replace(partial,final)
+ except OSError:return
+ for path in final.parent.glob('PlayBridge-*.exe*'):
+  if path!=final:
+   try:path.unlink()
+   except OSError:pass
+
+def kept_previous(folder,current=VERSION):
+ """The older EXE the last update kept, as (version, path), or None."""
+ best=None
+ for path in Path(folder).glob('PlayBridge-*.exe'):
+  version=version_name(path.name[len('PlayBridge-'):-len('.exe')])
+  if not version or not is_newer(current,version) or best and not is_newer(version,best[0]):continue
+  try:
+   with open(path,'rb') as f:
+    if f.read(2)!=b'MZ':continue
+  except OSError:continue
+  best=(version,path)
+ return best
 
 def alert(text):
  try:

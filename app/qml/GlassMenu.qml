@@ -65,7 +65,7 @@ Popup {
                 text: typeof modelData === "string" ? "" : (modelData.value || "")
                 color: Theme.dim
                 font.family: Theme.face
-                font.pixelSize: 13
+                font.pixelSize: Theme.px(13)
             }
             Text {
                 anchors.verticalCenter: parent.verticalCenter
@@ -75,7 +75,7 @@ Popup {
                 text: menu.label(modelData)
                 color: index === menu.current ? Theme.text : Theme.muted
                 font.family: Theme.face
-                font.pixelSize: 15
+                font.pixelSize: Theme.px(15)
             }
             MouseArea {
                 anchors.fill: parent

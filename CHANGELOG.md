@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.9.0 — 2026-11-17
+- Pair a phone with its camera. Settings → Phone shows a QR code beside the six-digit code. A phone that points its camera at it opens the page and pairs at once. The QR code holds the same code, so it works once and only while the code is shown.
+- More, on the phone page. A paired phone's More button has three tabs. Games lists your games and starts one on the PS5, and asks first when another game is open; it needs Play on your PS5. Captures shows the screenshots and recordings on this PC, to watch on the phone and save to it, each through an address that works only while it is in use. Log shows what PlayBridge noted in this session. On a TV or a Steam Deck at /tv, More works with the arrows, OK and Back, or a controller.
+- Play time, in Settings → Console. A daily limit on playing through PlayBridge, kept with a PIN of four to eight digits, saved only as a salted hash. PlayBridge says when ten minutes and one minute are left. At the limit it ends the stream and does not connect again that day, unless the PIN adds time. Five wrong PINs wait a minute. It limits PlayBridge only; the PS5's own Family settings limit the console.
+- Go back, in Settings → Updates. An update now keeps the version it replaces, and Go back puts that version back and opens it, with Update automatically turned off so it stays. Updating from 1.8.0 keeps 1.8.0.
+- Check setup, in Settings → Console, and once on the first start. It looks at how this PC reaches the network (cable or Wi-Fi, and the link speed), whether the PS5 answers and its ELF loader is open, and the graphics card and the sound output, and says what to change.
+- Search in Settings. Type in the box above the sections; a result opens its card and lights it up.
+- Settings → Appearance:
+  - Text and contrast: larger text on every page, in two sizes, and High contrast, with brighter words on darker panels. Until you choose, High contrast and Animations follow Windows' own settings.
+  - Colour: an accent for buttons, rings and highlights (Gold, Sky, Teal, Coral, Violet or Silver), and a darker backdrop behind the pages and the Games page's art. The Games page's tiles take the accent the next time PlayBridge opens.
+- Settings → Updates → Your settings saves PlayBridge's settings in one file and restores them, on this PC or another. Sign-ins, stream keys and keys stay out of the file, and restoring keeps this PC's own.
+- After a session that did not close normally, as after a crash or a power cut, PlayBridge opens on the page it was on and offers Report a problem.
+- Parts of Settings not yet tried on every setup are marked Beta. Away from home says that it is for this same PC when it leaves home.
+- The README has a Privacy and security section: what leaves the PC, where to, and when.
+- Fixed: when Windows was briefly too busy to send, a controller's last message could be lost and the controller stayed on the PS5 after you stopped playing. It is now sent again.
+- The EXE's build checks that every package it takes in has its notice in third-party-licenses. The notices for packaging and typing_extensions were added.
+- The payload is the same as in v1.8.0.
+
 ## v1.8.0 — 2026-11-16
 - Play away from home. Settings → Console → Away from home, switched on at home with the PS5 on and nothing streaming, finds a way in from outside. It asks the router over UPnP to forward five ports to the PS5 for as long as the PS5 waits, uses Tailscale when a computer at home shares the home network through it, or says which ports to forward by hand. It then sends a payload that waits for this PC after each stream, for 6 to 72 hours (12 by default). The ELF loader's port is never forwarded. Away, Connect works as usual. The stream starts at the quality chosen for away (Balanced, 1080p60 at 8 Mbps, by default), steps down when the line loses too much, and goes back up after a few minutes without loss. The picture can travel over UDP with error correction. Switching it off at home ends the waiting payload and removes the router's forwards. Tried on a PS5 over the home network, not yet from outside it.
 - An encrypted link to the PS5. Each PC makes its own key, kept encrypted for its Windows user, and puts it into the payload it sends. The picture and sound, the control link and the controllers then travel sealed with AES-256-GCM, and the payload answers only the PC whose key it holds. An ELF loaded by hand has no key and works as before. On a PS5, a keyed 4K60 stream at 80 Mbps ran for nine minutes without an error.

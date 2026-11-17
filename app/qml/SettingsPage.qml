@@ -16,7 +16,15 @@ FocusScope {
     component Card: Glass {
         id: card
         property string title: ""
+        // A word beside the title, such as Beta for a part not yet tried on every PC and PS5.
+        property string tag: ""
         default property alias content: inner.data
+        // A search result opened on this card: it scrolls into view and glows for a moment.
+        readonly property string foundKey: title !== "" && page.s.foundCard === title ? String(page.s.foundTick) : ""
+        property bool glow: false
+        onFoundKeyChanged: if (foundKey !== "") { glow = true; reveal.restart(); fade.restart() }
+        Timer { id: reveal; interval: 80; onTriggered: flick.contentY = Math.max(0, Math.min(cards.y + card.y - 12, flick.contentHeight - flick.height)) }
+        Timer { id: fade; interval: 2600; onTriggered: card.glow = false }
         frost: page.frost
         follow: page.follow
         width: cards.cardWidth
@@ -27,10 +35,52 @@ FocusScope {
             x: 24; y: 22
             width: card.width - 48
             spacing: 10
-            Text { visible: card.title !== ""; text: card.title; color: Theme.text; font.family: Theme.strong; font.pixelSize: 19; bottomPadding: 4 }
+            Row {
+                visible: card.title !== ""
+                spacing: 10
+                Text { id: heading; text: card.title; color: Theme.text; font.family: Theme.strong; font.pixelSize: Theme.px(19); bottomPadding: 4 }
+                Rectangle {
+                    visible: card.tag !== ""
+                    anchors.verticalCenter: heading.verticalCenter; anchors.verticalCenterOffset: -2
+                    width: tagWord.implicitWidth + 16; height: 22; radius: 11
+                    color: "transparent"; border.color: Theme.gold; border.width: 1
+                    Text { id: tagWord; anchors.centerIn: parent; text: card.tag.toUpperCase(); color: Theme.gold; font.family: Theme.strong; font.pixelSize: Theme.px(11); font.letterSpacing: 1 }
+                }
+            }
+        }
+        Rectangle {
+            anchors.fill: parent
+            radius: card.radius
+            color: "transparent"
+            border.color: Theme.gold; border.width: 2
+            opacity: card.glow ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: Theme.ms(400) } }
         }
     }
-    component Caption: Text { color: Theme.muted; font.family: Theme.face; font.pixelSize: 15 }
+    component Caption: Text { color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(15) }
+    // A QR code from a string of 0 and 1, row after row, dark on white with the four-module margin a camera needs.
+    component QrCode: Rectangle {
+        id: qr
+        property string bits: ""
+        readonly property int count: Math.round(Math.sqrt(bits.length))
+        readonly property int cell: count > 0 ? Math.floor(width / (count + 8)) : 0
+        readonly property real inset: (width - cell * count) / 2
+        height: width
+        radius: 12
+        color: "#ffffff"
+        Repeater {
+            model: qr.bits.length
+            Rectangle {
+                visible: qr.bits.charAt(index) === "1"
+                x: Math.round(qr.inset) + (index % qr.count) * qr.cell
+                y: Math.round(qr.inset) + Math.floor(index / qr.count) * qr.cell
+                width: qr.cell; height: qr.cell
+                color: "#000000"
+            }
+        }
+        Accessible.role: Accessible.Graphic
+        Accessible.name: "QR code"
+    }
 
     // The rail.
     Glass {
@@ -45,9 +95,41 @@ FocusScope {
             anchors.fill: parent
             anchors.margins: 14
             spacing: 6
-            Text { text: "Settings"; color: Theme.text; font.family: Theme.light; font.pixelSize: 36; leftPadding: 12; topPadding: 6; bottomPadding: 14 }
+            Text { text: "Settings"; color: Theme.text; font.family: Theme.light; font.pixelSize: Theme.px(36); leftPadding: 12; topPadding: 6; bottomPadding: 8 }
+            Field {
+                id: searchField
+                objectName: "settingsSearch"
+                width: parent.width; implicitHeight: 40
+                placeholderText: "Search settings"
+                Accessible.name: "Search settings"
+                onTextChanged: shell.act("settings_search", text)
+                Keys.onEscapePressed: text = ""
+            }
+            Text {
+                visible: searchField.text.trim() !== "" && !(page.s.searchHits || []).length
+                width: parent.width; leftPadding: 12; topPadding: 6; wrapMode: Text.WordWrap
+                text: "Nothing in Settings matches that."; color: Theme.dim; font.family: Theme.face; font.pixelSize: Theme.px(14)
+            }
             Repeater {
-                model: page.s.sections || []
+                model: searchField.text.trim() !== "" ? (page.s.searchHits || []) : []
+                delegate: Item {
+                    id: hit
+                    required property var modelData
+                    width: parent.width
+                    height: hitWords.height + 22
+                    Rectangle { anchors.fill: parent; radius: 16; color: hitArea.containsMouse ? Qt.rgba(1, 1, 1, 0.08) : "transparent" }
+                    Column {
+                        id: hitWords
+                        x: 22; anchors.verticalCenter: parent.verticalCenter
+                        width: parent.width - 34
+                        Text { width: parent.width; elide: Text.ElideRight; text: hit.modelData.title; color: Theme.text; font.family: Theme.strong; font.pixelSize: Theme.px(16) }
+                        Text { width: parent.width; wrapMode: Text.WordWrap; maximumLineCount: 2; elide: Text.ElideRight; text: hit.modelData.label + (hit.modelData.snippet ? "  ·  " + hit.modelData.snippet : ""); color: Theme.dim; font.family: Theme.face; font.pixelSize: Theme.px(12) }
+                    }
+                    MouseArea { id: hitArea; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: { Theme.keys = false; shell.act("search_open", { section: hit.modelData.section, title: hit.modelData.title }) } }
+                }
+            }
+            Repeater {
+                model: searchField.text.trim() !== "" ? [] : (page.s.sections || [])
                 delegate: Item {
                     id: entry
                     required property var modelData
@@ -64,8 +146,8 @@ FocusScope {
                     Column {
                         x: 22; anchors.verticalCenter: parent.verticalCenter
                         width: parent.width - 34
-                        Text { text: entry.modelData.label; color: Theme.text; font.family: entry.chosen ? Theme.strong : Theme.face; font.pixelSize: 18 }
-                        Text { width: parent.width; elide: Text.ElideRight; text: entry.modelData.note; color: Theme.dim; font.family: Theme.face; font.pixelSize: 12 }
+                        Text { text: entry.modelData.label; color: Theme.text; font.family: entry.chosen ? Theme.strong : Theme.face; font.pixelSize: Theme.px(18) }
+                        Text { width: parent.width; elide: Text.ElideRight; text: entry.modelData.note; color: Theme.dim; font.family: Theme.face; font.pixelSize: Theme.px(12) }
                     }
                     FocusGlow { on: page.railFocus === entry.modelData.key; radius: 11 }
                     MouseArea { id: entryArea; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: { Theme.keys = false; shell.act("section", entry.modelData.key); flick.contentY = 0 } }
@@ -95,8 +177,8 @@ FocusScope {
             topPadding: 18
             Column {
                 spacing: 4
-                Text { text: (page.s.sections || []).filter(function(x) { return x.key === page.s.section }).map(function(x) { return x.label })[0] || ""; color: Theme.text; font.family: Theme.light; font.pixelSize: 40 }
-                Text { text: (page.s.sections || []).filter(function(x) { return x.key === page.s.section }).map(function(x) { return x.note })[0] || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: 16 }
+                Text { text: (page.s.sections || []).filter(function(x) { return x.key === page.s.section }).map(function(x) { return x.label })[0] || ""; color: Theme.text; font.family: Theme.light; font.pixelSize: Theme.px(40) }
+                Text { text: (page.s.sections || []).filter(function(x) { return x.key === page.s.section }).map(function(x) { return x.note })[0] || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(16) }
             }
             Flow {
                 id: cards
@@ -144,10 +226,60 @@ FocusScope {
                     Note { text: "The PS5 shows a notice when PlayBridge starts streaming to this PC and when it stops. A PlayBridge.elf you load yourself has to be from this version, or it refuses the connection while this is on." }
                 }
                 Card {
+                    id: playCard
+                    title: "Play time"
+                    visible: page.s.section === "console"
+                    property var p: page.s.play || ({})
+                    Note { text: playCard.p.line || ""; tone: playCard.p.up ? "error" : "news" }
+                    Caption { text: "Daily limit" }
+                    Choice { width: parent.width; model: playCard.p.limits || []; value: playCard.p.limit || ""; enabled: !!playCard.p.unlocked; onPicked: function(v) { shell.act("play_limit", v) } }
+                    Caption { visible: !playCard.p.unlocked; text: playCard.p.hasPin ? "PIN" : "Choose a PIN first" }
+                    Row {
+                        visible: !playCard.p.unlocked
+                        width: parent.width
+                        spacing: 8
+                        Field { id: playPin; width: parent.width - 138; hidden: true; inputMethodHints: Qt.ImhDigitsOnly; maximumLength: 8; placeholderText: "4 to 8 digits"; onEntered: { shell.act(playCard.p.hasPin ? "play_unlock" : "play_pin", text); text = "" } }
+                        PillButton { text: playCard.p.hasPin ? "Unlock" : "Save PIN"; tone: "main"; width: 130; height: 46; onClicked: { shell.act(playCard.p.hasPin ? "play_unlock" : "play_pin", playPin.text); playPin.text = "" } }
+                    }
+                    Note { visible: !!playCard.p.problem; text: playCard.p.problem || ""; tone: "error" }
+                    Row {
+                        visible: !!playCard.p.unlocked
+                        width: parent.width
+                        spacing: 8
+                        PillButton { width: (parent.width - 16) / 3; height: 46; text: "+30 minutes"; onClicked: shell.act("play_more", "30") }
+                        PillButton { width: (parent.width - 16) / 3; height: 46; text: "No limit today"; onClicked: shell.act("play_more", "1440") }
+                        PillButton { width: (parent.width - 16) / 3; height: 46; text: "Lock"; tone: "main"; onClicked: shell.act("play_lock", null) }
+                    }
+                    PillButton { visible: !!playCard.p.unlocked; width: parent.width; height: 46; text: "Remove the PIN and the limit"; onClicked: shell.act("play_forget", null) }
+                    Note { text: "Counts the time the PS5's picture streams to this PC. Ten minutes and one minute before the limit PlayBridge says so; at the limit it ends the stream and does not connect again today, unless the PIN adds time. This limits PlayBridge only: for the console itself, use the PS5's Family settings." }
+                }
+                Card {
+                    title: "Check setup"
+                    visible: page.s.section === "console"
+                    Note { text: page.s.setupHeadline || "Whether this PC is ready to play and your PS5 is there, with what to do about anything that is not. Nothing is sent to the PS5." }
+                    Repeater {
+                        model: page.s.setupItems || []
+                        Column {
+                            width: parent.width
+                            spacing: 2
+                            Note { text: modelData.mark + "  " + modelData.title; tone: modelData.tone; font.family: Theme.strong }
+                            Note { visible: !!modelData.text; text: modelData.text; leftPadding: 22 }
+                        }
+                    }
+                    PillButton {
+                        width: parent.width; height: 48
+                        text: page.s.setupBusy ? "Checking…" : ((page.s.setupItems || []).length ? "Check again" : "Check now")
+                        enabled: !page.s.setupBusy
+                        onClicked: shell.act("setup_check", null)
+                    }
+                }
+                Card {
                     id: awayCard
                     title: "Away from home"
+                    tag: "Beta"
                     visible: page.s.section === "console"
                     property var a: page.s.away || ({})
+                    Note { text: "For this PC when it leaves home, such as a laptop: away, PlayBridge on this PC connects straight to your PS5. Your home address is not a web page, and other PCs and phones cannot use it, as the PS5 answers only this PC's key. To use another PC away, turn this off here, then on at home on that PC." }
                     Toggle { width: parent.width; text: awayCard.a.busy ? (awayCard.a.on ? "Ending away play…" : "Getting ready…") : "Play away from home"; checked: !!awayCard.a.on; enabled: !awayCard.a.busy; onToggled: function(on) { shell.act("away", on) } }
                     Note { visible: !!awayCard.a.now; text: awayCard.a.now || ""; tone: "news" }
                     Note { text: awayCard.a.text || "" }
@@ -174,6 +306,7 @@ FocusScope {
                     visible: page.s.section === "console"
                     Toggle { width: parent.width; text: "Play on your PS5"; checked: !!page.s.consolePad; onToggled: function(on) { shell.act("console_pad", on) } }
                     Note { text: "Your controller and keyboard play on your PS5 from the live view. PlayBridge sends a small second payload that adds a controller on the PS5 for this PC; each PC or phone gets its own, up to four. It is there only while you play: it joins with your first press in the live view and leaves when you leave the live view or after two minutes with nothing pressed, so your own DualSense always connects." }
+                    Note { text: "Beta: since 1.8.0 the controller's link is encrypted with this PC's key, like the picture. If the controller stops answering, select Report a problem in Settings › Updates."; tone: "news" }
                     Note { text: "In a game, the PS5 reads only the controller that connected first. If your DualSense is on, turn it off (Control Center › Accessories) so the game takes this one, and turn it on again when you are done here." }
                     Note { visible: !!page.s.consolePad; text: page.s.padStatus || ""; tone: "news" }
                     Note { visible: !!page.s.consolePad; text: "Keyboard: " + (page.s.keyboardHelp || "") }
@@ -212,7 +345,7 @@ FocusScope {
                             required property string modelData
                             required property int index
                             width: profileCard.width - 48; height: 42
-                            Text { anchors.verticalCenter: parent.verticalCenter; text: modelData; color: Theme.text; font.family: Theme.face; font.pixelSize: 15 }
+                            Text { anchors.verticalCenter: parent.verticalCenter; text: modelData; color: Theme.text; font.family: Theme.face; font.pixelSize: Theme.px(15) }
                             PillButton { anchors.right: parent.right; width: 100; height: 38; text: "Remove"; onClicked: shell.act("pad_pair_remove", index) }
                         }
                     }
@@ -281,8 +414,8 @@ FocusScope {
                                 anchors.rightMargin: 8
                                 anchors.verticalCenter: parent.verticalCenter
                                 spacing: 2
-                                Text { width: parent.width; elide: Text.ElideRight; text: modelData.label; color: Theme.text; font.family: Theme.face; font.pixelSize: 15 }
-                                Text { text: (modelData.size || "") + (modelData.have ? (modelData.update ? "  ·  on your PC, update ready" : "  ·  on your PC") : ""); color: modelData.update ? Theme.gold : Theme.dim; font.family: Theme.face; font.pixelSize: 12 }
+                                Text { width: parent.width; elide: Text.ElideRight; text: modelData.label; color: Theme.text; font.family: Theme.face; font.pixelSize: Theme.px(15) }
+                                Text { text: (modelData.size || "") + (modelData.have ? (modelData.update ? "  ·  on your PC, update ready" : "  ·  on your PC") : ""); color: modelData.update ? Theme.gold : Theme.dim; font.family: Theme.face; font.pixelSize: Theme.px(12) }
                             }
                             Row {
                                 id: shelfButtons
@@ -339,7 +472,7 @@ FocusScope {
                                 color: Theme.dim
                                 wrapMode: Text.Wrap
                                 font.family: "Consolas"
-                                font.pixelSize: 12
+                                font.pixelSize: Theme.px(12)
                                 onTextChanged: logFlick.contentY = Math.max(0, logText.height - logFlick.height)
                             }
                         }
@@ -403,6 +536,7 @@ FocusScope {
                 }
                 Card {
                     title: "Picture Studio"
+                    tag: "Beta"
                     visible: page.s.section === "picture"
                     Note { visible: !page.s.direct; text: "Picture Studio needs the GPU video output, above." }
                     Toggle { visible: !!page.s.direct; width: parent.width; text: "Graphics card super resolution"; checked: !!page.s.superResolution; onToggled: function(on) { shell.act("super_resolution", on) } }
@@ -468,6 +602,8 @@ FocusScope {
                 // Streaming.
                 Card {
                     title: "Go live"
+                    // Several services at once and Kick are new; one service as before is not.
+                    tag: (page.s.liveCount || 0) > 1 || page.s.serviceKey === "kick" ? "Beta" : ""
                     visible: page.s.section === "live"
                     Note { text: page.s.liveSummary || ""; tone: (page.s.liveCount || 0) > 1 ? "news" : "plain" }
                     Note { visible: !!page.s.liveMissing; text: page.s.liveMissing || ""; tone: "error" }
@@ -551,7 +687,7 @@ FocusScope {
                     Toggle { width: parent.width; text: "Local control"; checked: !!page.s.apiOn; onToggled: function(on) { shell.act("api", on) } }
                     Note { visible: ((page.s.apiState || {}).text || "") !== ""; text: (page.s.apiState || {}).text || ""; tone: (page.s.apiState || {}).tone || "plain" }
                     Caption { visible: !!page.s.apiRunning; text: "Control address" }
-                    Field { visible: !!page.s.apiRunning; width: parent.width; readOnly: true; text: page.s.apiAddress || ""; font.family: "Consolas"; font.pixelSize: 14 }
+                    Field { visible: !!page.s.apiRunning; width: parent.width; readOnly: true; text: page.s.apiAddress || ""; font.family: "Consolas"; font.pixelSize: Theme.px(14) }
                     PillButton { visible: !!page.s.apiRunning; width: parent.width; height: 48; tone: "main"; text: "Copy the control address"; onClicked: shell.act("api_copy", "control") }
                     PillButton { visible: !!page.s.apiRunning; width: parent.width; height: 48; text: "Copy the OBS overlay address"; onClicked: shell.act("api_copy", "overlay") }
                     PillButton { visible: !!page.s.apiRunning; width: parent.width; height: 48; text: "Show every command"; onClicked: shell.act("api_open", null) }
@@ -638,7 +774,24 @@ FocusScope {
                     title: "Motion"
                     visible: page.s.section === "look"
                     Toggle { width: parent.width; text: "Animations"; checked: !!page.s.animations; onToggled: function(on) { shell.act("animations", on) } }
-                    Note { text: "Page changes, the moving art, the tiles' tilt and the waiting screen. Motion pauses during video playback." }
+                    Note { text: "Page changes, the moving art, the tiles' tilt and the waiting screen. Motion pauses during video playback. Until you choose here, it follows Windows' Animation effects (Settings › Accessibility › Visual effects)." }
+                }
+                Card {
+                    title: "Text and contrast"
+                    visible: page.s.section === "look"
+                    Caption { text: "Text size" }
+                    Choice { width: parent.width; model: page.s.textSizes || []; value: page.s.textSize || ""; onPicked: function(v) { shell.act("text_size", v) } }
+                    Toggle { width: parent.width; text: "High contrast"; checked: !!page.s.contrast; onToggled: function(on) { shell.act("contrast", on) } }
+                    Note { text: "Larger text on every page, and brighter words on darker, firmer panels. Both apply at once. Until you choose here, High contrast follows Windows' contrast themes." }
+                }
+                Card {
+                    title: "Colour"
+                    visible: page.s.section === "look"
+                    Caption { text: "Accent" }
+                    Choice { width: parent.width; model: page.s.accents || []; value: page.s.accent || ""; onPicked: function(v) { shell.act("accent", v) } }
+                    Caption { text: "Backdrop" }
+                    Choice { width: parent.width; model: page.s.shades || []; value: page.s.shadeName || ""; onPicked: function(v) { shell.act("backdrop", v) } }
+                    Note { text: "The accent colours buttons, rings and highlights on every page; the Games page's tiles take it the next time PlayBridge opens. Backdrop darkens the picture behind the pages and the game art behind your library." }
                 }
                 Card {
                     title: "Look"
@@ -659,17 +812,29 @@ FocusScope {
                     Note { visible: !page.s.phoneOn && !!page.s.phoneState; text: page.s.phoneState || ""; tone: "error" }
                     Note { visible: !!page.s.phoneOn; text: page.s.phoneState || "" }
                     Note { visible: !!page.s.phoneOn && !page.s.phonePlay; text: "To play from the phone, also turn on Play on your PS5 in Settings › Console. Until then the phone only watches." }
+                    Note { visible: !!page.s.phoneOn; text: "On a paired phone, More lists your games to start one on the PS5, this PC's screenshots and recordings to watch and save, and what PlayBridge noted in this session." }
                 }
                 Card {
                     title: "Pairing"
                     visible: page.s.section === "phone" && !!page.s.phoneOn
+                    QrCode {
+                        visible: !!page.s.phoneQr
+                        bits: page.s.phoneQr || ""
+                        width: Math.min(parent.width, 232)
+                        anchors.horizontalCenter: parent.horizontalCenter
+                    }
+                    Note {
+                        visible: !!page.s.phoneQr
+                        horizontalAlignment: Text.AlignHCenter
+                        text: page.s.phoneCode ? "Point the phone's camera at this QR code: it opens PlayBridge and pairs, with no code to type." : "Point the phone's camera at this QR code to open PlayBridge. To pair a new phone, select Pair a phone first."
+                    }
                     Text {
                         visible: !!page.s.phoneCode
                         width: parent.width
                         horizontalAlignment: Text.AlignHCenter
                         text: (page.s.phoneCode || "").replace(/(\d{3})(\d{3})/, "$1 $2")
                         color: Theme.gold
-                        font.pixelSize: 44; font.letterSpacing: 6; font.weight: Font.DemiBold
+                        font.pixelSize: Theme.px(44); font.letterSpacing: 6; font.weight: Font.DemiBold
                         Accessible.name: "Pairing code " + (page.s.phoneCode || "")
                     }
                     Note { visible: !!page.s.phoneCode; text: "Enter this code on the phone. It works once, for " + Math.max(1, Math.ceil((page.s.phoneCodeLeft || 0) / 60)) + " more minute" + ((page.s.phoneCodeLeft || 0) > 60 ? "s" : "") + "." }
@@ -709,6 +874,13 @@ FocusScope {
                         text: "Open the release page"
                         onClicked: shell.act("update_page", null)
                     }
+                    PillButton {
+                        visible: !!updates.up.previous
+                        width: parent.width; height: 48
+                        text: "Go back to " + (updates.up.previous || "")
+                        onClicked: shell.act("update_back", null)
+                    }
+                    Note { visible: !!updates.up.previous; text: "The last update kept the version it replaced. Going back closes PlayBridge, opens " + (updates.up.previous || "") + " and turns Update automatically off, so it stays until you turn it on again." }
                     Toggle { width: parent.width; text: "Update automatically"; checked: !!updates.up.automatic; onToggled: function(on) { shell.act("update_auto", on) } }
                     Note { text: "PlayBridge looks for a new version on GitHub when it opens and every six hours. It downloads it slowly in the background, so a stream keeps its speed, checks it against the release's checksums, and then asks whether to restart and update now. Otherwise it goes in when you close PlayBridge." }
                     Toggle { width: parent.width; text: "Beta versions"; checked: updates.up.channel === "beta"; onToggled: function(on) { shell.act("update_beta", on) } }
@@ -716,6 +888,13 @@ FocusScope {
                     Note { text: updates.up.check || ""; tone: updates.up.slower ? "error" : "plain" }
                     PillButton { width: parent.width; height: 48; text: "Report a problem"; onClicked: shell.act("bug_report", null) }
                     Note { text: "Opens a new issue on PlayBridge's GitHub page with this PC's details filled in: the version, Windows, the graphics card, the stream settings and how long each frame takes. No addresses, names or files. Nothing is sent until you submit it there; the details are also copied, to paste anywhere." }
+                }
+                Card {
+                    title: "Your settings"
+                    visible: page.s.section === "updates"
+                    Note { text: "Save PlayBridge's settings in one file, to keep or to take to another PC, and put them back from one. Sign-ins, stream keys and keys stay out of it: they are encrypted for this Windows account and open nowhere else." }
+                    PillButton { width: parent.width; height: 48; text: "Save a backup…"; onClicked: backupDialog.open() }
+                    PillButton { width: parent.width; height: 48; text: "Restore a backup…"; onClicked: restoreDialog.open() }
                 }
             }
         }
@@ -728,11 +907,11 @@ FocusScope {
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 18
         height: visible ? 30 : 0
-        visible: (page.s.section === "console" || page.s.section === "picture") && ((page.s.line || {}).text || "") !== ""
+        visible: (page.s.section === "console" || page.s.section === "picture" || page.s.section === "updates") && ((page.s.line || {}).text || "") !== ""
         text: (page.s.line || {}).text || ""
         color: Theme.tone((page.s.line || {}).tone || "plain")
         font.family: Theme.face
-        font.pixelSize: 16
+        font.pixelSize: Theme.px(16)
         elide: Text.ElideRight
     }
 
@@ -775,5 +954,7 @@ FocusScope {
     FileDialog { id: payloadDialog; title: "Choose a payload"; nameFilters: ["ELF payload (*.elf)", "All files (*)"]; onAccepted: shell.act("payload_file", selectedFile.toString()) }
     FileDialog { id: devWatchDialog; title: "Choose an ELF to watch"; nameFilters: ["ELF payload (*.elf)", "All files (*)"]; onAccepted: shell.act("dev_watch_file", selectedFile.toString()) }
     FolderDialog { id: folderDialog; title: "Choose capture folder"; currentFolder: page.s.captureFolder ? "file:///" + page.s.captureFolder.replace(/\\/g, "/") : ""; onAccepted: shell.act("capture_folder", selectedFolder.toString()) }
+    FileDialog { id: backupDialog; title: "Save a backup of PlayBridge's settings"; fileMode: FileDialog.SaveFile; nameFilters: ["PlayBridge settings (*.json)"]; defaultSuffix: "json"; onAccepted: shell.act("settings_backup", selectedFile.toString()) }
+    FileDialog { id: restoreDialog; title: "Restore PlayBridge's settings"; nameFilters: ["PlayBridge settings (*.json)", "All files (*)"]; onAccepted: shell.act("settings_restore", selectedFile.toString()) }
     FileDialog { id: exportDialog; title: "Export diagnostics"; fileMode: FileDialog.SaveFile; nameFilters: ["ZIP archive (*.zip)"]; defaultSuffix: "zip"; onAccepted: shell.act("export", selectedFile.toString()) }
 }

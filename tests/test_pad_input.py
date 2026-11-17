@@ -16,6 +16,16 @@ def drained(events):
  while not events.empty():result.append(events.get_nowait())
  return result
 
+class SendTests(unittest.TestCase):
+ def test_a_full_send_buffer_is_retried_and_then_given_up(self):
+  class Busy:
+   def __init__(self,refusals):self.refusals=refusals;self.sent=[]
+   def sendto(self,data,target):
+    if self.refusals:self.refusals-=1;raise BlockingIOError(10035,'would block')
+    self.sent.append((data,target))
+  udp=Busy(2);pad.send_datagram(udp,pad.QUIT,('127.0.0.1',9078));self.assertEqual(udp.sent,[(pad.QUIT,('127.0.0.1',9078))])
+  with self.assertRaises(BlockingIOError):pad.send_datagram(Busy(pad.SEND_TRIES),pad.QUIT,('127.0.0.1',9078))
+
 class MappingTests(unittest.TestCase):
  def test_xbox_buttons_land_on_the_console_positions(self):
   for mask,bit in ((0x1000,pad.CROSS),(0x2000,pad.CIRCLE),(0x4000,pad.SQUARE),(0x8000,pad.TRIANGLE),(0x100,pad.L1),(0x200,pad.R1),(0x10,pad.OPTIONS),(0x20,pad.CREATE),(0x40,pad.L3),(0x80,pad.R3),(0x1,pad.UP),(0x2,pad.DOWN),(0x4,pad.LEFT),(0x8,pad.RIGHT),(0x400,pad.PS)):

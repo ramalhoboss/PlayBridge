@@ -13,6 +13,8 @@ PlayBridge bundles components that retain their own copyright and license terms.
 | sounddevice / PortAudio | sounddevice 0.5.6 | https://github.com/spatialaudio/python-sounddevice and https://github.com/PortAudio/portaudio |
 | CFFI | 2.1.1 | https://github.com/python-cffi/cffi |
 | darkdetect | 0.8.0 | https://github.com/albertosottile/darkdetect |
+| packaging (used by CustomTkinter) | 26.3 | https://github.com/pypa/packaging |
+| typing_extensions (used by CustomTkinter) | 4.16.0 | https://github.com/python/typing_extensions |
 | PyInstaller bootloader | 6.22.3 | https://github.com/pyinstaller/pyinstaller |
 | PySide6 (Qt for Python) and shiboken6 | 6.12.0 | https://code.qt.io/cgit/pyside/pyside-setup.git/ |
 | Qt 6 libraries bundled with PySide6 (Core, Gui, Qml, Quick and the Quick modules the window uses) | 6.12.0 | https://code.qt.io/ and https://download.qt.io/official_releases/qt/ |

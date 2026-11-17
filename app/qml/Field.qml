@@ -10,7 +10,7 @@ TextField {
     function activate() { forceActiveFocus(); selectAll() }
     implicitHeight: 46
     font.family: Theme.face
-    font.pixelSize: 16
+    font.pixelSize: Theme.px(16)
     color: Theme.text
     placeholderTextColor: Theme.dim
     selectionColor: Theme.gold

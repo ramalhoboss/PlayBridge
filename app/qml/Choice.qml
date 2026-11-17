@@ -7,7 +7,7 @@ Item {
     property var model: []
     property string value: ""
     property string placeholder: ""
-    property real fontSize: 16
+    property real fontSize: Theme.px(16)
     property bool navigable: visible && enabled
     signal picked(string value)
     function activate() { Theme.keys = true; open() }

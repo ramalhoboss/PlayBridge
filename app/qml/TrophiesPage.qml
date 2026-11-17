@@ -62,10 +62,10 @@ FocusScope {
             width: parent.width - 80
             spacing: 14
             TrophyCup { anchors.horizontalCenter: parent.horizontalCenter; grade: "gold"; width: 54; height: 54 }
-            Text { width: parent.width; horizontalAlignment: Text.AlignHCenter; text: page.t.state === "signing" ? "Signing in to PSN…" : "All your trophies, right here"; color: Theme.text; font.family: Theme.light; font.pixelSize: 34; wrapMode: Text.WordWrap }
-            Text { width: parent.width; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; color: Theme.muted; font.family: Theme.face; font.pixelSize: 16
+            Text { width: parent.width; horizontalAlignment: Text.AlignHCenter; text: page.t.state === "signing" ? "Signing in to PSN…" : "All your trophies, right here"; color: Theme.text; font.family: Theme.light; font.pixelSize: Theme.px(34); wrapMode: Text.WordWrap }
+            Text { width: parent.width; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(16)
                 text: "Your trophy level and every game you have trophies in, PS5 and PS4, also the ones no longer on your console. Open a game to see how rare each trophy is, and compare with a friend." }
-            Text { visible: (page.t.problem || "") !== ""; width: parent.width; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; color: Theme.alert; font.family: Theme.face; font.pixelSize: 15; text: page.t.problem || "" }
+            Text { visible: (page.t.problem || "") !== ""; width: parent.width; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; color: Theme.alert; font.family: Theme.face; font.pixelSize: Theme.px(15); text: page.t.problem || "" }
             Item { width: 1; height: 6 }
             PillButton { anchors.horizontalCenter: parent.horizontalCenter; width: 240; height: 50; tone: "main"; text: page.t.state === "expired" ? "Sign in again" : "Sign in to PSN"; enabled: page.t.state !== "signing"; onClicked: shell.act("psn_settings", null) }
         }
@@ -88,12 +88,12 @@ FocusScope {
             Column {
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 4
-                Text { text: "Trophies"; color: Theme.text; font.family: Theme.light; font.pixelSize: 40 }
+                Text { text: "Trophies"; color: Theme.text; font.family: Theme.light; font.pixelSize: Theme.px(40) }
                 Row {
                     spacing: 12
-                    Text { anchors.verticalCenter: parent.verticalCenter; text: page.t.level ? "Level " + page.t.level.level : "Reading your trophies…"; color: Theme.goldSoft; font.family: Theme.strong; font.pixelSize: 15 }
+                    Text { anchors.verticalCenter: parent.verticalCenter; text: page.t.level ? "Level " + page.t.level.level : "Reading your trophies…"; color: Theme.goldSoft; font.family: Theme.strong; font.pixelSize: Theme.px(15) }
                     Bar { visible: !!page.t.level; anchors.verticalCenter: parent.verticalCenter; width: 150; share: page.t.level ? page.t.level.share : 0 }
-                    Text { visible: !!page.t.level; anchors.verticalCenter: parent.verticalCenter; text: page.t.level ? Math.round(page.t.level.share * 100) + "% to the next level  ·  " + page.t.level.total + " trophies" : ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: 14 }
+                    Text { visible: !!page.t.level; anchors.verticalCenter: parent.verticalCenter; text: page.t.level ? Math.round(page.t.level.share * 100) + "% to the next level  ·  " + page.t.level.total + " trophies" : ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(14) }
                 }
             }
         }
@@ -107,7 +107,7 @@ FocusScope {
                     required property var modelData
                     spacing: 8
                     TrophyCup { anchors.verticalCenter: parent.verticalCenter; grade: modelData.grade; width: 26; height: 26 }
-                    Text { anchors.verticalCenter: parent.verticalCenter; text: modelData.count.toLocaleString(Qt.locale(), "f", 0); color: Theme.text; font.family: Theme.light; font.pixelSize: 26 }
+                    Text { anchors.verticalCenter: parent.verticalCenter; text: modelData.count.toLocaleString(Qt.locale(), "f", 0); color: Theme.text; font.family: Theme.light; font.pixelSize: Theme.px(26) }
                 }
             }
         }
@@ -134,7 +134,7 @@ FocusScope {
             anchors.right: parent.right
             anchors.verticalCenter: controls.verticalCenter
             spacing: 12
-            Text { anchors.verticalCenter: parent.verticalCenter; text: "Compare with"; color: Theme.muted; font.family: Theme.face; font.pixelSize: 15 }
+            Text { anchors.verticalCenter: parent.verticalCenter; text: "Compare with"; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(15) }
             Choice {
                 width: 250; height: 42; fontSize: 15
                 model: page.t.friends || []
@@ -148,7 +148,7 @@ FocusScope {
             width: parent.width; elide: Text.ElideRight
             text: (page.t.problem || "") !== "" ? page.t.problem : (page.t.friendLine || "")
             color: (page.t.problem || "") !== "" ? Theme.alert : Theme.goldSoft
-            font.family: Theme.face; font.pixelSize: 14
+            font.family: Theme.face; font.pixelSize: Theme.px(14)
             height: text !== "" ? implicitHeight : 0
         }
 
@@ -167,7 +167,7 @@ FocusScope {
                 anchors.centerIn: parent
                 width: parent.width - 80
                 horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap
-                text: page.t.empty || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: 16
+                text: page.t.empty || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(16)
             }
 
             // Next up: the trophies most players have that you have not, from your games in progress.
@@ -186,7 +186,7 @@ FocusScope {
                     leftPadding: 12; rightPadding: 12; topPadding: 8; bottomPadding: 12
                     wrapMode: Text.WordWrap
                     text: page.t.huntLine || ""
-                    color: Theme.muted; font.family: Theme.face; font.pixelSize: 14
+                    color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(14)
                 }
                 delegate: Item {
                     id: hunted
@@ -214,11 +214,11 @@ FocusScope {
                             width: parent.width
                             spacing: 8
                             TrophyCup { anchors.verticalCenter: parent.verticalCenter; grade: hunted.modelData.grade; width: 16; height: 16 }
-                            Text { width: parent.width - 24; elide: Text.ElideRight; text: hunted.modelData.name; color: Theme.text; font.family: Theme.strong; font.pixelSize: 16 }
+                            Text { width: parent.width - 24; elide: Text.ElideRight; text: hunted.modelData.name; color: Theme.text; font.family: Theme.strong; font.pixelSize: Theme.px(16) }
                         }
-                        Text { width: parent.width; elide: Text.ElideRight; text: hunted.modelData.game + "  ·  " + hunted.modelData.rare; color: Theme.goldSoft; font.family: Theme.face; font.pixelSize: 13 }
-                        Text { width: parent.width; elide: Text.ElideRight; maximumLineCount: 1; text: hunted.modelData.detail; color: Theme.muted; font.family: Theme.face; font.pixelSize: 14 }
-                        Text { visible: !!hunted.modelData.watch; width: parent.width; elide: Text.ElideRight; text: "Watch out: " + hunted.modelData.watch + "."; color: Theme.alert; font.family: Theme.face; font.pixelSize: 13 }
+                        Text { width: parent.width; elide: Text.ElideRight; text: hunted.modelData.game + "  ·  " + hunted.modelData.rare; color: Theme.goldSoft; font.family: Theme.face; font.pixelSize: Theme.px(13) }
+                        Text { width: parent.width; elide: Text.ElideRight; maximumLineCount: 1; text: hunted.modelData.detail; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(14) }
+                        Text { visible: !!hunted.modelData.watch; width: parent.width; elide: Text.ElideRight; text: "Watch out: " + hunted.modelData.watch + "."; color: Theme.alert; font.family: Theme.face; font.pixelSize: Theme.px(13) }
                     }
                     Row {
                         id: huntTools
@@ -265,8 +265,8 @@ FocusScope {
                             width: parent.width
                             spacing: 10
                             Rectangle { anchors.verticalCenter: parent.verticalCenter; width: kind.implicitWidth + 14; height: 20; radius: 6; color: Qt.rgba(1, 1, 1, 0.1); visible: (game.modelData.platform || "") !== ""
-                                Text { id: kind; anchors.centerIn: parent; text: game.modelData.platform || ""; color: Theme.muted; font.family: Theme.strong; font.pixelSize: 11 } }
-                            Text { width: Math.min(implicitWidth, parent.width - 90); elide: Text.ElideRight; text: game.modelData.name; color: Theme.text; font.family: Theme.strong; font.pixelSize: 17 }
+                                Text { id: kind; anchors.centerIn: parent; text: game.modelData.platform || ""; color: Theme.muted; font.family: Theme.strong; font.pixelSize: Theme.px(11) } }
+                            Text { width: Math.min(implicitWidth, parent.width - 90); elide: Text.ElideRight; text: game.modelData.name; color: Theme.text; font.family: Theme.strong; font.pixelSize: Theme.px(17) }
                             TrophyCup { visible: game.modelData.platinum; anchors.verticalCenter: parent.verticalCenter; grade: "platinum"; width: 18; height: 18 }
                         }
                         Row {
@@ -277,10 +277,10 @@ FocusScope {
                                     required property var modelData
                                     spacing: 5
                                     TrophyCup { anchors.verticalCenter: parent.verticalCenter; grade: modelData.grade; lit: modelData.count > 0; width: 15; height: 15 }
-                                    Text { anchors.verticalCenter: parent.verticalCenter; text: modelData.count + " / " + modelData.of; color: modelData.count > 0 ? Theme.muted : Theme.dim; font.family: Theme.face; font.pixelSize: 13 }
+                                    Text { anchors.verticalCenter: parent.verticalCenter; text: modelData.count + " / " + modelData.of; color: modelData.count > 0 ? Theme.muted : Theme.dim; font.family: Theme.face; font.pixelSize: Theme.px(13) }
                                 }
                             }
-                            Text { text: game.modelData.when; color: Theme.dim; font.family: Theme.face; font.pixelSize: 13 }
+                            Text { text: game.modelData.when; color: Theme.dim; font.family: Theme.face; font.pixelSize: Theme.px(13) }
                         }
                     }
                     Column {
@@ -291,15 +291,15 @@ FocusScope {
                         spacing: 7
                         Item {
                             width: parent.width; height: 18
-                            Text { text: page.t.comparing ? "You" : game.modelData.line; color: Theme.muted; font.family: Theme.face; font.pixelSize: 13 }
-                            Text { anchors.right: parent.right; text: game.modelData.percent; color: game.modelData.platinum ? "#B0C8E8" : Theme.goldSoft; font.family: Theme.strong; font.pixelSize: 15 }
+                            Text { text: page.t.comparing ? "You" : game.modelData.line; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(13) }
+                            Text { anchors.right: parent.right; text: game.modelData.percent; color: game.modelData.platinum ? "#B0C8E8" : Theme.goldSoft; font.family: Theme.strong; font.pixelSize: Theme.px(15) }
                         }
                         Bar { width: parent.width; share: game.modelData.share; fill: game.modelData.platinum ? "#B0C8E8" : Theme.gold }
                         Item {
                             visible: game.modelData.theirs >= 0
                             width: parent.width; height: 18
-                            Text { text: page.t.friendName || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: 13 }
-                            Text { anchors.right: parent.right; text: game.modelData.theirsPercent; color: Theme.text; font.family: Theme.strong; font.pixelSize: 15 }
+                            Text { text: page.t.friendName || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(13) }
+                            Text { anchors.right: parent.right; text: game.modelData.theirsPercent; color: Theme.text; font.family: Theme.strong; font.pixelSize: Theme.px(15) }
                         }
                         Bar { visible: game.modelData.theirs >= 0; width: parent.width; share: Math.max(0, game.modelData.theirs); fill: Qt.rgba(1, 1, 1, 0.6) }
                     }
@@ -322,13 +322,13 @@ FocusScope {
                         anchors.verticalCenter: parent.verticalCenter
                         width: parent.width - 84 - 18 - (page.sideBySide ? 300 : 0)
                         spacing: 6
-                        Text { width: parent.width; elide: Text.ElideRight; text: page.opened ? page.opened.name : ""; color: Theme.text; font.family: Theme.light; font.pixelSize: 30 }
+                        Text { width: parent.width; elide: Text.ElideRight; text: page.opened ? page.opened.name : ""; color: Theme.text; font.family: Theme.light; font.pixelSize: Theme.px(30) }
                         Row {
                             spacing: 12
-                            Text { anchors.verticalCenter: parent.verticalCenter; text: page.opened ? page.opened.line : ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: 15 }
+                            Text { anchors.verticalCenter: parent.verticalCenter; text: page.opened ? page.opened.line : ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(15) }
                             Bar { anchors.verticalCenter: parent.verticalCenter; width: 180; share: page.opened ? page.opened.share : 0; fill: page.opened && page.opened.platinum ? "#B0C8E8" : Theme.gold }
                         }
-                        Text { visible: page.opened && page.opened.theirsLine !== ""; text: page.opened ? page.opened.theirsLine : ""; color: Theme.goldSoft; font.family: Theme.face; font.pixelSize: 14 }
+                        Text { visible: page.opened && page.opened.theirsLine !== ""; text: page.opened ? page.opened.theirsLine : ""; color: Theme.goldSoft; font.family: Theme.face; font.pixelSize: Theme.px(14) }
                     }
                 }
                 // Over the dates: whose they are.
@@ -336,14 +336,14 @@ FocusScope {
                     visible: page.sideBySide
                     anchors.right: parent.right; anchors.rightMargin: 38
                     anchors.bottom: rule.top; anchors.bottomMargin: 8
-                    Text { width: 150; horizontalAlignment: Text.AlignRight; text: "You"; color: Theme.muted; font.family: Theme.strong; font.pixelSize: 14 }
-                    Text { width: 150; horizontalAlignment: Text.AlignRight; elide: Text.ElideLeft; text: page.opened ? page.opened.friendName : ""; color: Theme.muted; font.family: Theme.strong; font.pixelSize: 14 }
+                    Text { width: 150; horizontalAlignment: Text.AlignRight; text: "You"; color: Theme.muted; font.family: Theme.strong; font.pixelSize: Theme.px(14) }
+                    Text { width: 150; horizontalAlignment: Text.AlignRight; elide: Text.ElideLeft; text: page.opened ? page.opened.friendName : ""; color: Theme.muted; font.family: Theme.strong; font.pixelSize: Theme.px(14) }
                 }
                 Rectangle { id: rule; x: 16; y: 120; width: parent.width - 32; height: 1; color: Theme.glassRim }
                 Text {
                     visible: !!page.opened && page.opened.loading
                     anchors.centerIn: parent
-                    text: "Reading the trophies…"; color: Theme.muted; font.family: Theme.face; font.pixelSize: 16
+                    text: "Reading the trophies…"; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(16)
                 }
                 ListView {
                     id: trophyList
@@ -378,17 +378,17 @@ FocusScope {
                                 width: parent.width
                                 spacing: 8
                                 TrophyCup { anchors.verticalCenter: parent.verticalCenter; grade: trophy.modelData.grade; width: 16; height: 16 }
-                                Text { width: parent.width - 24; elide: Text.ElideRight; text: trophy.modelData.name; color: trophy.modelData.earned ? Theme.text : Theme.muted; font.family: Theme.strong; font.pixelSize: 16 }
+                                Text { width: parent.width - 24; elide: Text.ElideRight; text: trophy.modelData.name; color: trophy.modelData.earned ? Theme.text : Theme.muted; font.family: Theme.strong; font.pixelSize: Theme.px(16) }
                             }
-                            Text { width: parent.width; elide: Text.ElideRight; maximumLineCount: 1; text: trophy.modelData.detail; color: Theme.muted; font.family: Theme.face; font.pixelSize: 14 }
-                            Text { visible: trophy.modelData.rare !== ""; text: trophy.modelData.rare; color: Theme.dim; font.family: Theme.face; font.pixelSize: 12 }
+                            Text { width: parent.width; elide: Text.ElideRight; maximumLineCount: 1; text: trophy.modelData.detail; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(14) }
+                            Text { visible: trophy.modelData.rare !== ""; text: trophy.modelData.rare; color: Theme.dim; font.family: Theme.face; font.pixelSize: Theme.px(12) }
                         }
                         Row {
                             id: dates
                             anchors.right: parent.right; anchors.rightMargin: 18
                             anchors.verticalCenter: parent.verticalCenter
-                            Text { width: 150; horizontalAlignment: Text.AlignRight; text: trophy.modelData.when; color: Theme.goldSoft; font.family: Theme.face; font.pixelSize: 14 }
-                            Text { visible: page.sideBySide; width: 150; horizontalAlignment: Text.AlignRight; text: trophy.modelData.theirs; color: trophy.modelData.theirsEarned ? Theme.text : Theme.dim; font.family: Theme.face; font.pixelSize: 14 }
+                            Text { width: 150; horizontalAlignment: Text.AlignRight; text: trophy.modelData.when; color: Theme.goldSoft; font.family: Theme.face; font.pixelSize: Theme.px(14) }
+                            Text { visible: page.sideBySide; width: 150; horizontalAlignment: Text.AlignRight; text: trophy.modelData.theirs; color: trophy.modelData.theirsEarned ? Theme.text : Theme.dim; font.family: Theme.face; font.pixelSize: Theme.px(14) }
                         }
                         FocusGlow { on: trophy.activeFocus && Theme.keys; radius: 12 }
                     }

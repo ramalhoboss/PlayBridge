@@ -33,8 +33,8 @@ FocusScope {
                     id: titleColumn
                     width: parent.width - buttons.width - 20
                     spacing: 6
-                    Text { text: "Your captures"; color: Theme.text; font.family: Theme.light; font.pixelSize: 44 }
-                    Text { width: parent.width; wrapMode: Text.WordWrap; text: "Screenshots and recordings on this PC. F8 takes a screenshot, F9 starts or stops a recording."; color: Theme.muted; font.family: Theme.face; font.pixelSize: 16 }
+                    Text { text: "Your captures"; color: Theme.text; font.family: Theme.light; font.pixelSize: Theme.px(44) }
+                    Text { width: parent.width; wrapMode: Text.WordWrap; text: "Screenshots and recordings on this PC. F8 takes a screenshot, F9 starts or stops a recording."; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(16) }
                 }
                 Row {
                     id: buttons
@@ -74,8 +74,8 @@ FocusScope {
                 Column {
                     anchors.centerIn: parent
                     spacing: 12
-                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: "Make a moment worth keeping"; color: Theme.text; font.family: Theme.light; font.pixelSize: 32 }
-                    Text { anchors.horizontalCenter: parent.horizontalCenter; horizontalAlignment: Text.AlignHCenter; text: "F8 takes a screenshot. F9 starts or stops a recording.\nYour captures will appear here."; color: Theme.muted; font.family: Theme.face; font.pixelSize: 16 }
+                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: "Make a moment worth keeping"; color: Theme.text; font.family: Theme.light; font.pixelSize: Theme.px(32) }
+                    Text { anchors.horizontalCenter: parent.horizontalCenter; horizontalAlignment: Text.AlignHCenter; text: "F8 takes a screenshot. F9 starts or stops a recording.\nYour captures will appear here."; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(16) }
                 }
             }
             Flow {
@@ -119,7 +119,7 @@ FocusScope {
                                 anchors.centerIn: parent
                                 width: 54; height: 54; radius: 27
                                 color: Qt.rgba(0, 0, 0, 0.6); border.width: 2; border.color: Theme.text
-                                Text { anchors.centerIn: parent; anchors.horizontalCenterOffset: 2; text: "▶"; color: Theme.text; font.pixelSize: 20 }
+                                Text { anchors.centerIn: parent; anchors.horizontalCenterOffset: 2; text: "▶"; color: Theme.text; font.pixelSize: Theme.px(20) }
                             }
                             MouseArea { id: cardArea; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: shell.act("media_open", card.modelData.path) }
                         }
@@ -129,8 +129,8 @@ FocusScope {
                             x: 18
                             width: parent.width - 36
                             spacing: 2
-                            Text { text: card.modelData.when; color: Theme.text; font.family: Theme.face; font.pixelSize: 16 }
-                            Text { text: card.modelData.detail; color: Theme.muted; font.family: Theme.face; font.pixelSize: 14 }
+                            Text { text: card.modelData.when; color: Theme.text; font.family: Theme.face; font.pixelSize: Theme.px(16) }
+                            Text { text: card.modelData.detail; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(14) }
                             Item { width: 1; height: 10 }
                             Row {
                                 width: parent.width
@@ -145,7 +145,7 @@ FocusScope {
             Item {
                 width: parent.width
                 height: 44
-                Text { anchors.verticalCenter: parent.verticalCenter; text: page.m.status || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: 15 }
+                Text { anchors.verticalCenter: parent.verticalCenter; text: page.m.status || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(15) }
                 Row {
                     anchors.right: parent.right
                     spacing: 10
@@ -188,8 +188,8 @@ FocusScope {
                     Column {
                         anchors.left: parent.left; anchors.right: closer.left; anchors.rightMargin: 12
                         anchors.verticalCenter: parent.verticalCenter
-                        Text { text: "Edit clip"; color: Theme.text; font.family: Theme.light; font.pixelSize: 30 }
-                        Text { width: parent.width; elide: Text.ElideMiddle; text: editor.c.name || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: 14 }
+                        Text { text: "Edit clip"; color: Theme.text; font.family: Theme.light; font.pixelSize: Theme.px(30) }
+                        Text { width: parent.width; elide: Text.ElideMiddle; text: editor.c.name || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(14) }
                     }
                     GlyphButton { id: closer; anchors.right: parent.right; glyph: "\uE711"; tip: "Close · Esc"; enabled: !editor.c.busy; onClicked: shell.act("clip_close", null) }
                 }
@@ -206,9 +206,9 @@ FocusScope {
                             Rectangle {
                                 width: parent.width; height: width * 9 / 16; radius: 12; color: Theme.raised; clip: true
                                 Image { anchors.fill: parent; source: (editor.c.stills || [])[index] || ""; fillMode: Image.PreserveAspectFit; asynchronous: true; retainWhileLoading: true }
-                                Text { visible: !!editor.c.loading; anchors.centerIn: parent; text: "Reading the recording…"; color: Theme.muted; font.family: Theme.face; font.pixelSize: 15 }
+                                Text { visible: !!editor.c.loading; anchors.centerIn: parent; text: "Reading the recording…"; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(15) }
                             }
-                            Text { text: (index === 0 ? "Starts at " + editor.clock(editor.start) : "Ends at " + editor.clock(editor.end)); color: Theme.text; font.family: Theme.face; font.pixelSize: 15 }
+                            Text { text: (index === 0 ? "Starts at " + editor.clock(editor.start) : "Ends at " + editor.clock(editor.end)); color: Theme.text; font.family: Theme.face; font.pixelSize: Theme.px(15) }
                         }
                     }
                 }
@@ -261,14 +261,14 @@ FocusScope {
                 }
                 Text {
                     text: "Length " + editor.clock(editor.end - editor.start) + "  ·  the whole recording is " + editor.clock(editor.c.seconds) + ". A GIF can be up to 20 seconds."
-                    color: Theme.muted; font.family: Theme.face; font.pixelSize: 14
+                    color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(14)
                 }
                 // The highlights PlayBridge found: a pick makes the stretch that moment.
                 Column {
                     width: parent.width
                     spacing: 8
                     Text {
-                        width: parent.width; wrapMode: Text.WordWrap; color: Theme.muted; font.family: Theme.face; font.pixelSize: 14
+                        width: parent.width; wrapMode: Text.WordWrap; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(14)
                         text: editor.c.finding ? "Looking for highlights: trophies, loud moments and busy stretches…"
                             : (editor.c.moments || []).length ? "Highlights. Pick one to make it the stretch, or make a reel of the best of them."
                             : "No highlights found in this recording. Trophies, loud moments and stretches of fast button presses on this PC's controller show here."
@@ -309,7 +309,7 @@ FocusScope {
                     }
                 }
                 Text {
-                    width: parent.width; wrapMode: Text.WordWrap; color: Theme.dim; font.family: Theme.face; font.pixelSize: 14
+                    width: parent.width; wrapMode: Text.WordWrap; color: Theme.dim; font.family: Theme.face; font.pixelSize: Theme.px(14)
                     text: editor.c.kind === "gif" ? "A GIF plays everywhere, without sound: 480 pixels wide, 15 pictures a second."
                         : editor.c.kind === "vertical" ? "For TikTok, Shorts and Reels: 1080 x 1920 with the sound, cut from the middle of the picture. The highlights reel is made the same way."
                         : editor.c.kind === "vertical_fit" ? "For TikTok, Shorts and Reels: 1080 x 1920 with the sound, the whole picture across the middle over a blurred copy of itself, so nothing at its edges is lost. The highlights reel is made the same way."
@@ -324,7 +324,7 @@ FocusScope {
                 }
                 Text {
                     visible: (editor.c.status || "") !== ""
-                    width: parent.width; wrapMode: Text.WordWrap; font.family: Theme.face; font.pixelSize: 15
+                    width: parent.width; wrapMode: Text.WordWrap; font.family: Theme.face; font.pixelSize: Theme.px(15)
                     text: editor.c.status || ""
                     color: editor.c.tone === "error" ? Theme.alert : editor.c.tone === "news" ? Theme.online : Theme.muted
                 }

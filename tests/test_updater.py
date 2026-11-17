@@ -152,6 +152,35 @@ class UpdaterTest(unittest.TestCase):
   source=self.folder/'new.exe';source.write_bytes(PROGRAM);said=[]
   self.assertEqual(updater.finish(self.folder/'gone'/'PlayBridge.exe',True,source=source,wait=0,start=self.fail,say=said.append),1)
   self.assertIn(str(source),said[0])
+ def test_finish_keeps_the_replaced_program_for_going_back(self):
+  source=self.folder/'new.exe';target=self.folder/'app'/'PlayBridge.exe';keep=self.folder/'previous';target.parent.mkdir();keep.mkdir()
+  source.write_bytes(PROGRAM);target.write_bytes(b'MZ old');(keep/'PlayBridge-0.9.0.exe').write_bytes(b'MZ older')
+  self.assertEqual(updater.finish(target,False,source=source,wait=2,say=self.fail,keep=keep,old_version='1.0.0'),0)
+  self.assertEqual(sorted(p.name for p in keep.iterdir()),['PlayBridge-1.0.0.exe']);self.assertEqual((keep/'PlayBridge-1.0.0.exe').read_bytes(),b'MZ old')
+  self.assertEqual(updater.kept_previous(keep,current='99.0.0'),('1.0.0',keep/'PlayBridge-1.0.0.exe'))
+  # Not older than this version, or not a program: nothing to go back to.
+  self.assertIsNone(updater.kept_previous(keep,current='1.0.0'))
+  (keep/'PlayBridge-1.0.0.exe').write_bytes(b'not a program');self.assertIsNone(updater.kept_previous(keep,current='99.0.0'))
+ def test_a_failed_finish_keeps_nothing_and_an_unknown_version_is_not_kept(self):
+  source=self.folder/'new.exe';source.write_bytes(PROGRAM);keep=self.folder/'previous'
+  self.assertEqual(updater.finish(self.folder/'gone'/'PlayBridge.exe',False,source=source,wait=0,say=lambda text:None,keep=keep,old_version='1.0.0'),1)
+  self.assertFalse(any(keep.glob('*')) if keep.exists() else False)
+  target=self.folder/'PlayBridge.exe';target.write_bytes(b'MZ old')
+  with mock.patch.object(updater,'exe_version',lambda path:None):self.assertEqual(updater.finish(target,False,source=source,wait=2,say=self.fail,keep=keep),0)
+  self.assertFalse(any(keep.glob('*')) if keep.exists() else False)
+ def test_going_back_starts_the_kept_program_without_keeping_again(self):
+  keep=self.folder/updater.PREVIOUS;keep.mkdir();(keep/'PlayBridge-1.0.0.exe').write_bytes(b'MZ old')
+  updates=self.updates();self.assertEqual(updates.status()['previous'],'1.0.0')
+  with mock.patch.object(updater.subprocess,'Popen') as popen:self.assertTrue(updates.go_back())
+  command=popen.call_args.args[0]
+  self.assertEqual(command[:2],[str(keep/'PlayBridge-1.0.0.exe'),'--finish-update']);self.assertEqual(command[-2:],['--relaunch','--no-keep'])
+  empty=updater.Updater(self.folder/'other',rate=None);self.assertIsNone(empty.status()['previous'])
+  with mock.patch.object(updater.subprocess,'Popen') as popen:self.assertFalse(empty.go_back())
+  popen.assert_not_called()
+ def test_the_version_is_read_from_a_programs_details(self):
+  if sys.platform!='win32' or sys.version_info.releaselevel!='final':self.skipTest('a final Python on Windows')
+  self.assertEqual(updater.exe_version(sys.executable),'%d.%d.%d'%sys.version_info[:3])
+  self.assertIsNone(updater.exe_version(self.folder/'missing.exe'))
  def test_tidy_keeps_only_newer_downloads(self):
   for name in ('PlayBridge-1.0.0.exe',f'PlayBridge-{VERSION}.exe','PlayBridge-99.0.0.exe','PlayBridge-99.0.0.exe.partial','PlayBridge-99.1.0-beta.1.exe','PlayBridge-1.0.0-beta.1.exe'):(self.folder/name).write_bytes(b'x')
   self.assertTrue(updater.tidy(self.folder,tries=1))

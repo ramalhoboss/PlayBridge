@@ -117,5 +117,27 @@
       "Qt source, https://code.qt.io/",
       "Qt source packages, https://download.qt.io/official_releases/qt/"
     ]
+  },
+  {
+    "component": "packaging",
+    "version": "26.3",
+    "licenses": [
+      "LICENSE",
+      "LICENSE.APACHE",
+      "LICENSE.BSD"
+    ],
+    "project_urls": [
+      "Source, https://github.com/pypa/packaging"
+    ]
+  },
+  {
+    "component": "typing_extensions",
+    "version": "4.16.0",
+    "licenses": [
+      "LICENSE"
+    ],
+    "project_urls": [
+      "Source, https://github.com/python/typing_extensions"
+    ]
   }
 ]

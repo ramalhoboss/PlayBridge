@@ -8,7 +8,7 @@ Item {
     property string icon: ""
     property string tone: "plain"
     property bool selected: false
-    property real fontSize: 15
+    property real fontSize: Theme.px(15)
     property bool navigable: enabled && visible
     signal clicked()
     function activate() { if (enabled) { Theme.keys = true; clicked() } }

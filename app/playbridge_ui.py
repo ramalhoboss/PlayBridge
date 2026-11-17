@@ -279,7 +279,7 @@ def run_ui(app):
     vrr_wanted=ctk.BooleanVar(value=core.config().get('vrr',False))
     switch(place,'Variable refresh rate',vrr_wanted,lambda:(core.save_config(vrr=vrr_wanted.get()),reopen()))
     note(place,'For screens with G-Sync, FreeSync or Adaptive-Sync: each frame shows the moment it is due, so 60 fps plays evenly on a 144 Hz screen without switching it to 60 Hz. Works best in full screen (F11), and other screens may show tearing. While it is on, PlayBridge leaves the screen rate alone. Applies the next time PlayBridge opens.')
-   place=card(sections['picture'],'Picture Studio')
+   place=card(sections['picture'],'Picture Studio · Beta')
    current=studio.current();studio_vars.clear()
    def change_picture(key):
     studio.change(key,studio_vars[key].get(),presenter)
@@ -457,6 +457,13 @@ def run_ui(app):
    if app.updates.status()['installable']:app.restart_after_update=True;close()
   check_button=wide_button(place,'Check now',app.updates.check_now)
   install_button=wide_button(place,'Restart and update',install_update,tone='main');install_button.pack_forget()
+  previous=app.updates.status().get('previous')
+  if previous:
+   def go_back():
+    # Off first, in the saved preferences the older version reads, or it would update itself again at once.
+    app.updates.set_automatic(False);core.save_config(update_auto=False);app.go_back_on_close=True;close()
+   wide_button(place,f'Go back to {previous}',go_back)
+   note(place,f'The last update kept the version it replaced. Going back closes PlayBridge, opens {previous} and turns Update automatically off, so it stays until you turn it on again.')
   automatic=ctk.BooleanVar(value=app.updates.automatic)
   switch(place,'Update automatically',automatic,lambda:(app.updates.set_automatic(automatic.get()),core.save_config(update_auto=automatic.get())))
   beta=ctk.BooleanVar(value=app.updates.channel=='beta')

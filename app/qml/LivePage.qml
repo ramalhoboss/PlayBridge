@@ -90,7 +90,7 @@ FocusScope {
                     text: shell.stage.text || ""
                     color: Theme.text
                     font.family: Theme.light
-                    font.pixelSize: 24
+                    font.pixelSize: Theme.px(24)
                 }
                 PillButton {
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -184,7 +184,7 @@ FocusScope {
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             spacing: 14
-            Text { visible: page.width >= 1300; text: shell.bar.host || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
+            Text { visible: page.width >= 1300; text: shell.bar.host || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(13); anchors.verticalCenter: parent.verticalCenter }
             PillButton {
                 text: shell.bar.active ? "Disconnect" : "Connect"
                 icon: shell.bar.active ? "disconnect" : "connect"
@@ -210,6 +210,6 @@ FocusScope {
         text: shell.message.text || ""
         color: shell.message.tone === "error" ? "#FFAAA5" : Theme.tone(shell.message.tone)
         font.family: Theme.face
-        font.pixelSize: 12
+        font.pixelSize: Theme.px(12)
     }
 }

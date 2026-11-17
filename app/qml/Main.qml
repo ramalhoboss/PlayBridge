@@ -29,6 +29,12 @@ Window {
 
     Binding { target: Theme; property: "motion"; value: !!shell.look.animations }
     Binding { target: Theme; property: "icons"; value: shell.look.icons || "" }
+    Binding { target: Theme; property: "textScale"; value: shell.look.textScale || 1 }
+    Binding { target: Theme; property: "contrast"; value: !!shell.look.contrast }
+    Binding { target: Theme; property: "gold"; value: shell.look.accent ? shell.look.accent[0] : "#D4AF37" }
+    Binding { target: Theme; property: "goldSoft"; value: shell.look.accent ? shell.look.accent[1] : "#EBD48E" }
+    Binding { target: Theme; property: "goldHover"; value: shell.look.accent ? shell.look.accent[2] : "#E2C25A" }
+    Binding { target: Theme; property: "shade"; value: shell.look.shade || 0 }
 
     // The picture behind Media and Settings: PlayBridge's own. The live view has the video and Games draws its own page.
     Item {
@@ -43,6 +49,8 @@ Window {
             source: shell.look.backdrop || ""
             fillMode: Image.PreserveAspectCrop
         }
+        // Appearance › Colour › Backdrop: the picture darker, and its frost with it.
+        Rectangle { anchors.fill: parent; color: "black"; opacity: Theme.shade }
     }
     // The same picture, blurred, for the glass. Drawn under the picture itself, so only the glass panels show it.
     MultiEffect {
@@ -194,7 +202,7 @@ Window {
         text: shell.message.text || ""
         color: shell.message.tone === "error" ? "#FFAAA5" : Theme.tone(shell.message.tone)
         font.family: Theme.face
-        font.pixelSize: 12
+        font.pixelSize: Theme.px(12)
     }
 
     // The power menu and the game's menu. Python keeps which row is chosen, so the keys, the controller and the mouse agree.

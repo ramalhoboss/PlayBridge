@@ -32,8 +32,8 @@ Popup {
         padding: 8
         Keys.onReturnPressed: shell.act("dialog_accept", null)
         Keys.onEnterPressed: shell.act("dialog_accept", null)
-        Text { text: box.d.title || ""; color: Theme.text; font.family: Theme.light; font.pixelSize: 26; width: box.width - 64; wrapMode: Text.WordWrap }
-        Text { text: box.d.text || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: 15; width: box.width - 64; wrapMode: Text.WordWrap; lineHeight: 1.15 }
+        Text { text: box.d.title || ""; color: Theme.text; font.family: Theme.light; font.pixelSize: Theme.px(26); width: box.width - 64; wrapMode: Text.WordWrap }
+        Text { text: box.d.text || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(15); width: box.width - 64; wrapMode: Text.WordWrap; lineHeight: 1.15 }
         Item { width: 1; height: 6 }
         Row {
             anchors.right: parent.right

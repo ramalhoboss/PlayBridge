@@ -22,9 +22,9 @@ FocusScope {
             x: 22; anchors.verticalCenter: parent.verticalCenter
             width: parent.width - 44
             spacing: 4
-            Text { text: tile.label; color: Theme.muted; font.family: Theme.face; font.pixelSize: 14 }
-            Text { text: tile.value; color: Theme.text; font.family: Theme.light; font.pixelSize: 38 }
-            Text { width: parent.width; elide: Text.ElideRight; text: tile.note; color: Theme.dim; font.family: Theme.face; font.pixelSize: 13 }
+            Text { text: tile.label; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(14) }
+            Text { text: tile.value; color: Theme.text; font.family: Theme.light; font.pixelSize: Theme.px(38) }
+            Text { width: parent.width; elide: Text.ElideRight; text: tile.note; color: Theme.dim; font.family: Theme.face; font.pixelSize: Theme.px(13) }
         }
     }
 
@@ -45,8 +45,8 @@ FocusScope {
             Column {
                 spacing: 6
                 width: parent.width
-                Text { text: "Your play"; color: Theme.text; font.family: Theme.light; font.pixelSize: 44 }
-                Text { width: parent.width; wrapMode: Text.WordWrap; color: Theme.muted; font.family: Theme.face; font.pixelSize: 16
+                Text { text: "Your play"; color: Theme.text; font.family: Theme.light; font.pixelSize: Theme.px(44) }
+                Text { width: parent.width; wrapMode: Text.WordWrap; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(16)
                     text: (page.s.playing ? "Playing " + page.s.playing + " for " + page.s.playingText + " now. " : "") + "Counted by PlayBridge while it is connected to your PS5; the console's own total for each game stands beside it." }
             }
             // Nothing counted yet: what will appear here.
@@ -59,8 +59,8 @@ FocusScope {
                 Column {
                     anchors.centerIn: parent
                     spacing: 12
-                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: "Your stats start with your next game"; color: Theme.text; font.family: Theme.light; font.pixelSize: 30 }
-                    Text { anchors.horizontalCenter: parent.horizontalCenter; horizontalAlignment: Text.AlignHCenter; color: Theme.muted; font.family: Theme.face; font.pixelSize: 16
+                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: "Your stats start with your next game"; color: Theme.text; font.family: Theme.light; font.pixelSize: Theme.px(30) }
+                    Text { anchors.horizontalCenter: parent.horizontalCenter; horizontalAlignment: Text.AlignHCenter; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(16)
                         text: "Play with PlayBridge connected, and your hours, sessions and trophies\nfor each day, each game and each year appear here." }
                 }
             }
@@ -81,7 +81,7 @@ FocusScope {
                 follow: flick.contentY + page.x + page.opacity
                 width: parent.width
                 height: 270
-                Text { x: 24; y: 18; text: "This week"; color: Theme.text; font.family: Theme.strong; font.pixelSize: 18 }
+                Text { x: 24; y: 18; text: "This week"; color: Theme.text; font.family: Theme.strong; font.pixelSize: Theme.px(18) }
                 Row {
                     id: bars
                     x: 24; y: 58
@@ -94,16 +94,16 @@ FocusScope {
                             required property var modelData
                             width: (bars.width - 6 * bars.spacing) / 7
                             height: bars.height
-                            Text { anchors.horizontalCenter: parent.horizontalCenter; anchors.bottom: bar.top; anchors.bottomMargin: 6; text: modelData.text; color: Theme.muted; font.family: Theme.face; font.pixelSize: 13 }
+                            Text { anchors.horizontalCenter: parent.horizontalCenter; anchors.bottom: bar.top; anchors.bottomMargin: 6; text: modelData.text; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(13) }
                             Rectangle {
                                 id: bar
                                 anchors.bottom: day.top; anchors.bottomMargin: 8
                                 width: parent.width; radius: 8
                                 height: Math.max(4, (parent.height - 50) * modelData.share)
-                                color: modelData.label === "Today" ? Theme.gold : Qt.rgba(0.83, 0.69, 0.22, 0.55)
+                                color: modelData.label === "Today" ? Theme.gold : Theme.glow(0.55)
                                 Behavior on height { NumberAnimation { duration: Theme.ms(300); easing.type: Easing.OutCubic } }
                             }
-                            Text { id: day; anchors.horizontalCenter: parent.horizontalCenter; anchors.bottom: parent.bottom; text: modelData.label; color: modelData.label === "Today" ? Theme.text : Theme.dim; font.family: Theme.face; font.pixelSize: 14 }
+                            Text { id: day; anchors.horizontalCenter: parent.horizontalCenter; anchors.bottom: parent.bottom; text: modelData.label; color: modelData.label === "Today" ? Theme.text : Theme.dim; font.family: Theme.face; font.pixelSize: Theme.px(14) }
                         }
                     }
                 }
@@ -123,7 +123,7 @@ FocusScope {
                         x: 24; y: 20
                         width: parent.width - 48
                         spacing: 14
-                        Text { text: "Your games"; color: Theme.text; font.family: Theme.strong; font.pixelSize: 18 }
+                        Text { text: "Your games"; color: Theme.text; font.family: Theme.strong; font.pixelSize: Theme.px(18) }
                         Repeater {
                             model: page.s.games || []
                             delegate: Column {
@@ -132,13 +132,13 @@ FocusScope {
                                 spacing: 5
                                 Item {
                                     width: parent.width; height: 22
-                                    Text { anchors.left: parent.left; anchors.right: total.left; anchors.rightMargin: 12; elide: Text.ElideRight; text: modelData.name; color: Theme.text; font.family: Theme.face; font.pixelSize: 16 }
-                                    Text { id: total; anchors.right: parent.right; text: modelData.text; color: Theme.goldSoft; font.family: Theme.strong; font.pixelSize: 16 }
+                                    Text { anchors.left: parent.left; anchors.right: total.left; anchors.rightMargin: 12; elide: Text.ElideRight; text: modelData.name; color: Theme.text; font.family: Theme.face; font.pixelSize: Theme.px(16) }
+                                    Text { id: total; anchors.right: parent.right; text: modelData.text; color: Theme.goldSoft; font.family: Theme.strong; font.pixelSize: Theme.px(16) }
                                 }
                                 Rectangle { width: parent.width; height: 5; radius: 3; color: Qt.rgba(1, 1, 1, 0.08)
                                     Rectangle { width: parent.width * modelData.share; height: parent.height; radius: 3; color: Theme.gold } }
                                 Text {
-                                    width: parent.width; elide: Text.ElideRight; color: Theme.dim; font.family: Theme.face; font.pixelSize: 13
+                                    width: parent.width; elide: Text.ElideRight; color: Theme.dim; font.family: Theme.face; font.pixelSize: Theme.px(13)
                                     text: modelData.sessions + (modelData.sessions === 1 ? " session" : " sessions") + "  ·  about " + modelData.average + " each  ·  longest " + modelData.longest
                                         + (modelData.console ? "  ·  " + modelData.console + " on the console" : "") + (modelData.trophies ? "  ·  " + modelData.trophies + " trophies" : "")
                                 }
@@ -161,7 +161,7 @@ FocusScope {
                         spacing: 12
                         Item {
                             width: parent.width; height: 34
-                            Text { anchors.verticalCenter: parent.verticalCenter; text: (year.info.year || "") + (year.info.soFar ? " so far" : ""); color: Theme.text; font.family: Theme.strong; font.pixelSize: 18 }
+                            Text { anchors.verticalCenter: parent.verticalCenter; text: (year.info.year || "") + (year.info.soFar ? " so far" : ""); color: Theme.text; font.family: Theme.strong; font.pixelSize: Theme.px(18) }
                             Row {
                                 anchors.right: parent.right
                                 spacing: 6
@@ -171,16 +171,16 @@ FocusScope {
                                 }
                             }
                         }
-                        Text { text: year.info.hours || "0 h"; color: Theme.gold; font.family: Theme.light; font.pixelSize: 52 }
-                        Text { width: parent.width; wrapMode: Text.WordWrap; color: Theme.muted; font.family: Theme.face; font.pixelSize: 15
+                        Text { text: year.info.hours || "0 h"; color: Theme.gold; font.family: Theme.light; font.pixelSize: Theme.px(52) }
+                        Text { width: parent.width; wrapMode: Text.WordWrap; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(15)
                             text: (year.info.days || 0) + " days with play, " + (year.info.sessions || 0) + " sessions, " + (year.info.games || 0) + " games and " + (year.info.trophies || 0) + " trophies." }
-                        Text { visible: !!year.info.month; width: parent.width; wrapMode: Text.WordWrap; color: Theme.muted; font.family: Theme.face; font.pixelSize: 15; text: "Your busiest month was " + (year.info.month || "") + "." }
-                        Text { visible: !!year.info.longest; width: parent.width; wrapMode: Text.WordWrap; color: Theme.muted; font.family: Theme.face; font.pixelSize: 15
+                        Text { visible: !!year.info.month; width: parent.width; wrapMode: Text.WordWrap; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(15); text: "Your busiest month was " + (year.info.month || "") + "." }
+                        Text { visible: !!year.info.longest; width: parent.width; wrapMode: Text.WordWrap; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(15)
                             text: year.info.longest ? "Longest session: " + year.info.longest.text + " of " + year.info.longest.name + ", on " + year.info.longest.when + "." : "" }
-                        Text { visible: (year.info.streak || 0) > 1 || !!year.info.weekday; width: parent.width; wrapMode: Text.WordWrap; color: Theme.muted; font.family: Theme.face; font.pixelSize: 15
+                        Text { visible: (year.info.streak || 0) > 1 || !!year.info.weekday; width: parent.width; wrapMode: Text.WordWrap; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(15)
                             text: ((year.info.streak || 0) > 1 ? "Best run: " + year.info.streak + " days in a row. " : "") + (year.info.weekday ? "You played most on " + year.info.weekday + "." : "") }
                         Item { width: 1; height: 4 }
-                        Text { text: "Most played"; color: Theme.text; font.family: Theme.strong; font.pixelSize: 15 }
+                        Text { text: "Most played"; color: Theme.text; font.family: Theme.strong; font.pixelSize: Theme.px(15) }
                         Repeater {
                             model: year.info.top || []
                             delegate: Row {
@@ -188,9 +188,9 @@ FocusScope {
                                 required property int index
                                 width: yearColumn.width
                                 spacing: 10
-                                Text { width: 22; text: (index + 1) + "."; color: Theme.dim; font.family: Theme.face; font.pixelSize: 15 }
-                                Text { width: parent.width - 22 - 70 - 20; elide: Text.ElideRight; text: modelData.name; color: Theme.text; font.family: Theme.face; font.pixelSize: 15 }
-                                Text { width: 70; horizontalAlignment: Text.AlignRight; text: modelData.text; color: Theme.goldSoft; font.family: Theme.face; font.pixelSize: 15 }
+                                Text { width: 22; text: (index + 1) + "."; color: Theme.dim; font.family: Theme.face; font.pixelSize: Theme.px(15) }
+                                Text { width: parent.width - 22 - 70 - 20; elide: Text.ElideRight; text: modelData.name; color: Theme.text; font.family: Theme.face; font.pixelSize: Theme.px(15) }
+                                Text { width: 70; horizontalAlignment: Text.AlignRight; text: modelData.text; color: Theme.goldSoft; font.family: Theme.face; font.pixelSize: Theme.px(15) }
                             }
                         }
                     }
@@ -209,9 +209,9 @@ FocusScope {
                     x: 24; y: 22
                     width: (wrapped.width - 72) * 0.44
                     spacing: 10
-                    Text { text: "PlayBridge Wrapped"; color: Theme.text; font.family: Theme.strong; font.pixelSize: 18 }
+                    Text { text: "PlayBridge Wrapped"; color: Theme.text; font.family: Theme.strong; font.pixelSize: Theme.px(18) }
                     Text {
-                        width: parent.width; wrapMode: Text.WordWrap; color: Theme.muted; font.family: Theme.face; font.pixelSize: 15
+                        width: parent.width; wrapMode: Text.WordWrap; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(15)
                         text: "Your " + (year.info.year || "") + (year.info.soFar ? " so far" : "") + " as a card: your hours, days, sessions and games, your best run and the games you played most"
                             + ((page.s.wrappedLevel || false) ? ", with your PSN trophy level." : ".") + ((page.s.years || []).length > 1 ? " Pick another year above to make its card." : "")
                     }
@@ -221,7 +221,7 @@ FocusScope {
                         PillButton { text: "Save card"; tone: "main"; enabled: !!page.s.yearCard; onClicked: shell.act("year_save", "") }
                         PillButton { text: "Copy card"; enabled: !!page.s.yearCard; onClicked: shell.act("year_copy", "") }
                     }
-                    Text { width: parent.width; wrapMode: Text.WordWrap; color: Theme.dim; font.family: Theme.face; font.pixelSize: 13; text: "Save card puts it with your screenshots, ready to post. Copy card lets you paste it straight into a chat." }
+                    Text { width: parent.width; wrapMode: Text.WordWrap; color: Theme.dim; font.family: Theme.face; font.pixelSize: Theme.px(13); text: "Save card puts it with your screenshots, ready to post. Copy card lets you paste it straight into a chat." }
                 }
                 Rectangle {
                     id: wrappedPreview
@@ -238,7 +238,7 @@ FocusScope {
                         smooth: true; mipmap: true
                         Accessible.name: "Wrapped card of " + (year.info.year || "the year")
                     }
-                    Text { visible: yearCard.status !== Image.Ready; anchors.centerIn: parent; text: yearCard.status === Image.Error || !page.s.yearCard ? "The card could not be drawn." : "Drawing the card…"; color: Theme.muted; font.family: Theme.face; font.pixelSize: 15 }
+                    Text { visible: yearCard.status !== Image.Ready; anchors.centerIn: parent; text: yearCard.status === Image.Error || !page.s.yearCard ? "The card could not be drawn." : "Drawing the card…"; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(15) }
                 }
             }
             // Performance Lab: each game in each mode it ran in, as the PS5 itself measured it, and a card of it to share.
@@ -256,9 +256,9 @@ FocusScope {
                     x: 24; y: 22
                     width: lab.listWidth
                     spacing: 8
-                    Text { text: "Performance Lab"; color: Theme.text; font.family: Theme.strong; font.pixelSize: 18 }
+                    Text { text: "Performance Lab"; color: Theme.text; font.family: Theme.strong; font.pixelSize: Theme.px(18) }
                     Text {
-                        width: parent.width; wrapMode: Text.WordWrap; color: Theme.dim; font.family: Theme.face; font.pixelSize: 13
+                        width: parent.width; wrapMode: Text.WordWrap; color: Theme.dim; font.family: Theme.face; font.pixelSize: Theme.px(13)
                         text: "Measured by the PS5 itself: the frames the game draws, counted every quarter second, its temperatures and the power it draws. Each mode a game ran in has its own report. Pauses and the console's menu are left out."
                     }
                     Item { width: 1; height: 4 }
@@ -279,8 +279,8 @@ FocusScope {
                             Accessible.name: modelData.name + ", " + modelData.mode
                             Rectangle {
                                 anchors.fill: parent; radius: 12
-                                color: labRow.picked ? Qt.rgba(0.83, 0.69, 0.22, 0.12) : labArea.containsMouse || labRow.activeFocus ? Qt.rgba(1, 1, 1, 0.07) : "transparent"
-                                border.width: labRow.picked ? 1 : 0; border.color: Qt.rgba(0.83, 0.69, 0.22, 0.6)
+                                color: labRow.picked ? Theme.glow(0.12) : labArea.containsMouse || labRow.activeFocus ? Qt.rgba(1, 1, 1, 0.07) : "transparent"
+                                border.width: labRow.picked ? 1 : 0; border.color: Theme.glow(0.6)
                                 Behavior on color { ColorAnimation { duration: Theme.ms(110) } }
                             }
                             FocusGlow { on: labRow.activeFocus; radius: 7 }
@@ -291,17 +291,17 @@ FocusScope {
                                 spacing: 3
                                 Item {
                                     width: parent.width; height: 24
-                                    Text { anchors.left: parent.left; anchors.right: modeChip.left; anchors.rightMargin: 10; anchors.verticalCenter: parent.verticalCenter; elide: Text.ElideRight; text: labRow.modelData.name; color: Theme.text; font.family: Theme.strong; font.pixelSize: 16 }
+                                    Text { anchors.left: parent.left; anchors.right: modeChip.left; anchors.rightMargin: 10; anchors.verticalCenter: parent.verticalCenter; elide: Text.ElideRight; text: labRow.modelData.name; color: Theme.text; font.family: Theme.strong; font.pixelSize: Theme.px(16) }
                                     Rectangle {
                                         id: modeChip
                                         anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
                                         width: modeText.implicitWidth + 20; height: 24; radius: 12
                                         color: "transparent"; border.width: 1; border.color: Theme.gold
-                                        Text { id: modeText; anchors.centerIn: parent; text: labRow.modelData.mode; color: Theme.goldSoft; font.family: Theme.strong; font.pixelSize: 12 }
+                                        Text { id: modeText; anchors.centerIn: parent; text: labRow.modelData.mode; color: Theme.goldSoft; font.family: Theme.strong; font.pixelSize: Theme.px(12) }
                                     }
                                 }
-                                Text { width: parent.width; elide: Text.ElideRight; text: labRow.modelData.numbers; color: Theme.muted; font.family: Theme.face; font.pixelSize: 14 }
-                                Text { width: parent.width; elide: Text.ElideRight; text: labRow.modelData.line + (labRow.modelData.steady ? "  ·  " + labRow.modelData.steady : ""); color: Theme.dim; font.family: Theme.face; font.pixelSize: 13 }
+                                Text { width: parent.width; elide: Text.ElideRight; text: labRow.modelData.numbers; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(14) }
+                                Text { width: parent.width; elide: Text.ElideRight; text: labRow.modelData.line + (labRow.modelData.steady ? "  ·  " + labRow.modelData.steady : ""); color: Theme.dim; font.family: Theme.face; font.pixelSize: Theme.px(13) }
                             }
                         }
                     }
@@ -325,14 +325,14 @@ FocusScope {
                             smooth: true; mipmap: true
                             Accessible.name: "Performance card of the picked game"
                         }
-                        Text { visible: card.status !== Image.Ready; anchors.centerIn: parent; text: card.status === Image.Error || !page.s.labCard ? "The card could not be drawn." : "Drawing the card…"; color: Theme.muted; font.family: Theme.face; font.pixelSize: 15 }
+                        Text { visible: card.status !== Image.Ready; anchors.centerIn: parent; text: card.status === Image.Error || !page.s.labCard ? "The card could not be drawn." : "Drawing the card…"; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(15) }
                     }
                     Row {
                         spacing: 12
                         PillButton { text: "Save card"; tone: "main"; enabled: !!page.s.labCard; onClicked: shell.act("lab_save", "") }
                         PillButton { text: "Copy card"; enabled: !!page.s.labCard; onClicked: shell.act("lab_copy", "") }
                     }
-                    Text { width: parent.width; wrapMode: Text.WordWrap; color: Theme.dim; font.family: Theme.face; font.pixelSize: 13; text: "Save card puts it with your screenshots, ready to post. Copy card lets you paste it straight into a chat." }
+                    Text { width: parent.width; wrapMode: Text.WordWrap; color: Theme.dim; font.family: Theme.face; font.pixelSize: Theme.px(13); text: "Save card puts it with your screenshots, ready to post. Copy card lets you paste it straight into a chat." }
                 }
             }
         }

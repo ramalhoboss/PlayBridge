@@ -70,6 +70,8 @@ FocusScope {
         clip: true
         Slot { id: artA; role: "art"; slot: 0; other: artB }
         Slot { id: artB; role: "art"; slot: 1; other: artA }
+        // Appearance › Colour › Backdrop: the game's art darker behind the tiles.
+        Rectangle { anchors.fill: parent; z: 2; color: "black"; opacity: Theme.shade }
     }
     // The frosted art, moving with the art, and the shapes of the glass it shows through.
     Item {

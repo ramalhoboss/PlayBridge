@@ -165,7 +165,7 @@ Item {
                 delay: 500
                 popupType: Popup.Window
                 y: psnChip.height + 8
-                contentItem: Text { text: (bar.me.name || "PSN") + "  ·  " + (bar.me.line || ""); color: Theme.text; font.family: Theme.face; font.pixelSize: 12 }
+                contentItem: Text { text: (bar.me.name || "PSN") + "  ·  " + (bar.me.line || ""); color: Theme.text; font.family: Theme.face; font.pixelSize: Theme.px(12) }
                 background: Rectangle { color: Theme.raised; radius: 6; border.color: Theme.line }
             }
         }

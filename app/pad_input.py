@@ -22,6 +22,15 @@ def wire(sequence,state):
 # This PC or phone stops playing: the console side lets go of everything and removes its controller at once. The companion itself
 # stays, so the next press plays at once, and ends after ten minutes with no controller in use.
 QUIT=b'PBQ1'+bytes(4)
+SEND_TRIES=4
+def send_datagram(udp,datagram,target,tries=SEND_TRIES):
+ """One datagram on a socket that does not wait. When Windows' send buffer is full for a moment (a busy PC, a slow Wi-Fi link) it
+ refuses at once; a leave message lost that way left the controller on the PS5. A few short retries ride that out."""
+ for attempt in range(tries):
+  try:udp.sendto(datagram,target);return
+  except BlockingIOError:
+   if attempt==tries-1:raise
+   time.sleep(.002)
 # Asks whether a companion runs, without making a controller: what a new companion sends when it finds the port taken.
 PROBE=b'PBH1'+bytes(4)
 # The console side answers the controller packets with where it stands, so the app can say when it is not there. It is never waited for:
@@ -271,7 +280,7 @@ class PadBridge:
  def put(self,udp,data):
   """Sends data to the companion, sealed when it holds this PC's key. False when the network refused it."""
   try:
-   for datagram in self.wire_link.datagrams(data):udp.sendto(datagram,self.reach(self.host(),PAD_PORT))
+   for datagram in self.wire_link.datagrams(data):send_datagram(udp,datagram,self.reach(self.host(),PAD_PORT))
   except OSError:return False
   return True
  def quit(self,udp):

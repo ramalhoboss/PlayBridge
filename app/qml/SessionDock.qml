@@ -23,7 +23,7 @@ Rectangle {
             id: column
             width: parent.width
             spacing: 12
-            Text { text: "Session"; color: Theme.text; font.family: Theme.light; font.pixelSize: 24; topPadding: 4 }
+            Text { text: "Session"; color: Theme.text; font.family: Theme.light; font.pixelSize: Theme.px(24); topPadding: 4 }
             Rectangle {
                 width: parent.width; height: 230; radius: 16
                 color: Theme.card; border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.07)
@@ -45,8 +45,8 @@ Rectangle {
                             PathAngleArc { centerX: 62; centerY: 62; radiusX: 54; radiusY: 54; startAngle: 135; sweepAngle: Math.max(0.1, 270 * ring.share); Behavior on sweepAngle { NumberAnimation { duration: 400; easing.type: Easing.OutCubic } } }
                         }
                     }
-                    Text { anchors.centerIn: parent; anchors.verticalCenterOffset: -6; text: dock.d.fps === undefined || dock.d.fps === null ? "—" : dock.d.fps; color: Theme.text; font.family: Theme.light; font.pixelSize: 36 }
-                    Text { anchors.horizontalCenter: parent.horizontalCenter; y: 80; text: "FPS"; color: Theme.muted; font.family: Theme.face; font.pixelSize: 12; font.letterSpacing: 2 }
+                    Text { anchors.centerIn: parent; anchors.verticalCenterOffset: -6; text: dock.d.fps === undefined || dock.d.fps === null ? "—" : dock.d.fps; color: Theme.text; font.family: Theme.light; font.pixelSize: Theme.px(36) }
+                    Text { anchors.horizontalCenter: parent.horizontalCenter; y: 80; text: "FPS"; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(12); font.letterSpacing: 2 }
                 }
                 Column {
                     anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
@@ -57,8 +57,8 @@ Rectangle {
                         delegate: Item {
                             required property var modelData
                             width: parent.width; height: 20
-                            Text { text: modelData[0]; color: Theme.muted; font.family: Theme.face; font.pixelSize: 13 }
-                            Text { anchors.right: parent.right; text: modelData[1]; color: Theme.text; font.family: Theme.strong; font.pixelSize: 13 }
+                            Text { text: modelData[0]; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(13) }
+                            Text { anchors.right: parent.right; text: modelData[1]; color: Theme.text; font.family: Theme.strong; font.pixelSize: Theme.px(13) }
                         }
                     }
                 }
@@ -70,9 +70,9 @@ Rectangle {
                     id: consoleColumn
                     x: 14; y: 14; width: parent.width - 28
                     spacing: 6
-                    Text { text: "Console"; color: Theme.muted; font.family: Theme.face; font.pixelSize: 13 }
-                    Text { width: parent.width; text: dock.d.game || "Not connected"; color: Theme.text; font.family: Theme.light; font.pixelSize: 18; wrapMode: Text.WordWrap }
-                    Text { width: parent.width; text: dock.d.readings || ""; visible: text !== ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: 12; wrapMode: Text.WordWrap }
+                    Text { text: "Console"; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(13) }
+                    Text { width: parent.width; text: dock.d.game || "Not connected"; color: Theme.text; font.family: Theme.light; font.pixelSize: Theme.px(18); wrapMode: Text.WordWrap }
+                    Text { width: parent.width; text: dock.d.readings || ""; visible: text !== ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(12); wrapMode: Text.WordWrap }
                     Grid {
                         width: parent.width
                         columns: 2
@@ -92,7 +92,7 @@ Rectangle {
                     }
                 }
             }
-            Text { text: "Received  ·  " + (dock.d.rate || "—"); color: Theme.text; font.family: Theme.face; font.pixelSize: 13; topPadding: 6 }
+            Text { text: "Received  ·  " + (dock.d.rate || "—"); color: Theme.text; font.family: Theme.face; font.pixelSize: Theme.px(13); topPadding: 6 }
             Canvas {
                 id: graph
                 width: parent.width; height: 70
@@ -107,7 +107,7 @@ Rectangle {
                     for (var i = 0; i < v.length; i++) if (v[i] > top) top = v[i]
                     top *= 1.15
                     var grad = c.createLinearGradient(0, 0, 0, h)
-                    grad.addColorStop(0, "rgba(212,175,55,0.35)"); grad.addColorStop(1, "rgba(212,175,55,0)")
+                    grad.addColorStop(0, Theme.css(0.35)); grad.addColorStop(1, Theme.css(0))
                     var started = false, first = 0, last = 0
                     c.beginPath()
                     for (var j = 0; j < v.length; j++) {
@@ -118,24 +118,24 @@ Rectangle {
                         last = x
                     }
                     if (started) {
-                        c.strokeStyle = "#D4AF37"; c.lineWidth = 2; c.stroke()
+                        c.strokeStyle = Theme.css(1); c.lineWidth = 2; c.stroke()
                         c.lineTo(last, 58); c.lineTo(first, 58); c.closePath(); c.fillStyle = grad; c.fill()
                     }
                 }
             }
-            Text { text: "Last 60 seconds · media payload"; color: Theme.muted; font.family: Theme.face; font.pixelSize: 12 }
+            Text { text: "Last 60 seconds · media payload"; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(12) }
             Column {
                 topPadding: 10
                 spacing: 3
-                Repeater { model: dock.d.details || []; delegate: Text { required property string modelData; text: modelData; color: Theme.muted; font.family: Theme.face; font.pixelSize: 12 } }
+                Repeater { model: dock.d.details || []; delegate: Text { required property string modelData; text: modelData; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(12) } }
             }
             Column {
                 // The last game that ran a minute or more: its frame rate, temperatures and power, as the PS5 measured them.
                 visible: (dock.d.lastGame || []).length > 0
                 width: parent.width
                 spacing: 3
-                Text { text: "Last game"; color: Theme.text; font.family: Theme.face; font.pixelSize: 13 }
-                Repeater { model: dock.d.lastGame || []; delegate: Text { required property string modelData; width: parent.width; text: modelData; color: Theme.muted; font.family: Theme.face; font.pixelSize: 12; wrapMode: Text.WordWrap } }
+                Text { text: "Last game"; color: Theme.text; font.family: Theme.face; font.pixelSize: Theme.px(13) }
+                Repeater { model: dock.d.lastGame || []; delegate: Text { required property string modelData; width: parent.width; text: modelData; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(12); wrapMode: Text.WordWrap } }
             }
             Rectangle {
                 // Alert me when: each one is used once, and turns off when it has told you.
@@ -144,17 +144,17 @@ Rectangle {
                 Column {
                     id: alertColumn
                     x: 12; y: 12; width: parent.width - 24; spacing: 2
-                    Text { text: "Alert me when"; color: Theme.text; font.family: Theme.face; font.pixelSize: 15; bottomPadding: 4 }
+                    Text { text: "Alert me when"; color: Theme.text; font.family: Theme.face; font.pixelSize: Theme.px(15); bottomPadding: 4 }
                     Toggle { width: parent.width; fontSize: 13; text: "The picture moves again"; checked: !!dock.d.alertMoves; onToggled: function(on) { shell.act("alert", ["moves", on]) } }
-                    Text { visible: text !== ""; width: parent.width; text: dock.d.alertMovesState || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: 11; wrapMode: Text.WordWrap }
+                    Text { visible: text !== ""; width: parent.width; text: dock.d.alertMovesState || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(11); wrapMode: Text.WordWrap }
                     Toggle { width: parent.width; fontSize: 13; text: "The game slows down"; checked: !!dock.d.alertSlow; onToggled: function(on) { shell.act("alert", ["slow", on]) } }
-                    Text { visible: text !== ""; width: parent.width; text: dock.d.alertSlowState || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: 11; wrapMode: Text.WordWrap }
+                    Text { visible: text !== ""; width: parent.width; text: dock.d.alertSlowState || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(11); wrapMode: Text.WordWrap }
                     Toggle { width: parent.width; fontSize: 13; text: "The CPU reaches " + (dock.d.hotAt || ""); checked: !!dock.d.alertHot; onToggled: function(on) { shell.act("alert", ["hot", on]) } }
                     Choice { width: parent.width; height: 38; fontSize: 13; model: ["70 °C", "80 °C", "90 °C"]; value: dock.d.hotAt || ""; onPicked: function(v) { shell.act("alert_hot", v) } }
-                    Text { visible: text !== ""; width: parent.width; text: dock.d.alertHotState || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: 11; wrapMode: Text.WordWrap }
+                    Text { visible: text !== ""; width: parent.width; text: dock.d.alertHotState || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(11); wrapMode: Text.WordWrap }
                     Toggle { width: parent.width; fontSize: 13; text: "A trophy unlocks"; checked: !!dock.d.alertTrophy; onToggled: function(on) { shell.act("alert", ["trophy", on]) } }
-                    Text { visible: text !== ""; width: parent.width; text: dock.d.alertTrophyState || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: 11; wrapMode: Text.WordWrap }
-                    Text { width: parent.width; topPadding: 4; text: "A Windows notification tells you, even with PlayBridge out of sight, and its taskbar button flashes."; color: Theme.muted; font.family: Theme.face; font.pixelSize: 11; wrapMode: Text.WordWrap }
+                    Text { visible: text !== ""; width: parent.width; text: dock.d.alertTrophyState || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(11); wrapMode: Text.WordWrap }
+                    Text { width: parent.width; topPadding: 4; text: "A Windows notification tells you, even with PlayBridge out of sight, and its taskbar button flashes."; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(11); wrapMode: Text.WordWrap }
                 }
             }
             PillButton { width: parent.width; height: 38; fontSize: 13; text: "Export diagnostics"; onClicked: exportDialog.open() }

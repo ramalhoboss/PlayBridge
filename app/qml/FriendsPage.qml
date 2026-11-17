@@ -45,11 +45,11 @@ FocusScope {
             anchors.centerIn: parent
             width: parent.width - 80
             spacing: 14
-            Text { anchors.horizontalCenter: parent.horizontalCenter; text: ""; font.family: "Segoe MDL2 Assets"; font.pixelSize: 46; color: Theme.gold }
-            Text { width: parent.width; horizontalAlignment: Text.AlignHCenter; text: page.f.state === "signing" ? "Signing in to PSN…" : "Your PSN friends, right here"; color: Theme.text; font.family: Theme.light; font.pixelSize: 34; wrapMode: Text.WordWrap }
-            Text { width: parent.width; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; color: Theme.muted; font.family: Theme.face; font.pixelSize: 16
+            Text { anchors.horizontalCenter: parent.horizontalCenter; text: ""; font.family: "Segoe MDL2 Assets"; font.pixelSize: Theme.px(46); color: Theme.gold }
+            Text { width: parent.width; horizontalAlignment: Text.AlignHCenter; text: page.f.state === "signing" ? "Signing in to PSN…" : "Your PSN friends, right here"; color: Theme.text; font.family: Theme.light; font.pixelSize: Theme.px(34); wrapMode: Text.WordWrap }
+            Text { width: parent.width; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(16)
                 text: "See who is online and what they play, get told when a friend comes online or opens a game you watch, such as XPS5, and read and answer your PSN messages without picking up the controller." }
-            Text { visible: (page.f.problem || "") !== ""; width: parent.width; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; color: Theme.alert; font.family: Theme.face; font.pixelSize: 15; text: page.f.problem || "" }
+            Text { visible: (page.f.problem || "") !== ""; width: parent.width; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; color: Theme.alert; font.family: Theme.face; font.pixelSize: Theme.px(15); text: page.f.problem || "" }
             Item { width: 1; height: 6 }
             PillButton { anchors.horizontalCenter: parent.horizontalCenter; width: 240; height: 50; tone: "main"; text: page.f.state === "expired" ? "Sign in again" : "Sign in to PSN"; enabled: page.f.state !== "signing"; onClicked: shell.act("psn_settings", null) }
         }
@@ -85,18 +85,18 @@ FocusScope {
                     Item {
                         width: parent.width
                         height: Math.max(title.implicitHeight, addFriend.height)
-                        Text { id: title; anchors.verticalCenter: parent.verticalCenter; text: "Friends"; color: Theme.text; font.family: Theme.light; font.pixelSize: 40 }
+                        Text { id: title; anchors.verticalCenter: parent.verticalCenter; text: "Friends"; color: Theme.text; font.family: Theme.light; font.pixelSize: Theme.px(40) }
                         PillButton { id: addFriend; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; width: 142; height: 42; tone: "main"; text: "Add friend"; onClicked: shell.act("friend_find_open", null) }
                     }
                     Row {
                         width: parent.width
-                        Text { id: meName; text: ((page.f.me || {}).name || "") + ((page.f.me || {}).name && (page.f.me || {}).line ? "  ·  " : ""); color: Theme.muted; font.family: Theme.face; font.pixelSize: 15 }
-                        Text { id: meLine; text: (page.f.me || {}).line || ""; font.family: Theme.face; font.pixelSize: 15
+                        Text { id: meName; text: ((page.f.me || {}).name || "") + ((page.f.me || {}).name && (page.f.me || {}).line ? "  ·  " : ""); color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(15) }
+                        Text { id: meLine; text: (page.f.me || {}).line || ""; font.family: Theme.face; font.pixelSize: Theme.px(15)
                             color: (page.f.me || {}).tone === "playing" || (page.f.me || {}).tone === "online" ? Theme.online : Theme.muted }
-                        Text { width: Math.max(0, parent.width - meName.width - meLine.width); elide: Text.ElideRight; color: Theme.muted; font.family: Theme.face; font.pixelSize: 15
+                        Text { width: Math.max(0, parent.width - meName.width - meLine.width); elide: Text.ElideRight; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(15)
                             text: (page.f.summary || "") !== "" ? "  ·  " + page.f.summary : "" }
                     }
-                    Text { visible: text !== ""; width: parent.width; wrapMode: Text.WordWrap; text: (page.f.me || {}).why || ""; color: Theme.dim; font.family: Theme.face; font.pixelSize: 13 }
+                    Text { visible: text !== ""; width: parent.width; wrapMode: Text.WordWrap; text: (page.f.me || {}).why || ""; color: Theme.dim; font.family: Theme.face; font.pixelSize: Theme.px(13) }
                 }
             }
             Row {
@@ -138,7 +138,7 @@ FocusScope {
                     anchors.centerIn: parent
                     width: parent.width - 60
                     horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap
-                    text: page.f.empty || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: 16
+                    text: page.f.empty || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(16)
                 }
                 ListView {
                     id: friendList
@@ -159,7 +159,7 @@ FocusScope {
                         width: friendList.width - 10
                         onHeightChanged: if (!friendList.moved) Qt.callLater(friendList.positionViewAtBeginning)
                         readonly property var asked: page.f.requests || []
-                        Text { visible: parent.asked.length > 0; x: 12; height: 34; verticalAlignment: Text.AlignVCenter; text: "Friend requests"; color: Theme.muted; font.family: Theme.strong; font.pixelSize: 14 }
+                        Text { visible: parent.asked.length > 0; x: 12; height: 34; verticalAlignment: Text.AlignVCenter; text: "Friend requests"; color: Theme.muted; font.family: Theme.strong; font.pixelSize: Theme.px(14) }
                         Repeater {
                             model: parent.asked
                             delegate: Item {
@@ -168,15 +168,15 @@ FocusScope {
                                 readonly property bool received: modelData.kind === "received"
                                 width: parent.width
                                 height: 72
-                                Rectangle { anchors.fill: parent; radius: 14; color: Qt.rgba(0.83, 0.69, 0.22, request.received ? 0.09 : 0.04) }
+                                Rectangle { anchors.fill: parent; radius: 14; color: Theme.glow(request.received ? 0.09 : 0.04) }
                                 Avatar { id: askerFace; x: 12; anchors.verticalCenter: parent.verticalCenter; source: request.modelData.picture || ""; initial: request.modelData.initial || "?"; tone: "off" }
                                 Column {
                                     anchors.left: askerFace.right; anchors.leftMargin: 14
                                     anchors.right: answers.left; anchors.rightMargin: 10
                                     anchors.verticalCenter: parent.verticalCenter
                                     spacing: 2
-                                    Text { width: parent.width; elide: Text.ElideRight; text: request.modelData.name; color: request.modelData.known ? Theme.text : Theme.dim; font.family: Theme.strong; font.pixelSize: 17 }
-                                    Text { width: parent.width; elide: Text.ElideRight; text: request.modelData.busy ? "Asking PSN…" : request.modelData.line; color: request.received ? Theme.goldSoft : Theme.dim; font.family: Theme.face; font.pixelSize: 14 }
+                                    Text { width: parent.width; elide: Text.ElideRight; text: request.modelData.name; color: request.modelData.known ? Theme.text : Theme.dim; font.family: Theme.strong; font.pixelSize: Theme.px(17) }
+                                    Text { width: parent.width; elide: Text.ElideRight; text: request.modelData.busy ? "Asking PSN…" : request.modelData.line; color: request.received ? Theme.goldSoft : Theme.dim; font.family: Theme.face; font.pixelSize: Theme.px(14) }
                                 }
                                 Row {
                                     id: answers
@@ -190,7 +190,7 @@ FocusScope {
                             }
                         }
                         Note { x: 12; width: parent.width - 24; topPadding: 6; bottomPadding: 6; tone: "error"; text: page.f.requestsProblem || "" }
-                        Text { visible: parent.asked.length > 0 && (page.f.friends || []).length > 0; x: 12; height: 40; verticalAlignment: Text.AlignBottom; bottomPadding: 6; text: "Friends"; color: Theme.muted; font.family: Theme.strong; font.pixelSize: 14 }
+                        Text { visible: parent.asked.length > 0 && (page.f.friends || []).length > 0; x: 12; height: 40; verticalAlignment: Text.AlignBottom; bottomPadding: 6; text: "Friends"; color: Theme.muted; font.family: Theme.strong; font.pixelSize: Theme.px(14) }
                     }
                     delegate: Item {
                         id: row
@@ -210,8 +210,8 @@ FocusScope {
                             anchors.right: actions.left; anchors.rightMargin: 10
                             anchors.verticalCenter: parent.verticalCenter
                             spacing: 2
-                            Text { width: parent.width; elide: Text.ElideRight; text: row.modelData.name; color: row.modelData.known ? Theme.text : Theme.dim; font.family: Theme.strong; font.pixelSize: 17 }
-                            Text { width: parent.width; elide: Text.ElideRight; text: row.modelData.line; font.family: Theme.face; font.pixelSize: 14
+                            Text { width: parent.width; elide: Text.ElideRight; text: row.modelData.name; color: row.modelData.known ? Theme.text : Theme.dim; font.family: Theme.strong; font.pixelSize: Theme.px(17) }
+                            Text { width: parent.width; elide: Text.ElideRight; text: row.modelData.line; font.family: Theme.face; font.pixelSize: Theme.px(14)
                                 color: row.modelData.tone === "playing" || row.modelData.tone === "online" ? Theme.online : Theme.dim }
                         }
                         Row {
@@ -278,7 +278,7 @@ FocusScope {
                         width: parent.width; elide: Text.ElideRight
                         text: page.thread ? page.thread.about || "" : ""
                         color: page.thread && (page.thread.aboutTone === "online" || page.thread.aboutTone === "playing") ? Theme.online : Theme.dim
-                        font.family: Theme.face; font.pixelSize: 13
+                        font.family: Theme.face; font.pixelSize: Theme.px(13)
                     }
                 }
                 Row {
@@ -318,7 +318,7 @@ FocusScope {
                 width: parent.width - 80
                 horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap
                 text: "No conversations yet. Select Message beside a friend to start one, or New group to talk to several at once."
-                color: Theme.muted; font.family: Theme.face; font.pixelSize: 16
+                color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(16)
             }
             ListView {
                 id: groupList
@@ -344,9 +344,9 @@ FocusScope {
                     Keys.onEnterPressed: activate()
                     Rectangle {
                         anchors.fill: parent; radius: 16
-                        color: conversation.hot ? Qt.rgba(1, 1, 1, 0.075) : conversation.modelData.unread ? Qt.rgba(0.83, 0.69, 0.22, 0.07) : "transparent"
+                        color: conversation.hot ? Qt.rgba(1, 1, 1, 0.075) : conversation.modelData.unread ? Theme.glow(0.07) : "transparent"
                         border.width: conversation.modelData.unread ? 1 : 0
-                        border.color: Qt.rgba(0.83, 0.69, 0.22, 0.28)
+                        border.color: Theme.glow(0.28)
                         Behavior on color { ColorAnimation { duration: Theme.ms(120) } }
                     }
                     // A new message: a lit gold edge at the left.
@@ -368,23 +368,23 @@ FocusScope {
                         Row {
                             width: parent.width
                             spacing: 6
-                            Text { id: rowStar; visible: conversation.modelData.favourite; anchors.verticalCenter: parent.verticalCenter; text: ""; font.family: "Segoe MDL2 Assets"; font.pixelSize: 12; color: Theme.gold }
+                            Text { id: rowStar; visible: conversation.modelData.favourite; anchors.verticalCenter: parent.verticalCenter; text: ""; font.family: "Segoe MDL2 Assets"; font.pixelSize: Theme.px(12); color: Theme.gold }
                             Text {
                                 width: Math.min(implicitWidth, parent.width - (rowStar.visible ? rowStar.width + 6 : 0) - (rowMute.visible ? rowMute.width + 6 : 0))
                                 elide: Text.ElideRight
                                 text: conversation.modelData.name
-                                color: Theme.text; font.family: conversation.modelData.unread ? Theme.strong : Theme.face; font.pixelSize: 17
+                                color: Theme.text; font.family: conversation.modelData.unread ? Theme.strong : Theme.face; font.pixelSize: Theme.px(17)
                             }
-                            Text { id: rowMute; visible: conversation.modelData.muted; anchors.verticalCenter: parent.verticalCenter; text: ""; font.family: "Segoe MDL2 Assets"; font.pixelSize: 12; color: Theme.dim }
+                            Text { id: rowMute; visible: conversation.modelData.muted; anchors.verticalCenter: parent.verticalCenter; text: ""; font.family: "Segoe MDL2 Assets"; font.pixelSize: Theme.px(12); color: Theme.dim }
                         }
-                        Text { width: parent.width; elide: Text.ElideRight; text: conversation.modelData.last || " "; color: conversation.modelData.unread ? Theme.text : Theme.dim; font.family: Theme.face; font.pixelSize: 14 }
+                        Text { width: parent.width; elide: Text.ElideRight; text: conversation.modelData.last || " "; color: conversation.modelData.unread ? Theme.text : Theme.dim; font.family: Theme.face; font.pixelSize: Theme.px(14) }
                     }
                     Column {
                         id: rowSide
                         anchors.right: parent.right; anchors.rightMargin: 14
                         anchors.verticalCenter: parent.verticalCenter
                         spacing: 8
-                        Text { anchors.right: parent.right; text: conversation.modelData.when; color: conversation.modelData.unread ? Theme.goldSoft : Theme.dim; font.family: Theme.face; font.pixelSize: 13 }
+                        Text { anchors.right: parent.right; text: conversation.modelData.when; color: conversation.modelData.unread ? Theme.goldSoft : Theme.dim; font.family: Theme.face; font.pixelSize: Theme.px(13) }
                         // The new-message dot breathes while the page is moving.
                         Rectangle {
                             anchors.right: parent.right
@@ -409,7 +409,7 @@ FocusScope {
             Text {
                 visible: !!page.thread && page.thread.loading
                 anchors.centerIn: parent
-                text: "Loading the conversation…"; color: Theme.muted; font.family: Theme.face; font.pixelSize: 16
+                text: "Loading the conversation…"; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(16)
             }
             ListView {
                 id: messageList
@@ -490,9 +490,9 @@ FocusScope {
                         width: Math.min(implicitWidth, parent.width - 40)
                         horizontalAlignment: Text.AlignHCenter; wrapMode: Text.Wrap; textFormat: Text.PlainText
                         text: message.modelData.text + (message.modelData.when ? "  ·  " + message.modelData.when : "")
-                        color: Theme.dim; font.family: Theme.face; font.pixelSize: 13; font.italic: true
+                        color: Theme.dim; font.family: Theme.face; font.pixelSize: Theme.px(13); font.italic: true
                     }
-                    Text { id: who; visible: !message.note && message.modelData.first && !message.mine; text: message.modelData.who; color: Theme.dim; font.family: Theme.face; font.pixelSize: 13; x: 14 }
+                    Text { id: who; visible: !message.note && message.modelData.first && !message.mine; text: message.modelData.who; color: Theme.dim; font.family: Theme.face; font.pixelSize: Theme.px(13); x: 14 }
                     Rectangle {
                         id: bubble
                         visible: !message.note
@@ -516,9 +516,9 @@ FocusScope {
                         Behavior on opacity { NumberAnimation { duration: Theme.ms(160) } }
                         // A sticker stands on its own, as in the PlayStation App.
                         readonly property bool bare: message.kind === "sticker" && message.shown
-                        color: bare ? "transparent" : message.mine ? Qt.rgba(0.83, 0.69, 0.22, message.engaged ? 0.32 : 0.26) : Qt.rgba(1, 1, 1, message.engaged ? 0.12 : 0.09)
+                        color: bare ? "transparent" : message.mine ? Theme.glow(message.engaged ? 0.32 : 0.26) : Qt.rgba(1, 1, 1, message.engaged ? 0.12 : 0.09)
                         border.width: bare ? 0 : 1
-                        border.color: message.mine ? (message.engaged ? Theme.gold : Qt.rgba(0.83, 0.69, 0.22, 0.5)) : Qt.rgba(1, 1, 1, message.engaged ? 0.26 : 0.12)
+                        border.color: message.mine ? (message.engaged ? Theme.gold : Theme.glow(0.5)) : Qt.rgba(1, 1, 1, message.engaged ? 0.26 : 0.12)
                         Behavior on color { ColorAnimation { duration: Theme.ms(140) } }
                         Behavior on border.color { ColorAnimation { duration: Theme.ms(140) } }
                         layer.enabled: message.engaged && !bare
@@ -577,7 +577,7 @@ FocusScope {
                                     enabled: message.modelData.state !== "getting"
                                     onClicked: shell.act("psn_media", message.modelData.id)
                                 }
-                                Text { anchors.verticalCenter: parent.verticalCenter; text: message.modelData.text; color: Theme.muted; font.family: Theme.face; font.pixelSize: 15 }
+                                Text { anchors.verticalCenter: parent.verticalCenter; text: message.modelData.text; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(15) }
                             }
                             // Words: a message's own, the words under a picture, or why a picture is not there (smaller, muted).
                             Text {
@@ -596,7 +596,7 @@ FocusScope {
                             anchors.top: content.bottom; anchors.topMargin: 3
                             text: message.modelData.busy ? "Telling PSN…" : message.modelData.when
                             color: message.modelData.busy ? Theme.goldSoft : Theme.dim
-                            font.family: Theme.face; font.pixelSize: 11
+                            font.family: Theme.face; font.pixelSize: Theme.px(11)
                         }
                     }
                     Item { x: bubble.x; y: bubble.y; width: bubble.width; height: bubble.height; visible: bubble.visible; FocusGlow { on: bubble.activeFocus; radius: 13 } }
@@ -615,7 +615,7 @@ FocusScope {
                         x: message.mine ? (beside ? bubble.x - width - 10 : bubble.x + 10) : (beside ? bubble.x + bubble.width + 10 : bubble.x + bubble.width - width - 10)
                         y: beside ? bubble.y + Math.max(0, (Math.min(bubble.height, 64) - height) / 2) : Math.max(0, bubble.y - height / 2)
                         color: Qt.rgba(0.06, 0.065, 0.09, 0.94)
-                        border.width: 1; border.color: Qt.rgba(0.83, 0.69, 0.22, 0.42)
+                        border.width: 1; border.color: Theme.glow(0.42)
                         transform: Translate { x: message.engaged ? 0 : message.mine ? 8 : -8; Behavior on x { NumberAnimation { duration: Theme.ms(160); easing.type: Easing.OutCubic } } }
                         Row {
                             id: tools
@@ -644,7 +644,7 @@ FocusScope {
                                 required property var modelData
                                 readonly property bool hot: givenArea.containsMouse
                                 width: givenRow.implicitWidth + 20; height: 30; radius: 15
-                                color: modelData.mine ? Qt.rgba(0.83, 0.69, 0.22, hot ? 0.36 : 0.24) : Qt.rgba(1, 1, 1, hot ? 0.15 : 0.08)
+                                color: modelData.mine ? Theme.glow(hot ? 0.36 : 0.24) : Qt.rgba(1, 1, 1, hot ? 0.15 : 0.08)
                                 border.width: 1
                                 border.color: modelData.mine ? Theme.gold : Qt.rgba(1, 1, 1, hot ? 0.3 : 0.14)
                                 scale: givenArea.pressed ? 0.92 : hot ? 1.08 : 1
@@ -656,9 +656,9 @@ FocusScope {
                                     id: givenRow
                                     anchors.centerIn: parent
                                     spacing: 5
-                                    Text { visible: given.modelData.emoji !== ""; anchors.verticalCenter: parent.verticalCenter; text: given.modelData.emoji; font.family: "Segoe UI Emoji"; font.pixelSize: 17 }
+                                    Text { visible: given.modelData.emoji !== ""; anchors.verticalCenter: parent.verticalCenter; text: given.modelData.emoji; font.family: "Segoe UI Emoji"; font.pixelSize: Theme.px(17) }
                                     Image { visible: given.modelData.emoji === ""; anchors.verticalCenter: parent.verticalCenter; width: 20; height: 20; source: given.modelData.emoji === "" ? given.modelData.picture : ""; sourceSize: Qt.size(40, 40); fillMode: Image.PreserveAspectFit; asynchronous: true }
-                                    Text { visible: given.modelData.count > 1; anchors.verticalCenter: parent.verticalCenter; text: given.modelData.count; color: given.modelData.mine ? Theme.goldSoft : Theme.muted; font.family: Theme.strong; font.pixelSize: 12 }
+                                    Text { visible: given.modelData.count > 1; anchors.verticalCenter: parent.verticalCenter; text: given.modelData.count; color: given.modelData.mine ? Theme.goldSoft : Theme.muted; font.family: Theme.strong; font.pixelSize: Theme.px(12) }
                                 }
                                 MouseArea {
                                     id: givenArea
@@ -688,7 +688,7 @@ FocusScope {
                         height: 58
                         radius: 29
                         color: Qt.rgba(0.06, 0.065, 0.09, 0.96)
-                        border.width: 1; border.color: Qt.rgba(0.83, 0.69, 0.22, 0.55)
+                        border.width: 1; border.color: Theme.glow(0.55)
                         layer.enabled: visible
                         layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Theme.gold; shadowOpacity: 0.3; shadowBlur: 0.9; blurMax: 26 }
                         Row {
@@ -715,7 +715,7 @@ FocusScope {
                                     Rectangle {
                                         anchors.centerIn: parent
                                         width: 42; height: 42; radius: 21
-                                        color: kind.given ? Qt.rgba(0.83, 0.69, 0.22, 0.3) : kind.hot ? Qt.rgba(1, 1, 1, 0.12) : "transparent"
+                                        color: kind.given ? Theme.glow(0.3) : kind.hot ? Qt.rgba(1, 1, 1, 0.12) : "transparent"
                                         border.width: kind.given || kind.activeFocus ? 1.5 : 0
                                         border.color: Theme.gold
                                         Behavior on color { ColorAnimation { duration: Theme.ms(120) } }
@@ -725,7 +725,7 @@ FocusScope {
                                         width: 30; height: 30
                                         scale: kind.pop * (kind.hot ? 1.38 : 1)
                                         Behavior on scale { enabled: kind.pop === 1; NumberAnimation { duration: Theme.ms(170); easing.type: Easing.OutBack } }
-                                        Text { visible: kind.modelData.emoji !== ""; anchors.centerIn: parent; text: kind.modelData.emoji; font.family: "Segoe UI Emoji"; font.pixelSize: 24 }
+                                        Text { visible: kind.modelData.emoji !== ""; anchors.centerIn: parent; text: kind.modelData.emoji; font.family: "Segoe UI Emoji"; font.pixelSize: Theme.px(24) }
                                         Image { visible: kind.modelData.emoji === ""; anchors.fill: parent; source: kind.modelData.emoji === "" ? kind.modelData.picture : ""; sourceSize: Qt.size(60, 60); fillMode: Image.PreserveAspectFit; asynchronous: true }
                                     }
                                     MouseArea { id: kindArea; anchors.fill: parent; hoverEnabled: true; enabled: !page.f.changing; cursorShape: Qt.PointingHandCursor; onClicked: { Theme.keys = false; shell.act("psn_react", [message.modelData.id, kind.modelData.id]) } }
@@ -736,7 +736,7 @@ FocusScope {
                                 anchors.verticalCenter: parent.verticalCenter
                                 leftPadding: 10; rightPadding: 6
                                 text: page.thread && page.thread.reactionsReady ? "PSN offers no reactions right now." : "Getting the reactions from PSN…"
-                                color: Theme.muted; font.family: Theme.face; font.pixelSize: 14
+                                color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(14)
                             }
                             GlyphButton { u: 0.7; navigable: tray.visible && message.picking; glyph: ""; tip: "Close · Esc"; onClicked: shell.act("psn_react_close", null) }
                         }
@@ -758,7 +758,7 @@ FocusScope {
                     width: parent.width; height: visible ? 84 : 0
                     radius: 14
                     color: Qt.rgba(1, 1, 1, 0.06)
-                    border.width: 1; border.color: Qt.rgba(0.83, 0.69, 0.22, 0.45)
+                    border.width: 1; border.color: Theme.glow(0.45)
                     Image {
                         id: waitingShot
                         x: 10; anchors.verticalCenter: parent.verticalCenter
@@ -773,10 +773,10 @@ FocusScope {
                         anchors.right: takeOff.left; anchors.rightMargin: 10
                         anchors.verticalCenter: parent.verticalCenter
                         spacing: 2
-                        Text { width: parent.width; elide: Text.ElideMiddle; text: (page.f.outgoing || {}).name || ""; color: Theme.text; font.family: Theme.strong; font.pixelSize: 15 }
+                        Text { width: parent.width; elide: Text.ElideMiddle; text: (page.f.outgoing || {}).name || ""; color: Theme.text; font.family: Theme.strong; font.pixelSize: Theme.px(15) }
                         Text { width: parent.width; wrapMode: Text.WordWrap; maximumLineCount: 2; elide: Text.ElideRight
                             text: waitingShot.status === Image.Error ? "PlayBridge cannot show this file. It may not be a picture." : "Select Send. Words you write go under it."
-                            color: waitingShot.status === Image.Error ? Theme.alert : Theme.muted; font.family: Theme.face; font.pixelSize: 13 }
+                            color: waitingShot.status === Image.Error ? Theme.alert : Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(13) }
                     }
                     GlyphButton { id: takeOff; anchors.right: parent.right; anchors.rightMargin: 10; anchors.verticalCenter: parent.verticalCenter; navigable: visible && enabled; glyph: ""; tip: "Take the picture off · Esc"; onClicked: shell.act("psn_picture_clear", null) }
                 }
@@ -860,7 +860,7 @@ FocusScope {
                 Item {
                     width: parent.width
                     height: Math.max(finderTitle.implicitHeight, 42)
-                    Text { id: finderTitle; anchors.verticalCenter: parent.verticalCenter; text: "Add a friend"; color: Theme.text; font.family: Theme.light; font.pixelSize: 32 }
+                    Text { id: finderTitle; anchors.verticalCenter: parent.verticalCenter; text: "Add a friend"; color: Theme.text; font.family: Theme.light; font.pixelSize: Theme.px(32) }
                     GlyphButton { anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; navigable: visible; glyph: ""; tip: "Close · Esc"; onClicked: shell.act("friend_find_close", null) }
                 }
                 Note { text: "Type their online ID exactly as their PSN profile shows it. They get your request on their PlayStation and in the PlayStation App." }
@@ -908,8 +908,8 @@ FocusScope {
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: parent.width - foundFace.width - 14
                                 spacing: 2
-                                Text { width: parent.width; elide: Text.ElideRight; text: (found.who || {}).name || ""; color: Theme.text; font.family: Theme.strong; font.pixelSize: 19 }
-                                Text { width: parent.width; elide: Text.ElideRight; text: (found.who || {}).busy ? "Asking PSN…" : (found.who || {}).line || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: 14 }
+                                Text { width: parent.width; elide: Text.ElideRight; text: (found.who || {}).name || ""; color: Theme.text; font.family: Theme.strong; font.pixelSize: Theme.px(19) }
+                                Text { width: parent.width; elide: Text.ElideRight; text: (found.who || {}).busy ? "Asking PSN…" : (found.who || {}).line || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(14) }
                             }
                         }
                         Row {
@@ -984,8 +984,8 @@ FocusScope {
                             anchors.left: optionsFaces.right; anchors.leftMargin: 16
                             anchors.right: optionsClose.left; anchors.rightMargin: 12
                             anchors.verticalCenter: parent.verticalCenter
-                            Text { width: parent.width; elide: Text.ElideRight; text: options.t.name || ""; color: Theme.text; font.family: Theme.light; font.pixelSize: 30 }
-                            Text { width: parent.width; elide: Text.ElideRight; text: options.t.kind === "group" ? "Group conversation · " + ((options.t.people || []).length + 1) + " people" : "Conversation of two"; color: Theme.dim; font.family: Theme.face; font.pixelSize: 13 }
+                            Text { width: parent.width; elide: Text.ElideRight; text: options.t.name || ""; color: Theme.text; font.family: Theme.light; font.pixelSize: Theme.px(30) }
+                            Text { width: parent.width; elide: Text.ElideRight; text: options.t.kind === "group" ? "Group conversation · " + ((options.t.people || []).length + 1) + " people" : "Conversation of two"; color: Theme.dim; font.family: Theme.face; font.pixelSize: Theme.px(13) }
                         }
                         GlyphButton { id: optionsClose; anchors.right: parent.right; navigable: visible && enabled; glyph: ""; tip: "Close · Esc"; onClicked: shell.act("psn_card_close", null) }
                     }
@@ -1056,13 +1056,13 @@ FocusScope {
                                     anchors.right: takeOut.left; anchors.rightMargin: 10
                                     anchors.verticalCenter: parent.verticalCenter
                                     spacing: 1
-                                    Text { width: parent.width; elide: Text.ElideRight; text: member.modelData.name; color: Theme.text; font.family: Theme.strong; font.pixelSize: 16 }
-                                    Text { visible: text !== ""; width: parent.width; elide: Text.ElideRight; text: member.modelData.line || ""; color: member.modelData.tone === "online" || member.modelData.tone === "playing" ? Theme.online : Theme.dim; font.family: Theme.face; font.pixelSize: 13 }
+                                    Text { width: parent.width; elide: Text.ElideRight; text: member.modelData.name; color: Theme.text; font.family: Theme.strong; font.pixelSize: Theme.px(16) }
+                                    Text { visible: text !== ""; width: parent.width; elide: Text.ElideRight; text: member.modelData.line || ""; color: member.modelData.tone === "online" || member.modelData.tone === "playing" ? Theme.online : Theme.dim; font.family: Theme.face; font.pixelSize: Theme.px(13) }
                                 }
                                 PillButton { id: takeOut; visible: !!options.t.canRemove; anchors.right: parent.right; anchors.rightMargin: 8; anchors.verticalCenter: parent.verticalCenter; width: 112; height: 38; tone: "ghost"; text: "Take out"; enabled: !page.f.changing; onClicked: shell.act("psn_member_remove", member.modelData.id) }
                             }
                         }
-                        Text { x: 8; text: "And you."; color: Theme.dim; font.family: Theme.face; font.pixelSize: 13 }
+                        Text { x: 8; text: "And you."; color: Theme.dim; font.family: Theme.face; font.pixelSize: Theme.px(13) }
                     }
                     Column {
                         width: parent.width
@@ -1143,13 +1143,13 @@ FocusScope {
                             id: makerBadge
                             width: 54; height: 54; radius: 27
                             anchors.verticalCenter: parent.verticalCenter
-                            color: Qt.rgba(0.83, 0.69, 0.22, 0.18)
+                            color: Theme.glow(0.18)
                             border.width: 1; border.color: Theme.gold
                             layer.enabled: true
                             layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Theme.gold; shadowOpacity: 0.45; shadowBlur: 0.8; blurMax: 22 }
-                            Text { anchors.centerIn: parent; text: ""; font.family: "Segoe MDL2 Assets"; font.pixelSize: 24; color: Theme.goldSoft }
+                            Text { anchors.centerIn: parent; text: ""; font.family: "Segoe MDL2 Assets"; font.pixelSize: Theme.px(24); color: Theme.goldSoft }
                         }
-                        Text { anchors.left: makerBadge.right; anchors.leftMargin: 16; anchors.verticalCenter: parent.verticalCenter; text: "New group"; color: Theme.text; font.family: Theme.light; font.pixelSize: 32 }
+                        Text { anchors.left: makerBadge.right; anchors.leftMargin: 16; anchors.verticalCenter: parent.verticalCenter; text: "New group"; color: Theme.text; font.family: Theme.light; font.pixelSize: Theme.px(32) }
                         GlyphButton { anchors.right: parent.right; navigable: visible && enabled; glyph: ""; tip: "Close · Esc"; onClicked: shell.act("psn_card_close", null) }
                     }
                     Note { text: "Choose two friends or more. The group shows on PSN, in the PlayStation App and on their PlayStation, and anyone in it can write to everyone." }
@@ -1181,7 +1181,7 @@ FocusScope {
                         Text {
                             anchors.verticalCenter: parent.verticalCenter
                             text: maker.picked.length === 1 ? "Choose one more friend." : ""
-                            color: Theme.dim; font.family: Theme.face; font.pixelSize: 14
+                            color: Theme.dim; font.family: Theme.face; font.pixelSize: Theme.px(14)
                         }
                     }
                     Note { text: page.f.chatLine ? page.f.chatLine.text : ""; tone: page.f.chatLine ? page.f.chatLine.tone : "plain" }
@@ -1217,7 +1217,7 @@ FocusScope {
             x: faces.width - width + 4; y: -2
             height: 20; width: Math.max(20, moreText.implicitWidth + 10); radius: 10
             color: Theme.gold
-            Text { id: moreText; anchors.centerIn: parent; text: "+" + faces.more; color: Theme.ink; font.family: Theme.strong; font.pixelSize: 11 }
+            Text { id: moreText; anchors.centerIn: parent; text: "+" + faces.more; color: Theme.ink; font.family: Theme.strong; font.pixelSize: Theme.px(11) }
         }
     }
 
@@ -1237,7 +1237,7 @@ FocusScope {
         property alias text: headingText.text
         spacing: 10
         Rectangle { width: 18; height: 2; radius: 1; color: Theme.gold; anchors.verticalCenter: parent.verticalCenter }
-        Text { id: headingText; color: Theme.muted; font.family: Theme.strong; font.pixelSize: 13; font.capitalization: Font.AllUppercase; font.letterSpacing: 1.4 }
+        Text { id: headingText; color: Theme.muted; font.family: Theme.strong; font.pixelSize: Theme.px(13); font.capitalization: Font.AllUppercase; font.letterSpacing: 1.4 }
     }
 
     // A switch as a large tile: gold and glowing while it is on, lifted under the pointer.
@@ -1263,22 +1263,22 @@ FocusScope {
             border.width: 1
             border.color: tile.on ? Theme.gold : Qt.rgba(1, 1, 1, tile.hot ? 0.26 : 0.12)
             gradient: Gradient {
-                GradientStop { position: 0.0; color: tile.on ? Qt.rgba(0.83, 0.69, 0.22, tile.hot ? 0.36 : 0.27) : Qt.rgba(1, 1, 1, tile.hot ? 0.12 : 0.075) }
-                GradientStop { position: 1.0; color: tile.on ? Qt.rgba(0.83, 0.69, 0.22, 0.08) : Qt.rgba(1, 1, 1, 0.025) }
+                GradientStop { position: 0.0; color: tile.on ? Theme.glow(tile.hot ? 0.36 : 0.27) : Qt.rgba(1, 1, 1, tile.hot ? 0.12 : 0.075) }
+                GradientStop { position: 1.0; color: tile.on ? Theme.glow(0.08) : Qt.rgba(1, 1, 1, 0.025) }
             }
             transform: Translate { y: tile.hot && !tileArea.pressed ? -2 : 0; Behavior on y { NumberAnimation { duration: Theme.ms(140); easing.type: Easing.OutCubic } } }
             scale: tileArea.pressed ? 0.97 : 1
             Behavior on scale { NumberAnimation { duration: Theme.ms(90) } }
             layer.enabled: tile.on
             layer.effect: MultiEffect { shadowEnabled: true; shadowColor: Theme.gold; shadowOpacity: tile.hot ? 0.5 : 0.3; shadowBlur: 0.8; blurMax: 28 }
-            Text { id: tileGlyph; x: 20; anchors.verticalCenter: parent.verticalCenter; text: tile.glyph; font.family: "Segoe MDL2 Assets"; font.pixelSize: 24; color: tile.on ? Theme.goldSoft : Theme.text }
+            Text { id: tileGlyph; x: 20; anchors.verticalCenter: parent.verticalCenter; text: tile.glyph; font.family: "Segoe MDL2 Assets"; font.pixelSize: Theme.px(24); color: tile.on ? Theme.goldSoft : Theme.text }
             Column {
                 anchors.left: tileGlyph.right; anchors.leftMargin: 16
                 anchors.right: parent.right; anchors.rightMargin: 14
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 2
-                Text { width: parent.width; elide: Text.ElideRight; text: tile.label; color: Theme.text; font.family: Theme.strong; font.pixelSize: 16 }
-                Text { width: parent.width; elide: Text.ElideRight; text: tile.detail; color: tile.on ? Theme.goldSoft : Theme.dim; font.family: Theme.face; font.pixelSize: 13 }
+                Text { width: parent.width; elide: Text.ElideRight; text: tile.label; color: Theme.text; font.family: Theme.strong; font.pixelSize: Theme.px(16) }
+                Text { width: parent.width; elide: Text.ElideRight; text: tile.detail; color: tile.on ? Theme.goldSoft : Theme.dim; font.family: Theme.face; font.pixelSize: Theme.px(13) }
             }
         }
         MouseArea { id: tileArea; anchors.fill: parent; hoverEnabled: true; cursorShape: tile.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor; onClicked: { Theme.keys = false; if (tile.enabled) tile.clicked() } }
@@ -1303,7 +1303,7 @@ FocusScope {
         Rectangle {
             anchors.fill: parent
             radius: height / 2
-            color: chip.chosen ? Qt.rgba(0.83, 0.69, 0.22, chip.hot ? 0.32 : 0.22) : Qt.rgba(1, 1, 1, chip.hot ? 0.12 : 0.06)
+            color: chip.chosen ? Theme.glow(chip.hot ? 0.32 : 0.22) : Qt.rgba(1, 1, 1, chip.hot ? 0.12 : 0.06)
             border.width: 1
             border.color: chip.chosen ? Theme.gold : Qt.rgba(1, 1, 1, chip.hot ? 0.28 : 0.12)
             Behavior on color { ColorAnimation { duration: Theme.ms(120) } }
@@ -1316,7 +1316,7 @@ FocusScope {
             anchors.verticalCenter: parent.verticalCenter
             spacing: 10
             Avatar { width: 36; height: 36; anchors.verticalCenter: parent.verticalCenter; source: chip.person.picture || ""; initial: chip.person.initial || "?"; tone: chip.person.tone || "off"; ring: "#1D1B14" }
-            Text { anchors.verticalCenter: parent.verticalCenter; text: chip.person.name || ""; color: Theme.text; font.family: chip.chosen ? Theme.strong : Theme.face; font.pixelSize: 15 }
+            Text { anchors.verticalCenter: parent.verticalCenter; text: chip.person.name || ""; color: Theme.text; font.family: chip.chosen ? Theme.strong : Theme.face; font.pixelSize: Theme.px(15) }
             Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
                 width: 22; height: 22; radius: 11
@@ -1326,7 +1326,7 @@ FocusScope {
                 scale: chip.chosen ? 1 : 0.86
                 Behavior on scale { NumberAnimation { duration: Theme.ms(200); easing.type: Easing.OutBack } }
                 Behavior on color { ColorAnimation { duration: Theme.ms(120) } }
-                Text { anchors.centerIn: parent; visible: chip.chosen; text: ""; font.family: "Segoe MDL2 Assets"; font.pixelSize: 12; color: Theme.ink }
+                Text { anchors.centerIn: parent; visible: chip.chosen; text: ""; font.family: "Segoe MDL2 Assets"; font.pixelSize: Theme.px(12); color: Theme.ink }
             }
         }
         MouseArea { id: chipArea; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: { Theme.keys = false; chip.clicked() } }

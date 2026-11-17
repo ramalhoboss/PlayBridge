@@ -9,7 +9,7 @@ Text {
     textFormat: Text.PlainText
     color: Theme.tone(tone)
     font.family: Theme.face
-    font.pixelSize: 14
+    font.pixelSize: Theme.px(14)
     lineHeight: 1.15
     visible: text !== ""
 }

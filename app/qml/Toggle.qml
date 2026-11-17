@@ -5,7 +5,7 @@ Item {
     id: toggle
     property string text: ""
     property bool checked: false
-    property real fontSize: 16
+    property real fontSize: Theme.px(16)
     property bool navigable: visible && enabled
     signal toggled(bool on)
     function activate() { Theme.keys = true; toggled(!checked) }

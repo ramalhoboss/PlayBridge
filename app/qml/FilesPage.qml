@@ -42,11 +42,11 @@ FocusScope {
         Row {
             width: parent.width
             spacing: 14
-            Text { id: title; text: "PS5 files"; color: Theme.text; font.family: Theme.light; font.pixelSize: 44 }
-            Text { anchors.baseline: title.baseline; text: page.f.server || ""; color: Theme.dim; font.family: Theme.face; font.pixelSize: 14 }
+            Text { id: title; text: "PS5 files"; color: Theme.text; font.family: Theme.light; font.pixelSize: Theme.px(44) }
+            Text { anchors.baseline: title.baseline; text: page.f.server || ""; color: Theme.dim; font.family: Theme.face; font.pixelSize: Theme.px(14) }
         }
         Text {
-            width: parent.width; wrapMode: Text.WordWrap; color: Theme.muted; font.family: Theme.face; font.pixelSize: 15
+            width: parent.width; wrapMode: Text.WordWrap; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(15)
             text: "Through the FTP server your homebrew menu runs on the PS5. Copies to this PC go to Downloads\\PS5 and never replace a file there."
         }
     }
@@ -105,11 +105,11 @@ FocusScope {
                     required property int index
                     anchors.verticalCenter: parent.verticalCenter
                     spacing: 6
-                    Text { visible: index > 0; text: "›"; color: Theme.dim; font.family: Theme.face; font.pixelSize: 17 }
+                    Text { visible: index > 0; text: "›"; color: Theme.dim; font.family: Theme.face; font.pixelSize: Theme.px(17) }
                     Text {
                         text: modelData.label
                         color: crumbArea.containsMouse ? Theme.goldSoft : index === (page.f.crumbs || []).length - 1 ? Theme.text : Theme.muted
-                        font.family: index === (page.f.crumbs || []).length - 1 ? Theme.strong : Theme.face; font.pixelSize: 17
+                        font.family: index === (page.f.crumbs || []).length - 1 ? Theme.strong : Theme.face; font.pixelSize: Theme.px(17)
                         MouseArea { id: crumbArea; anchors.fill: parent; anchors.margins: -4; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: shell.act("files_go", modelData.path) }
                     }
                 }
@@ -123,7 +123,7 @@ FocusScope {
             anchors.centerIn: parent
             width: parent.width - 80
             horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap
-            text: page.f.empty || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: 16
+            text: page.f.empty || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(16)
         }
         PillButton {
             visible: !page.f.ready && !page.f.loading
@@ -155,8 +155,8 @@ FocusScope {
                 Keys.onEnterPressed: activate()
                 Rectangle {
                     anchors.fill: parent; radius: 12
-                    color: row.modelData.selected ? Qt.rgba(0.83, 0.69, 0.22, 0.16) : rowArea.containsMouse || row.activeFocus ? Qt.rgba(1, 1, 1, 0.07) : "transparent"
-                    border.width: row.modelData.selected ? 1 : 0; border.color: Qt.rgba(0.83, 0.69, 0.22, 0.55)
+                    color: row.modelData.selected ? Theme.glow(0.16) : rowArea.containsMouse || row.activeFocus ? Qt.rgba(1, 1, 1, 0.07) : "transparent"
+                    border.width: row.modelData.selected ? 1 : 0; border.color: Theme.glow(0.55)
                     Behavior on color { ColorAnimation { duration: Theme.ms(110) } }
                 }
                 MouseArea {
@@ -169,19 +169,19 @@ FocusScope {
                     x: 14; anchors.verticalCenter: parent.verticalCenter
                     text: row.modelData.link ? "" : row.modelData.folder ? "" : ""
                     color: row.modelData.folder ? Theme.goldSoft : Theme.muted
-                    font.family: "Segoe MDL2 Assets"; font.pixelSize: 18
+                    font.family: "Segoe MDL2 Assets"; font.pixelSize: Theme.px(18)
                 }
                 Text {
                     anchors.left: mark.right; anchors.leftMargin: 14
                     anchors.right: sizeText.left; anchors.rightMargin: 16
                     anchors.verticalCenter: parent.verticalCenter
                     elide: Text.ElideMiddle
-                    text: row.modelData.name; color: Theme.text; font.family: Theme.face; font.pixelSize: 16
+                    text: row.modelData.name; color: Theme.text; font.family: Theme.face; font.pixelSize: Theme.px(16)
                 }
                 Text { id: sizeText; anchors.right: whenText.left; anchors.rightMargin: 24; anchors.verticalCenter: parent.verticalCenter; width: 90; horizontalAlignment: Text.AlignRight
-                    text: row.modelData.size; color: Theme.muted; font.family: Theme.face; font.pixelSize: 14 }
+                    text: row.modelData.size; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(14) }
                 Text { id: whenText; anchors.right: parent.right; anchors.rightMargin: 16; anchors.verticalCenter: parent.verticalCenter; width: 160; horizontalAlignment: Text.AlignRight
-                    text: row.modelData.when; color: Theme.dim; font.family: Theme.face; font.pixelSize: 13 }
+                    text: row.modelData.when; color: Theme.dim; font.family: Theme.face; font.pixelSize: Theme.px(13) }
                 FocusGlow { on: row.activeFocus && Theme.keys; radius: 12 }
             }
         }
@@ -217,7 +217,7 @@ FocusScope {
                 width: parent.width - 124
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 6
-                Text { text: page.f.busyText || ""; color: Theme.text; font.family: Theme.face; font.pixelSize: 15 }
+                Text { text: page.f.busyText || ""; color: Theme.text; font.family: Theme.face; font.pixelSize: Theme.px(15) }
                 Rectangle {
                     width: parent.width; height: 6; radius: 3; color: Qt.rgba(1, 1, 1, 0.12)
                     Rectangle { width: parent.width * Math.max(0, Math.min(1, page.f.share || 0)); height: parent.height; radius: 3; color: Theme.gold
@@ -229,7 +229,7 @@ FocusScope {
         Row {
             visible: !page.f.busy && page.naming === "" && (page.f.selected || "") !== ""
             spacing: 8
-            Text { anchors.verticalCenter: parent.verticalCenter; width: Math.min(420, implicitWidth); elide: Text.ElideMiddle; text: page.f.selected || ""; color: Theme.goldSoft; font.family: Theme.strong; font.pixelSize: 16; rightPadding: 8 }
+            Text { anchors.verticalCenter: parent.verticalCenter; width: Math.min(420, implicitWidth); elide: Text.ElideMiddle; text: page.f.selected || ""; color: Theme.goldSoft; font.family: Theme.strong; font.pixelSize: Theme.px(16); rightPadding: 8 }
             PillButton { visible: !!page.f.selectedFolder; width: 100; height: 42; text: "Open"; onClicked: shell.act("files_open", page.f.selected) }
             PillButton { visible: !!page.f.selectedPreview && !page.look; width: 110; height: 42; text: "Preview"; onClicked: shell.act("files_preview", page.f.selected) }
             PillButton { width: 150; height: 42; tone: "main"; text: "Copy to this PC"; onClicked: shell.act("files_get", page.f.selected) }
@@ -243,7 +243,7 @@ FocusScope {
                 anchors.verticalCenter: parent.verticalCenter
                 text: (page.f.line || {}).text || ""
                 color: (page.f.line || {}).tone === "error" ? Theme.alert : (page.f.line || {}).tone === "news" ? Theme.goldSoft : Theme.muted
-                font.family: Theme.face; font.pixelSize: 15
+                font.family: Theme.face; font.pixelSize: Theme.px(15)
             }
             PillButton { visible: !!page.f.saved && (page.f.line || {}).tone === "news"; width: 150; height: 38; tone: "ghost"; text: "Show on this PC"; onClicked: shell.act("files_show", null) }
         }
@@ -264,8 +264,8 @@ FocusScope {
             width: parent.width - 44
             height: 44
             spacing: 14
-            Text { anchors.verticalCenter: parent.verticalCenter; width: Math.min(implicitWidth, parent.width - 420); elide: Text.ElideMiddle; text: page.look ? page.look.name : ""; color: Theme.text; font.family: Theme.strong; font.pixelSize: 19 }
-            Text { anchors.verticalCenter: parent.verticalCenter; text: page.look ? page.look.size + (page.look.cut ? "  ·  the first 256 KB" : "") : ""; color: Theme.dim; font.family: Theme.face; font.pixelSize: 14 }
+            Text { anchors.verticalCenter: parent.verticalCenter; width: Math.min(implicitWidth, parent.width - 420); elide: Text.ElideMiddle; text: page.look ? page.look.name : ""; color: Theme.text; font.family: Theme.strong; font.pixelSize: Theme.px(19) }
+            Text { anchors.verticalCenter: parent.verticalCenter; text: page.look ? page.look.size + (page.look.cut ? "  ·  the first 256 KB" : "") : ""; color: Theme.dim; font.family: Theme.face; font.pixelSize: Theme.px(14) }
         }
         Row {
             anchors.right: parent.right; anchors.rightMargin: 22
@@ -282,7 +282,7 @@ FocusScope {
             horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap
             text: page.look ? (page.look.loading ? "Reading " + page.look.name + " from the PS5…" : page.look.why) : ""
             color: page.look && !page.look.loading ? Theme.alert : Theme.muted
-            font.family: Theme.face; font.pixelSize: 16
+            font.family: Theme.face; font.pixelSize: Theme.px(16)
         }
         ScrollView {
             id: textView
@@ -295,8 +295,8 @@ FocusScope {
                 selectByMouse: true
                 text: page.look ? page.look.text : ""
                 color: Theme.text
-                selectionColor: Qt.rgba(0.83, 0.69, 0.22, 0.45)
-                font.family: "Consolas"; font.pixelSize: 14
+                selectionColor: Theme.glow(0.45)
+                font.family: "Consolas"; font.pixelSize: Theme.px(14)
                 wrapMode: TextEdit.NoWrap
                 background: null
             }
@@ -317,7 +317,7 @@ FocusScope {
             anchors.centerIn: parent
             text: "PlayBridge could not draw this picture. Copy it to this PC to open it."
             color: Theme.alert
-            font.family: Theme.face; font.pixelSize: 16
+            font.family: Theme.face; font.pixelSize: Theme.px(16)
         }
     }
 
@@ -339,14 +339,14 @@ FocusScope {
         visible: dropArea.containsDrag
         x: sheet.x; y: sheet.y; width: sheet.width; height: sheet.height
         radius: 20
-        color: Qt.rgba(0.83, 0.69, 0.22, 0.12)
+        color: Theme.glow(0.12)
         border.width: 2; border.color: Theme.gold
         Column {
             anchors.centerIn: parent
             spacing: 12
-            Text { anchors.horizontalCenter: parent.horizontalCenter; text: "\uE898"; font.family: "Segoe MDL2 Assets"; font.pixelSize: 46; color: Theme.gold }
-            Text { anchors.horizontalCenter: parent.horizontalCenter; text: "Drop to send to " + (page.f.path || "/") + " on your PS5"; color: Theme.text; font.family: Theme.light; font.pixelSize: 28 }
-            Text { anchors.horizontalCenter: parent.horizontalCenter; text: "Files and whole folders. PlayBridge asks before it replaces anything there."; color: Theme.muted; font.family: Theme.face; font.pixelSize: 15 }
+            Text { anchors.horizontalCenter: parent.horizontalCenter; text: "\uE898"; font.family: "Segoe MDL2 Assets"; font.pixelSize: Theme.px(46); color: Theme.gold }
+            Text { anchors.horizontalCenter: parent.horizontalCenter; text: "Drop to send to " + (page.f.path || "/") + " on your PS5"; color: Theme.text; font.family: Theme.light; font.pixelSize: Theme.px(28) }
+            Text { anchors.horizontalCenter: parent.horizontalCenter; text: "Files and whole folders. PlayBridge asks before it replaces anything there."; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(15) }
         }
     }
 

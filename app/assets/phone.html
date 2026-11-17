@@ -63,6 +63,39 @@ video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;backgr
 .big .bar{transition:opacity .2s}
 .big .bar.away{opacity:0;pointer-events:none}
 .keys{margin:16px 0 0;color:var(--muted);font-size:18px;line-height:1.6}
+/* More: games, captures and the log, in a sheet over the picture. */
+.sheet{position:absolute;inset:0;z-index:6;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,.55);padding:max(8px,env(safe-area-inset-top)) max(8px,env(safe-area-inset-right)) 0 max(8px,env(safe-area-inset-left))}
+.sheet .panel{width:min(760px,100%);height:100%;max-height:min(100%,640px);display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--rim);border-bottom:0;border-radius:20px 20px 0 0;box-shadow:0 -10px 40px rgba(0,0,0,.5);padding:12px 14px max(12px,env(safe-area-inset-bottom));-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px)}
+.sheet header{display:flex;gap:8px;align-items:center}
+.tabs{display:flex;gap:6px;flex:1;min-width:0;overflow-x:auto}
+.tab{min-height:40px;padding:6px 14px;border-radius:999px;border:1px solid var(--rim);background:transparent;cursor:pointer;white-space:nowrap}
+.tab[aria-selected="true"]{border-color:var(--gold);color:var(--gold);background:rgba(232,196,106,.12)}
+.tab:focus-visible,.game:focus-visible,.shot:focus-visible,.chip:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.sheet .note{margin:8px 2px 0;min-height:1.4em;font-size:14px}
+.ask{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px;padding:10px 12px;border:1px solid var(--gold);border-radius:14px;background:rgba(232,196,106,.08)}
+.ask span{flex:1 1 220px}
+.chip.gold{border-color:var(--gold);color:var(--gold)}
+a.chip{display:inline-flex;align-items:center;text-decoration:none}
+.list{flex:1;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;margin-top:10px;padding:2px}
+.list.games{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:10px;align-content:start}
+.list.shots{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;align-content:start}
+.game,.shot{display:flex;flex-direction:column;gap:6px;padding:8px;border-radius:14px;border:1px solid transparent;background:rgba(255,255,255,.05);cursor:pointer;text-align:left;min-width:0}
+.game img{width:100%;aspect-ratio:1;border-radius:10px;object-fit:cover;background:rgba(255,255,255,.08)}
+.shot img{width:100%;aspect-ratio:16/9;border-radius:10px;object-fit:cover;background:rgba(255,255,255,.08)}
+.game.on{border-color:var(--gold)}
+.game .name{font-size:13px;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+.game .open,.shot .badge{font-size:12px;color:var(--gold)}
+.shot .when{font-size:13px;color:var(--muted);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.list.log{margin-top:10px;font:12px/1.55 ui-monospace,"Cascadia Mono",Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--muted);background:rgba(0,0,0,.3);border-radius:12px;padding:10px}
+.viewer{position:absolute;inset:0;z-index:7;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:max(12px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left));background:rgba(0,0,0,.94)}
+.viewer .body{flex:1;min-height:0;width:100%;display:flex;align-items:center;justify-content:center}
+.viewer img,.viewer video{position:static;width:auto;height:auto;max-width:100%;max-height:100%;object-fit:contain;border-radius:8px}
+.viewer .name{color:var(--muted);font-size:13px;overflow-wrap:anywhere;text-align:center}
+.big .tab{min-height:52px;font-size:20px;padding:10px 22px}
+.big .game .name{font-size:17px}
+.big .list.games{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+.big .list.shots{grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}
+.big .tab:focus-visible,.big .game:focus,.big .shot:focus{outline:4px solid var(--gold);outline-offset:3px}
 </style>
 </head>
 <body>
@@ -87,12 +120,33 @@ video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;backgr
    <span class="chip status" id="padChip" role="status" aria-live="polite" hidden></span>
   </div>
   <div class="chips">
+   <button class="chip" id="moreButton" type="button" aria-haspopup="dialog">More</button>
    <button class="chip" id="controlsButton" type="button" aria-pressed="true">Controls</button>
    <button class="chip" id="fullButton" type="button">Full screen</button>
    <button class="chip" id="leaveButton" type="button">Disconnect</button>
   </div>
  </div>
  <div class="alert" id="alertBox" role="alert" hidden><strong id="alertTitle"></strong><span id="alertText"></span></div>
+ <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="More" hidden>
+  <div class="panel">
+   <header>
+    <div class="tabs" role="tablist">
+     <button class="tab" role="tab" id="tabGames" type="button" aria-selected="true" aria-controls="sheetList">Games</button>
+     <button class="tab" role="tab" id="tabShots" type="button" aria-selected="false" aria-controls="sheetList">Captures</button>
+     <button class="tab" role="tab" id="tabLog" type="button" aria-selected="false" aria-controls="sheetList">Log</button>
+    </div>
+    <button class="chip" id="sheetClose" type="button">Close</button>
+   </header>
+   <div class="ask" id="sheetAsk" hidden><span id="askText"></span><button class="chip gold" id="askYes" type="button">Switch games</button><button class="chip" id="askNo" type="button">Cancel</button></div>
+   <div class="note" id="sheetNote" role="status" aria-live="polite"></div>
+   <div class="list" id="sheetList" role="tabpanel"></div>
+  </div>
+ </div>
+ <div class="viewer" id="viewer" role="dialog" aria-modal="true" aria-label="Capture" hidden>
+  <div class="body" id="viewerBody"></div>
+  <div class="name" id="viewerName"></div>
+  <div class="chips"><a class="chip gold" id="viewerSave" href="#">Save to this phone</a><button class="chip" id="viewerClose" type="button">Close</button></div>
+ </div>
  <div id="overlay">
   <div class="card">
    <h1 id="overlayTitle">Ready</h1>
@@ -123,6 +177,9 @@ if (big) {
 }
 
 // ---- Pairing
+// The QR code in PlayBridge's Settings carries the pairing code after #: it is read once and taken out of the address bar.
+const scanned = (location.hash.match(/[#&]code=(\d{6})(?:&|$)/) || [])[1] || "";
+if (location.hash) history.replaceState(null, "", location.pathname + location.search);
 function showPairing(message, bad){
   $("stage").hidden = true; $("pairing").hidden = false;
   $("pairNote").textContent = message || ""; $("pairNote").className = "note" + (bad ? " bad" : "");
@@ -428,6 +485,8 @@ function gamepadState(){
 }
 function send(force){
   if (!socket || socket.readyState !== 1) return;
+  // While More or a capture covers the picture, the PS5 gets a controller at rest.
+  if (covered()) { const rest = "0:128,128,128,128,0,0", now = performance.now(); if (force || rest !== lastSent || now - lastAt > 100) { socket.send(JSON.stringify({ b: 0, s: [128,128,128,128,0,0], t: Math.round(now) })); lastSent = rest; lastAt = now; } return; }
   let b = touchButtons, s = [sticks[0], sticks[1], sticks[2], sticks[3], touchButtons & B.L2 ? 255 : 0, touchButtons & B.R2 ? 255 : 0];
   if (mayPlay) { b |= keyButtons; for (let i = 0; i < 4; i++) if (keySticks[i] !== 128) s[i] = keySticks[i]; if (keyButtons & B.L2) s[4] = 255; if (keyButtons & B.R2) s[5] = 255; }
   const g = mayPlay ? gamepadState() : null;
@@ -461,7 +520,8 @@ function openMenu(){
   document.querySelector(".bar").classList.remove("away"); $("leaveButton").focus();
 }
 function closeMenu(){ menuOpen = false; if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); if (big) document.querySelector(".bar").classList.add("away"); }
-function playing(){ return started && $("overlay").hidden && !$("stage").hidden; }
+function covered(){ return !$("sheet").hidden || !$("viewer").hidden; }
+function playing(){ return started && $("overlay").hidden && !$("stage").hidden && !covered(); }
 document.addEventListener("keydown", ev => {
   if (!playing()) return;
   const name = keyName(ev);
@@ -658,6 +718,187 @@ addEventListener("mousemove", () => {
 });
 // Any pick in the menu closes it, so the keys go back to the PS5.
 document.querySelectorAll(".bar button.chip").forEach(chip => chip.addEventListener("click", () => { if (menuOpen) closeMenu(); }));
+// ---- More: your games, to start one on the PS5; the captures on the PC, to look at and save; and what PlayBridge noted. The lists and
+// small pictures ask with the pairing token; a capture opens through a ticket the PC gives, as a video element cannot send a header.
+let sheetTab = "games", sheetTurn = 0, logTimer = null, pictures = null, blobs = [], askYes = null, padNav = null;
+function sheetSay(text, bad){ $("sheetNote").textContent = text || ""; $("sheetNote").className = "note" + (bad ? " bad" : ""); }
+function trouble(e){ return e && e.message === "401" ? "This phone is no longer paired. Disconnect and pair it again with a new code." : "PlayBridge did not answer. Check that it is still open on the PC."; }
+async function panelGet(path){
+  const r = await fetch(path, { headers: { "X-Token": token }, cache: "no-store" });
+  if (!r.ok) throw new Error(String(r.status));
+  return r.json();
+}
+async function panelPost(path, body){
+  const r = await fetch(path, { method: "POST", headers: { "X-Token": token, "Content-Type": "application/json" }, body: JSON.stringify(body), cache: "no-store" });
+  if (!r.ok) throw new Error(String(r.status));
+  return r.json();
+}
+// Pictures load as they scroll into view.
+// An empty picture until then, so the grid shows its own background rather than a broken-image frame.
+const NO_PICTURE = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+function lazyPicture(img, path){
+  img.src = NO_PICTURE;
+  if (!pictures) pictures = new IntersectionObserver(entries => {
+    for (const entry of entries) if (entry.isIntersecting) { pictures.unobserve(entry.target); loadPicture(entry.target, entry.target.dataset.src); }
+  }, { root: $("sheetList"), rootMargin: "300px" });
+  img.dataset.src = path; pictures.observe(img);
+}
+async function loadPicture(img, path){
+  const turn = sheetTurn;
+  try {
+    const r = await fetch(path, { headers: { "X-Token": token } });
+    if (!r.ok || turn !== sheetTurn) return;
+    const url = URL.createObjectURL(await r.blob()); blobs.push(url); img.src = url;
+  } catch (e) {}
+}
+function dropPictures(){ if (pictures) pictures.disconnect(); pictures = null; blobs.forEach(url => URL.revokeObjectURL(url)); blobs = []; }
+function bytesText(n){ return n >= 1073741824 ? (n / 1073741824).toFixed(1) + " GB" : n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB"; }
+function askFirst(text, then){ $("askText").textContent = text; $("sheetAsk").hidden = false; askYes = then; $("askYes").focus(); }
+function hideAsk(){ $("sheetAsk").hidden = true; askYes = null; }
+function openSheet(){
+  heldKeys.clear(); keysToPad(); clearTimeout(backHeld); $("sheet").hidden = false; send(true); watchPad(); showTab(sheetTab);
+}
+function closeSheet(){
+  sheetTurn++; clearInterval(logTimer); dropPictures(); hideAsk(); $("sheetList").replaceChildren(); $("sheet").hidden = true; send(true);
+  if (big) { document.querySelector(".bar").classList.add("away"); if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }
+  else $("moreButton").focus();
+}
+async function showTab(tab){
+  const turn = ++sheetTurn, list = $("sheetList");
+  sheetTab = tab; clearInterval(logTimer); dropPictures(); hideAsk();
+  for (const [id, name] of [["tabGames", "games"], ["tabShots", "captures"], ["tabLog", "log"]]) $(id).setAttribute("aria-selected", String(name === tab));
+  list.replaceChildren(); list.className = "list"; sheetSay("Loading…");
+  try {
+    if (tab === "games") await showGames(list, turn);
+    else if (tab === "captures") await showCaptures(list, turn);
+    else { await showLog(list, turn); logTimer = setInterval(() => showLog(list, turn).catch(() => {}), 3000); }
+  } catch (e) { if (turn === sheetTurn) sheetSay(trouble(e), true); }
+  if (turn === sheetTurn && big && !$("sheet").contains(document.activeElement)) (list.querySelector("button") || $("tab" + { games: "Games", captures: "Shots", log: "Log" }[tab])).focus();
+}
+async function showGames(list, turn){
+  const data = await panelGet("/api/games");
+  if (turn !== sheetTurn) return;
+  list.className = "list games";
+  sheetSay(data.games.length ? "Choose a game to start it on your PS5." : "No games yet. They show once PlayBridge has read your PS5's library.");
+  for (const game of data.games) {
+    const item = document.createElement("button"), img = document.createElement("img"), name = document.createElement("span");
+    item.type = "button"; item.className = "game" + (game.running ? " on" : ""); item.setAttribute("aria-label", game.name + (game.running ? ", open now" : ""));
+    img.alt = ""; lazyPicture(img, "/api/icon/" + encodeURIComponent(game.id));
+    name.className = "name"; name.textContent = game.name; item.append(img, name);
+    if (game.running) { const open = document.createElement("span"); open.className = "open"; open.textContent = "Open now"; item.append(open); }
+    item.addEventListener("click", () => startGame(game, false));
+    list.append(item);
+  }
+}
+async function startGame(game, change){
+  hideAsk(); sheetSay("Starting " + game.name + "…");
+  try {
+    const answer = await panelPost("/api/start", { id: game.id, switch: change });
+    if (answer.state === "ask") { sheetSay(""); askFirst(answer.text, () => startGame(game, true)); return; }
+    sheetSay(answer.text, answer.state === "problem");
+    // Once it starts, the sheet steps aside so the game shows.
+    if (answer.state !== "problem") { const turn = sheetTurn; setTimeout(() => { if (turn === sheetTurn && !$("sheet").hidden) closeSheet(); }, 1500); }
+  } catch (e) { sheetSay(trouble(e), true); }
+}
+async function showCaptures(list, turn){
+  const data = await panelGet("/api/captures");
+  if (turn !== sheetTurn) return;
+  list.className = "list shots";
+  sheetSay(data.captures.length ? "Screenshots and recordings on the PC, newest first." : "No captures yet. Screenshots and recordings made in PlayBridge show here.");
+  for (const shot of data.captures) {
+    const item = document.createElement("button"), img = document.createElement("img"), when = document.createElement("span");
+    const video = shot.kind === "Videos";
+    item.type = "button"; item.className = "shot"; item.setAttribute("aria-label", (video ? "Recording, " : "Photo, ") + shot.when + ", " + bytesText(shot.size));
+    img.alt = ""; lazyPicture(img, "/api/thumb/" + encodeURIComponent(shot.id));
+    when.className = "when"; when.textContent = shot.when + " · " + bytesText(shot.size);
+    if (video) { const badge = document.createElement("span"); badge.className = "badge"; badge.textContent = "Video"; when.prepend(badge); }
+    item.append(img, when); item.addEventListener("click", () => openCapture(shot));
+    list.append(item);
+  }
+}
+async function openCapture(shot){
+  sheetSay("Opening…");
+  try {
+    const answer = await panelPost("/api/ticket", { id: shot.id }), body = $("viewerBody");
+    sheetSay("");
+    let shown;
+    if (shot.kind === "Videos") { shown = document.createElement("video"); shown.controls = true; shown.playsInline = true; shown.preload = "metadata"; }
+    else { shown = document.createElement("img"); shown.alt = shot.name; }
+    shown.src = answer.url; body.replaceChildren(shown);
+    $("viewerName").textContent = shot.name + " · " + bytesText(shot.size);
+    $("viewerSave").href = answer.url + "?save=1"; $("viewerSave").setAttribute("download", shot.name);
+    $("viewer").hidden = false; $("viewerClose").focus();
+  } catch (e) { sheetSay(e && e.message === "404" ? "That capture is no longer on the PC. Open Captures again." : trouble(e), true); }
+}
+function closeViewer(){
+  const video = $("viewerBody").querySelector("video");
+  if (video) { video.pause(); video.removeAttribute("src"); video.load(); }
+  $("viewerBody").replaceChildren(); $("viewer").hidden = true;
+  const back = $("sheetList").querySelector("button"); if (big && back) back.focus();
+}
+async function showLog(list, turn){
+  const data = await panelGet("/api/log");
+  if (turn !== sheetTurn) return;
+  list.className = "list log";
+  const atEnd = list.scrollTop + list.clientHeight >= list.scrollHeight - 8;
+  list.textContent = data.lines.length ? data.lines.join("\n") : "Nothing yet.";
+  if (atEnd) list.scrollTop = list.scrollHeight;
+  sheetSay("What PlayBridge noted in this session, newest last.");
+}
+// On a big screen, the arrows move to the nearest choice that way; Back closes.
+function nearest(from, way){
+  const box = !$("viewer").hidden ? $("viewer") : $("sheet");
+  const items = Array.from(box.querySelectorAll("button,a.chip")).filter(el => !el.hidden && el.offsetParent !== null);
+  if (!items.includes(from)) return items[0];
+  const a = from.getBoundingClientRect(), ax = a.left + a.width / 2, ay = a.top + a.height / 2;
+  let best = null, score = Infinity;
+  for (const el of items) {
+    if (el === from) continue;
+    const b = el.getBoundingClientRect(), dx = b.left + b.width / 2 - ax, dy = b.top + b.height / 2 - ay;
+    const along = way === "ArrowLeft" ? -dx : way === "ArrowRight" ? dx : way === "ArrowUp" ? -dy : dy;
+    const across = way === "ArrowLeft" || way === "ArrowRight" ? Math.abs(dy) : Math.abs(dx);
+    if (along > 1 && along + across * 2 < score) { score = along + across * 2; best = el; }
+  }
+  return best;
+}
+function sheetKey(name){
+  if (BACK.has(name)) { if (!$("viewer").hidden) closeViewer(); else if (!$("sheetAsk").hidden) hideAsk(); else closeSheet(); return true; }
+  if (name === "Enter" && document.activeElement && document.activeElement !== document.body && !document.activeElement.matches("video")) { document.activeElement.click(); return true; }
+  if (!name.startsWith("Arrow") || !big) return false;
+  const next = nearest(document.activeElement, name);
+  if (next) { next.focus(); next.scrollIntoView({ block: "nearest" }); }
+  return true;
+}
+document.addEventListener("keydown", ev => {
+  if (!covered()) return;
+  const name = keyName(ev);
+  if ((BACK.has(name) || name.startsWith("Arrow") && big) && sheetKey(name)) ev.preventDefault();
+});
+// A controller moves through the sheet too: the D-pad or left stick, ✕ to choose, ○ to go back.
+function watchPad(){
+  if (padNav || !navigator.getGamepads) return;
+  let was = new Set();
+  padNav = setInterval(() => {
+    if (!covered()) { clearInterval(padNav); padNav = null; return; }
+    const pad = Array.from(navigator.getGamepads()).find(Boolean), down = new Set();
+    if (!pad) return;
+    pad.buttons.forEach((button, i) => { if (button.pressed) down.add(i); });
+    const x = pad.axes[0] || 0, y = pad.axes[1] || 0;
+    if (x < -.6) down.add(14); if (x > .6) down.add(15); if (y < -.6) down.add(12); if (y > .6) down.add(13);
+    const names = { 0: "Enter", 1: "Escape", 12: "ArrowUp", 13: "ArrowDown", 14: "ArrowLeft", 15: "ArrowRight" };
+    for (const i of down) if (!was.has(i) && names[i]) { if (names[i].startsWith("Arrow") && !big) continue; sheetKey(names[i]); }
+    was = down;
+  }, 50);
+}
+$("moreButton").addEventListener("click", openSheet);
+$("sheetClose").addEventListener("click", closeSheet);
+$("tabGames").addEventListener("click", () => showTab("games"));
+$("tabShots").addEventListener("click", () => showTab("captures"));
+$("tabLog").addEventListener("click", () => showTab("log"));
+$("askYes").addEventListener("click", () => { const then = askYes; hideAsk(); if (then) then(); });
+$("askNo").addEventListener("click", () => { hideAsk(); sheetSay(""); });
+$("viewerClose").addEventListener("click", closeViewer);
+$("sheet").addEventListener("click", ev => { if (ev.target === $("sheet")) closeSheet(); });
 function showStage(){
   $("pairing").hidden = true; $("stage").hidden = false; $("pad").hidden = true; layout();
   if (!socket || socket.readyState > 1) connect();
@@ -665,7 +906,9 @@ function showStage(){
 }
 buildPad();
 if (big) { $("keysHelp").hidden = false; $("keysHelp").textContent = "Play with a controller, a TV remote (arrows, OK ✕, Back ○) or the keyboard: " + KEYS_HELP + ". Hold Back for a second for the menu."; }
-if (token) showStage(); else showPairing("");
+if (token) showStage();
+else if (scanned) { showPairing("Pairing…"); $("code").value = scanned; $("pairForm").requestSubmit ? $("pairForm").requestSubmit() : $("pairButton").click(); }
+else showPairing("");
 </script>
 </body>
 </html>

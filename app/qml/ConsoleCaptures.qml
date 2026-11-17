@@ -25,8 +25,8 @@ Popup {
             x: 10; y: 6
             width: parent.width - 20
             spacing: 4
-            Text { text: "On your PS5"; color: Theme.text; font.family: Theme.light; font.pixelSize: 30 }
-            Text { width: parent.width; wrapMode: Text.WordWrap; text: "Screenshots and clips the console saved. Copies go to your capture folder and show in Media."; color: Theme.muted; font.family: Theme.face; font.pixelSize: 13 }
+            Text { text: "On your PS5"; color: Theme.text; font.family: Theme.light; font.pixelSize: Theme.px(30) }
+            Text { width: parent.width; wrapMode: Text.WordWrap; text: "Screenshots and clips the console saved. Copies go to your capture folder and show in Media."; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(13) }
         }
         ListView {
             id: rows
@@ -50,10 +50,10 @@ Popup {
                     width: 22; height: 22; radius: 6
                     color: modelData.chosen ? Theme.gold : "transparent"
                     border.width: 1.5; border.color: modelData.chosen ? Theme.gold : Qt.rgba(1, 1, 1, 0.4)
-                    Text { anchors.centerIn: parent; visible: modelData.chosen; text: "✓"; color: Theme.ink; font.pixelSize: 15; font.bold: true }
+                    Text { anchors.centerIn: parent; visible: modelData.chosen; text: "✓"; color: Theme.ink; font.pixelSize: Theme.px(15); font.bold: true }
                 }
-                Text { x: 44; anchors.verticalCenter: parent.verticalCenter; width: parent.width * 0.38; elide: Text.ElideMiddle; text: modelData.name; color: Theme.text; font.family: Theme.face; font.pixelSize: 13 }
-                Text { anchors.right: parent.right; anchors.rightMargin: 8; anchors.verticalCenter: parent.verticalCenter; width: parent.width * 0.55; horizontalAlignment: Text.AlignRight; elide: Text.ElideLeft; text: modelData.detail; color: Theme.muted; font.family: Theme.face; font.pixelSize: 11 }
+                Text { x: 44; anchors.verticalCenter: parent.verticalCenter; width: parent.width * 0.38; elide: Text.ElideMiddle; text: modelData.name; color: Theme.text; font.family: Theme.face; font.pixelSize: Theme.px(13) }
+                Text { anchors.right: parent.right; anchors.rightMargin: 8; anchors.verticalCenter: parent.verticalCenter; width: parent.width * 0.55; horizontalAlignment: Text.AlignRight; elide: Text.ElideLeft; text: modelData.detail; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(11) }
                 MouseArea { id: rowArea; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: shell.act("ps5_toggle", modelData.path) }
             }
         }
@@ -62,7 +62,7 @@ Popup {
             anchors.bottom: parent.bottom
             width: parent.width
             height: 44
-            Text { anchors.verticalCenter: parent.verticalCenter; width: parent.width - 330; elide: Text.ElideRight; text: box.c.status || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: 13 }
+            Text { anchors.verticalCenter: parent.verticalCenter; width: parent.width - 330; elide: Text.ElideRight; text: box.c.status || ""; color: Theme.muted; font.family: Theme.face; font.pixelSize: Theme.px(13) }
             Row {
                 anchors.right: parent.right
                 spacing: 8

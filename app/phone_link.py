@@ -4,7 +4,7 @@ a WebSocket (Media Source Extensions, or Managed Media Source on an iPhone) and 
 itself, and sends its touch controls back. The PC is the only
 thing that talks to the PS5: each phone's controller goes to the controller companion from a port of its own, so each phone is a player of
 its own there, like each PC. Off by default, and it only answers devices on the local network."""
-import base64,collections,hashlib,hmac,http.server,io,ipaddress,json,queue,secrets,socket,struct,sys,threading,time
+import base64,collections,hashlib,hmac,http.server,io,ipaddress,json,os,queue,re,secrets,socket,struct,sys,threading,time,urllib.parse
 from fractions import Fraction
 from pathlib import Path
 import av
@@ -41,6 +41,12 @@ def ws_read(stream,limit=4096):
  if n>limit:raise ValueError('That message is too large.')
  mask=read_exact(stream,4);data=read_exact(stream,n)
  return b0&0x0f,bytes(b^mask[i&3] for i,b in enumerate(data))
+
+def scan_address(address,code=''):
+ """What the QR code in Settings › Phone opens: the page, and the pairing code while one shows. The code goes after #, which a
+ browser never sends anywhere; the page reads it, pairs, and takes it out of the address bar."""
+ if not address:return ''
+ return address.rstrip('/')+'/'+(f'#code={code}' if code and code.isdigit() and len(code)==6 else '')
 
 # ---- Pairing: a code shown on the PC, used once, for five minutes and five tries. A phone keeps its token; the PC keeps only its hash.
 def digest(token):return hashlib.sha256(token.encode('ascii')).hexdigest()
@@ -461,7 +467,7 @@ class PhonePad:
   if self.put(pad.wire(self.sequence,state)):self.sequence+=1;self.joined=True
  def put(self,data):
   try:
-   for datagram in self.wire_link.datagrams(data):self.udp.sendto(datagram,self.reach(self.host(),pad.PAD_PORT))
+   for datagram in self.wire_link.datagrams(data):pad.send_datagram(self.udp,datagram,self.reach(self.host(),pad.PAD_PORT))
   except OSError:return False
   return True
  def leave(self):
@@ -561,6 +567,50 @@ def nearby(address):
  if ip.version==6 and ip.ipv4_mapped:ip=ip.ipv4_mapped
  return ip.is_private or ip.is_link_local or ip.is_loopback
 
+PANEL_GETS=('/api/games','/api/captures','/api/log','/api/icon/','/api/thumb/','/api/file/')
+MEDIA={'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.gif':'image/gif','.mp4':'video/mp4','.webm':'video/webm'}
+def byte_range(header,size):
+ """The one range a 'Range: bytes=a-b' header asks for, as (first, last) inclusive, or None for the whole file (no header, or one this
+ server does not split, such as several ranges). ValueError when the range lies past the end."""
+ match=re.fullmatch(r'\s*bytes\s*=\s*(\d*)\s*-\s*(\d*)\s*',header or '')
+ if not match or match.group(1)==match.group(2)=='':return None
+ first,last=match.groups()
+ if first=='':
+  if int(last)==0:raise ValueError('empty range')
+  first,last=max(0,size-int(last)),size-1
+ else:first,last=int(first),min(int(last),size-1) if last else size-1
+ if first>=size or first>last:raise ValueError('past the end')
+ return first,last
+def disposition(name,save):
+ """Shown in the page, or saved under its own name; the plain name is for browsers that do not read the UTF-8 one."""
+ plain=''.join(c if 32<=ord(c)<127 and c not in '"\\' else '_' for c in name)
+ return f'{"attachment" if save else "inline"}; filename="{plain}"; filename*=UTF-8\'\'{urllib.parse.quote(name,safe="")}'
+def send_file(handler,path,save=False):
+ """A capture, whole or the part a video player asks for, read a megabyte at a time so a long recording never sits in memory."""
+ try:file=open(path,'rb')
+ except OSError:handler.reply(404,b'{"error":"missing"}');return
+ with file:
+  size=os.fstat(file.fileno()).st_size
+  try:span=byte_range(handler.headers.get('Range'),size)
+  except ValueError:
+   handler.send_response(416);handler.send_header('Content-Range',f'bytes */{size}');handler.send_header('Content-Length','0');handler.end_headers();return
+  first,last=span or (0,size-1)
+  handler.send_response(206 if span else 200);handler.send_header('Content-Type',MEDIA.get(Path(path).suffix.lower(),'application/octet-stream'))
+  handler.send_header('Content-Length',str(last-first+1));handler.send_header('Accept-Ranges','bytes')
+  if span:handler.send_header('Content-Range',f'bytes {first}-{last}/{size}')
+  handler.send_header('Content-Disposition',disposition(Path(path).name,save));handler.send_header('Cache-Control','no-store')
+  handler.send_header('X-Content-Type-Options','nosniff');handler.end_headers()
+  if handler.command=='HEAD':return
+  file.seek(first);left=last-first+1
+  try:
+   while left>0:
+    chunk=file.read(min(left,1<<20))
+    if not chunk:break
+    handler.wfile.write(chunk);left-=len(chunk)
+  except OSError:pass
+  # A file that shrank while it was sent leaves the reply short, so the connection cannot carry another one.
+  if left:handler.close_connection=True
+
 class QuietServer(http.server.ThreadingHTTPServer):
  """A phone that leaves, sleeps or loses Wi-Fi drops its connection; that is normal and not worth a traceback."""
  def handle_error(self,request,client_address):
@@ -579,6 +629,8 @@ class PhoneServer:
   self.log=log;self.connected=0
   # The controllers, and a way to close and to tell something to each phone connected now.
   self.pads=set();self.closers={};self.sayers={}
+  # The More panel (a phone_panel.Panel), set by the app; None leaves it out.
+  self.panel=None
  @property
  def running(self):return self.server is not None
  def in_use(self,now):
@@ -622,9 +674,16 @@ class PhoneServer:
      except OSError:self.reply(500,b'{"error":"page"}')
     elif self.path=='/api/check':self.reply(200 if owner.pairing.knows(self.headers.get('X-Token','')) else 401,b'{}')
     elif self.path=='/ws' and self.headers.get('Upgrade','').lower()=='websocket' and self.headers.get('Sec-WebSocket-Key'):owner.websocket(self)
+    elif owner.panel is not None and self.path.startswith(PANEL_GETS):owner.panel_get(self)
     else:self.reply(404,b'{"error":"missing"}')
+   def do_HEAD(self):
+    # A video player may ask for a capture's size first.
+    if not self.allowed():return
+    if owner.panel is not None and self.path.startswith('/api/file/'):owner.panel_get(self)
+    else:self.send_response(404);self.send_header('Content-Length','0');self.end_headers()
    def do_POST(self):
     if not self.allowed():return
+    if owner.panel is not None and self.path in ('/api/start','/api/ticket'):owner.panel_post(self);return
     if self.path!='/api/pair':self.reply(404,b'{"error":"missing"}');return
     try:
      size=int(self.headers.get('Content-Length','0'))
@@ -640,6 +699,44 @@ class PhoneServer:
   server.daemon_threads=True;self.server=server;self.error='';self.port=server.server_address[1]
   threading.Thread(target=server.serve_forever,kwargs={'poll_interval':.25},name='PlayBridge phone page',daemon=True).start()
   return True
+ def paired(self,handler):
+  if self.pairing.knows(handler.headers.get('X-Token','')):return True
+  handler.reply(401,b'{"error":"pair"}');return False
+ def panel_get(self,handler):
+  """The More panel's lists and pictures for a paired phone, and a capture for whoever holds its ticket."""
+  path,_,query=handler.path.partition('?');path=urllib.parse.unquote(path);panel=self.panel
+  if path.startswith('/api/file/'):
+   # A ticket stands for the token here: a video or picture element and a download link cannot send a header.
+   item=panel.redeem(path[len('/api/file/'):])
+   if item is None:handler.reply(410,b'{"error":"ticket"}')
+   else:send_file(handler,item.path,save='save=1' in query.split('&'))
+   return
+  if not self.paired(handler):return
+  if path=='/api/games':handler.reply(200,json.dumps({'games':panel.game_list()}).encode())
+  elif path=='/api/captures':handler.reply(200,json.dumps({'captures':panel.capture_list()}).encode())
+  elif path=='/api/log':handler.reply(200,json.dumps({'lines':panel.log_lines()}).encode())
+  else:
+   if path.startswith('/api/icon/'):data,kind=panel.icon_bytes(path[len('/api/icon/'):]),'image/png'
+   elif path.startswith('/api/thumb/'):data,kind=panel.thumb_bytes(path[len('/api/thumb/'):]),'image/jpeg'
+   else:data,kind=None,''
+   if data:handler.reply(200,data,kind)
+   else:handler.reply(404,b'{"error":"missing"}')
+ def panel_post(self,handler):
+  """Starting a game, or a ticket to look at or save a capture."""
+  if not self.paired(handler):return
+  try:
+   size=int(handler.headers.get('Content-Length','0'))
+   if not 0<size<=512:raise ValueError
+   asked=json.loads(handler.rfile.read(size));key=str(asked.get('id',''))
+  except (ValueError,AttributeError):handler.reply(400,b'{"error":"request"}');return
+  if handler.path=='/api/start':
+   if not self.play():answer=dict(state='problem',text='Starting a game needs Play on your PS5, in PlayBridge › Settings › Console.')
+   else:answer=self.panel.start_game(key,bool(asked.get('switch')))
+   handler.reply(200,json.dumps(answer).encode())
+  else:
+   url=self.panel.ticket(key)
+   if url:handler.reply(200,json.dumps({'url':url}).encode())
+   else:handler.reply(404,b'{"error":"missing"}')
  def stop(self):
   server=self.server;self.server=None
   if server is not None:

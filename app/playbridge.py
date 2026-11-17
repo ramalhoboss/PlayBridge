@@ -32,6 +32,7 @@ from save_backup import SaveBackup
 from fan_target import FanProfiles
 from console_control import AWAY_END,CONTROL_PORT,ConsoleLink,POWER_OFF,REBOOT,REST,call as console_call,running_title
 import discord_link,twitch_chat
+import play_time
 from highlights import MomentLog
 from console_discovery import SUPPORTED_FIRMWARE,firmware_name,locate,supported
 from stream_metrics import StreamMetrics,export_diagnostics
@@ -145,7 +146,8 @@ class Timings:
 class Player:
  def __init__(self,args):
   self.metrics=StreamMetrics();self.metrics_lock=threading.Lock();self.recorder=CaptureRecorder();self.broadcast=LiveBroadcast();self.phone_feed=PhoneFeed();self.last_native_frame=None;self.capture_info=None;self.notice='';self.notice_until=0;self.screenshot_thread=None;self.retry_at=0;self.intentional_disconnect=False;self.follow=config().get('host_auto',True);self.elsewhere=None;self.renderer=(('gdi' if args.headless or not config().get('direct_video',True) else 'd3d11') if sys.platform=='win32' else 'tk') if args.renderer=='auto' else args.renderer;self.timings=Timings();self.args=args;self.stop=threading.Event();self.session_done=threading.Event();self.render_size=(1280,720);self.volume=1.0;self.muted=False;self.save_at=0;self.connection_state='Connecting…';self.lock=threading.Lock();self.pcm=bytearray();self.frames=collections.deque();self.last_drawn=None;self.audio=None;self.sock=None;self.error='';self.stats=collections.Counter();self.peak=0;self.output_name='';self.first_video=None;self.first_audio=None;self.first_arrival=None;self.latest_pts={};self.events=collections.deque(maxlen=60);self.arrival_origin=None;self.transport_growth_ms=0;self.decode_failure=None;self.started=time.perf_counter();self.pacer=FramePacer(self.stats);self.repeats=RepeatFrames(self.stats);self.motion=MotionMeter();self.decoder_name='software';self.decoder_on_gpu=False;self.codec=0;self.console=None;self.video_hidden=False;self.sound_hidden=False;self.replay=ReplayBuffer(config().get('replay_seconds',60));self.moments=MomentLog();self.replay_thread=None;self.link=ConsoleLink(STATE/'library',self.notify);self.link.on_trophy=self.trophy_unlocked;self.trophy_events=queue.SimpleQueue();self.gaps=collections.deque(maxlen=30)
-  self.update_state='idle';self.updates=updater.Updater(STATE/'update',automatic=bool(config().get('update_auto',True)),on_change=self.update_changed,channel=config().get('update_channel','stable'));self.restart_after_update=False
+  self.update_state='idle';self.updates=updater.Updater(STATE/'update',automatic=bool(config().get('update_auto',True)),on_change=self.update_changed,channel=config().get('update_channel','stable'));self.restart_after_update=False;self.go_back_on_close=False;self.previous_session=None;self.marked=False
+  self.play_time=play_time.PlayTime(config().get('play_limit'),lambda data:save_config(play_limit=data))
   self.perf_watch=PerfWatch(STATE/'perf-history.json')
   # The payload's logs from this run, for finding out why a stream ended. They stay on this PC and the next start clears them.
   self.link.log_folder=STATE/'ps5-logs'
@@ -474,6 +476,9 @@ class Player:
   attempt=0
   try:
    while not self.stop.is_set() and not self.intentional_disconnect:
+    # Settings › Console › Play time: once the day's time is used up, nothing connects until a parent adds time.
+    blocked=self.play_time.blocked()
+    if blocked:self.error=blocked;self.connection_state='Play time is up for today';self.event('Play time is up for today');break
     self.sock=None;self.first_video=None;self.first_audio=None;self.first_arrival=None;self.capture_info=None;self.transport_growth_ms=0;self.latest_pts={}
     self.recorder.reset_session();self.replay.reset();self.broadcast.reset_session();self.phone_feed.reset_session();self.mic_mix.reset();self.codec=0
     with self.metrics_lock:self.metrics.reset()
@@ -491,6 +496,18 @@ class Player:
     if self.stop.is_set() or self.intentional_disconnect:break
   finally:self.session_done.set()
  def notify(self,message):self.notice=message;self.notice_until=time.perf_counter()+6
+ def play_clock(self,step=5):
+  """Counts play time while the picture streams, says when little is left, and ends the stream at the day's limit."""
+  while not self.stop.wait(step):
+   if self.first_video is None or self.sock is None or self.session_done.is_set():continue
+   said=self.play_time.count(step)
+   if not said:continue
+   self.notify(said);self.notice_until=time.perf_counter()+(20 if self.play_time.blocked() else 10);self.event(said)
+   if self.play_time.blocked():
+    self.intentional_disconnect=True;self.error=said
+    if self.sock:
+     try:self.sock.shutdown(socket.SHUT_RDWR)
+     except OSError:pass
  def feed_mixed(self,payload,pts):
   """The console's sound with your voice added, for everything that saves or sends the stream. The sound you hear is never changed."""
   try:mixed=self.mic_mix.mix(payload,pts)
@@ -811,15 +828,24 @@ class Player:
  def run(self):
   self.open_audio();self.converter=threading.Thread(target=self.convert_video,daemon=True);self.converter.start();self.worker=threading.Thread(target=(lambda:self.session_done.set()) if self.args.preview else self.network,daemon=True);self.worker.start()
   if self.args.preview:self.connection_state='Ready to connect'
+  if not self.args.headless:threading.Thread(target=self.play_clock,name='PlayBridge play time',daemon=True).start()
   # New versions from GitHub; never in a timed or headless run, which are tests.
   if not (self.args.headless or self.args.seconds or self.args.preview):
    threading.Thread(target=updater.tidy,args=(self.updates.folder,),name='PlayBridge update tidy',daemon=True).start();self.updates.start()
   if self.args.headless:
    self.session_done.wait(self.args.seconds or 10)
-  else:self.ui()
+  else:
+   # A marker while the window is open: found at the next start, it says this session did not close normally.
+   if not self.args.seconds:
+    import session_marker;from app_version import VERSION as running;self.previous_session=session_marker.begin(STATE,running);self.marked=True
+   self.ui()
+   if self.marked:
+    import session_marker;session_marker.end(STATE)
   self.updates.close()
-  # A version downloaded and checked goes in now, once this one has closed; Restart and update also opens it again.
-  if self.updates.install(relaunch=self.restart_after_update):self.event(f'Installing PlayBridge {self.updates.version} after closing')
+  # A version downloaded and checked goes in now, once this one has closed; Restart and update also opens it again. Go back
+  # puts the kept older version in instead.
+  if self.go_back_on_close and self.updates.go_back():self.event(f'Going back to PlayBridge {self.updates.previous[0]} after closing')
+  elif self.updates.install(relaunch=self.restart_after_update):self.event(f'Installing PlayBridge {self.updates.version} after closing')
   self.stop.set()
   if self.sock:
    try:self.sock.shutdown(socket.SHUT_RDWR)
@@ -875,7 +901,8 @@ class Player:
 def main():
  # A new version, just downloaded, started by the old one to take its place: nothing else opens.
  if len(sys.argv)>2 and sys.argv[1]=='--finish-update':
-  import updater;return updater.finish(sys.argv[2],'--relaunch' in sys.argv[3:])
+  # The replaced EXE is kept for Settings › Updates › Go back, except when this is that going back.
+  import updater;return updater.finish(sys.argv[2],'--relaunch' in sys.argv[3:],keep=None if '--no-keep' in sys.argv[3:] else STATE/'update'/updater.PREVIOUS)
  ap=argparse.ArgumentParser();ap.add_argument('--profile',choices=tuple(PROFILES),default=config().get('profile','balanced'));ap.add_argument('--auto-reconnect',action=argparse.BooleanOptionalAction,default=config().get('auto_reconnect',True));ap.add_argument('--renderer',choices=('auto','d3d11','gdi','tk'),default='auto');ap.add_argument('--ui',choices=('tk','qt'),default=config().get('ui') if config().get('ui') in ('tk','qt') else 'qt');ap.add_argument('--host',default=config().get('host','192.168.1.100'));ap.add_argument('--connect-only',action='store_true',default=config().get('connect_only',False));ap.add_argument('--preview',action='store_true');ap.add_argument('--seconds',type=int,default=0);ap.add_argument('--headless',action='store_true');ap.add_argument('--record',action='store_true',help='Save raw diagnostic wire packets; use F9 for MP4 recording');ap.add_argument('--device');ap.add_argument('--devices',action='store_true');args=ap.parse_args()
  if args.devices:print(sd.query_devices());return 0
  guard=socket.socket(socket.AF_INET,socket.SOCK_STREAM)

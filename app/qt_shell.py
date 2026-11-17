@@ -19,7 +19,7 @@ from hang_watch import HangWatch
 from keep_awake import BatteryHint,KeepAwake
 from pad_input import KEY_NAMES,KEYBOARD_HELP,PadBridge
 from mouse_aim import MOUSE_HELP,AimProfiles,MouseAim,RawMouse,free_pointer,hold_pointer
-import bug_report,perf_watch,voice_note,fan_target,console_mic,library_view,twitch_chat,local_api,app_version,psn_link,friends_view,clip_editor,game_stats,pad_profiles,trophy_guides,payload_manager,ftp_files,psn_trophies
+import accents,windows_look,phone_panel,session_marker,settings_backup,bug_report,perf_watch,qr_code,settings_search,setup_check,voice_note,fan_target,console_mic,library_view,twitch_chat,local_api,app_version,psn_link,friends_view,clip_editor,game_stats,pad_profiles,trophy_guides,payload_manager,ftp_files,psn_trophies
 import performance_lab,share_cards,highlights,away_play
 from functools import partial
 from performance import reading,watts
@@ -48,6 +48,8 @@ GWL_STYLE=-16;WS_CAPTION=0x00C00000;FRAME_CHANGED=0x0001|0x0002|0x0004|0x0010|0x
 # The three window buttons Qt draws in the top right corner, 46 wide each, and a little room before them.
 CAPTION_BUTTONS=150
 TABS=PAGES
+# Appearance › Text and contrast: how much larger every text is drawn.
+TEXT_SIZES={'Standard':1.0,'Larger':1.12,'Largest':1.25}
 REPLAY_LENGTHS={'Off':0,'Last 30 seconds':30,'Last 60 seconds':60,'Last 2 minutes':120}
 DEFAULT_MIC='Windows default microphone'
 # How long a chat message stays over the game when old ones fade.
@@ -174,12 +176,23 @@ class Shell(QObject):
   self.pairing=phone_link.Pairing(hashes,lambda kept:core.save_config(phone_tokens=kept))
   self.phones=phone_link.PhoneServer(app.phone_feed,self.pairing,lambda:app.args.host,lambda:self.pad.attached,log=phone_link.PhoneLog(core.STATE/'phone-log.txt'))
   self.phones.pad_key=app.payload_pairing.pad_key;self.phones.pad_reach=app.reach
+  # A paired phone's More panel: the games to start, the captures to look at and save, and the session's log. A game started there
+  # is started from this window's own thread, through phone_jobs.
+  self.phone_jobs=queue.Queue()
+  self.phones.panel=phone_panel.Panel(self.phone_games,app.link.icon,self.phone_game,lambda:capture_items(app.capture_folder(),'All',phone_panel.CAPTURES),
+   self.phone_log,video_thumbnail)
   # A phone that plays needs the controller companion as much as this PC does.
   self.pad.wanted=self.phones.in_use
   if saved.get('phone_on',False):self.phones.start()
-  self.diagnostic=bool(saved.get('diagnostic',False));self.match_on=bool(saved.get('match_refresh',True));self.animations=bool(saved.get('animations',True))
+  self.diagnostic=bool(saved.get('diagnostic',False));self.match_on=bool(saved.get('match_refresh',True));self.animations=bool(saved.get('animations',windows_look.animations()))
+  self.text_size=saved.get('text_size') if saved.get('text_size') in TEXT_SIZES else 'Standard';self.contrast=bool(saved.get('contrast',windows_look.high_contrast()))
+  self.accent=saved.get('accent') if saved.get('accent') in accents.ACCENTS else accents.DEFAULT;self.shade=saved.get('backdrop') if saved.get('backdrop') in accents.SHADES else 'Bright'
+  # The Games page's tiles are drawn in Python: they take the accent now, before the first one is drawn.
+  accents.apply_classic(self.accent)
   self.say_text=('','plain');self.say_until=None;self.update_seen=-1;self.update_offered=None;self.scan_results=queue.Queue();self.discovered={};self.scanning=False;self.scan_status='Find your PS5 or enter its IP address above.';self.found_label='Select a console'
   self.favourite_status=('Save this IP and quality profile for next time.','plain');self.payload_status=('Sends any ELF to the loader your exploit opened on port 9021. A payload runs with full access to the PS5, so send only files you trust.','plain')
+  self.setup_results=queue.Queue();self.setup_busy=False;self.setup_items=[];self.setup_at=None
+  self.search_cards=None;self.search_hits=[];self.found_card='';self.found_tick=0;self.play_problem=''
   self.payload_results=queue.Queue();self.away_results=queue.Queue();self.away_busy=False;self.away_problem='';self.live_status=None;self.encoders=None;self.encoder_results=queue.Queue();self.section='console';self.typed_host=None;self.typed_profile=None
   # Text the window puts in the address and name fields, as when a console is found: a new version each time, so the field takes it once.
   self.fill=dict(host='',name='',version=0)
@@ -295,9 +308,15 @@ class Shell(QObject):
   self.timer=QTimer(self);self.timer.setTimerType(Qt.TimerType.PreciseTimer);self.timer.timeout.connect(self.tick);self.timer.start(2 if not self.direct else 8)
 
   self.pad.start()
-  QTimer.singleShot(1,lambda:self.set_gaming(True) if core.config().get('gaming_mode',False) else self.show_page('games'))
+  # After a session that did not close normally, PlayBridge opens on the page it was on and offers a report.
+  crashed=app.previous_session if isinstance(app.previous_session,dict) else None
+  back=crashed.get('page') if crashed and crashed.get('page') in PAGES+('settings',) and crashed.get('page')!='live' else None
+  QTimer.singleShot(1,lambda:self.set_gaming(True) if core.config().get('gaming_mode',False) else self.show_page(back or 'games'))
+  if crashed:QTimer.singleShot(2500,self.offer_crash_report)
   # A microphone left on stays on, and says so when it opens.
   if core.config().get('mic_on',False):QTimer.singleShot(800,lambda:self.set_microphone(True))
+  # The first time PlayBridge opens, Check setup runs by itself once the window has settled.
+  if not core.config().get('setup_checked'):QTimer.singleShot(5000,lambda:self.do_setup_check('first'))
   self.refresh_settings();self.refresh_look()
  def note_shown(self,done):
   # The time between two frames on screen: 16.7 ms each on a steady screen, and 13.9 then 20.8 on a 144 Hz one, which is the judder.
@@ -596,6 +615,8 @@ class Shell(QObject):
   while not self.scan_results.empty():self.finish_scan(*self.scan_results.get_nowait())
   while not self.payload_results.empty():self.finish_payload(*self.payload_results.get_nowait())
   while not self.away_results.empty():self.finish_away(*self.away_results.get_nowait())
+  while not self.setup_results.empty():self.finish_setup(*self.setup_results.get_nowait())
+  while not self.phone_jobs.empty():self.phone_start(*self.phone_jobs.get_nowait())
   if self.encoders is None and not self.encoder_results.empty():self.encoders=self.encoder_results.get_nowait();self.refresh_settings()
   while not self.media_results.empty():self.finish_media(*self.media_results.get_nowait())
   while not self.clip_results.empty():self.finish_clip(*self.clip_results.get_nowait())
@@ -644,6 +665,7 @@ class Shell(QObject):
  def show_page(self,name):
   page=self.values['page']
   if name==page:return
+  if self.app.marked:session_marker.page(self.core.STATE,name)
   self.close_popup()
   # The small window holds only the picture, so any other page brings the full window back.
   if self.values['mini'] and name!='live':self.small_window()
@@ -804,6 +826,30 @@ class Shell(QObject):
   if not running:launch();return
   def replace():self.flow.replace(title,time.perf_counter());app.link.send(CLOSE)
   self.ask_first('Switch games?',app.link.game_name(running)+' closes first. Anything not saved in it is lost.','Switch',replace)
+ # The phone's More panel. phone_games, phone_game and phone_log are called from the phone page's own threads, and only read.
+ def phone_games(self):
+  link=self.app.link;running=running_title(link.status) if link.online else '';hidden=getattr(link,'hidden',None) or set()
+  return [dict(title=game['title'],name=game.get('name') or game['title'],running=game['title']==running) for game in list(link.games) if game.get('title') and game['title'] not in hidden]
+ def phone_game(self,title,switch):
+  """What starting a game from the phone will do, said at once; the start itself waits for this window's thread."""
+  app=self.app;name=app.link.game_name(title)
+  if app.play_time.blocked():return dict(state='problem',text='Today\'s play time is used up.')
+  if not app.link.online:return dict(state='problem',text='PlayBridge is not connected to your PS5.')
+  running=running_title(app.link.status)
+  if title==running:return dict(state='open',text=f'{name} is already open.')
+  if title in (self.flow.waiting,self.flow.after_close):return dict(state='open',text=f'{name} is starting.')
+  if running and not switch:return dict(state='ask',text=f'{app.link.game_name(running)} closes first. Anything not saved in it is lost.')
+  self.phone_jobs.put((title,running));return dict(state='started',text=f'Starting {name} on your PS5…')
+ def phone_start(self,title,closing):
+  # The phone already answered "Switch games?", for the game that was open when it asked.
+  app=self.app;running=running_title(app.link.status);app.event(f'Phone: start {title}')
+  if title==running or title in (self.flow.waiting,self.flow.after_close) or not app.link.online or running!=closing:return
+  if running:self.flow.replace(title,time.perf_counter());app.link.send(CLOSE);return
+  self.flow.launch(title,time.perf_counter())
+  if not app.link.launch(title,self.launched):self.flow.waiting=None
+ def phone_log(self):
+  app=self.app;wall=time.time()-(time.perf_counter()-app.started)
+  return [time.strftime('%H:%M:%S',time.localtime(wall+at))+'  '+text for at,text in list(app.events)]
  def launched(self,result):
   if result:self.flow.waiting=None;self.say(f'The PS5 did not start the game ({result:#010x}).')
  def reveal_game(self):
@@ -1117,11 +1163,11 @@ class Shell(QObject):
   live_status=self.live_status or (LIVE_HINTS[service],'plain')
   if app.broadcast.state=='live':live_status=('Live on '+app.broadcast.name+' for '+live_broadcast.clock(app.broadcast.elapsed())+'.','news')
   self.put('settings',dict(
-   section=self.section,sections=[dict(key=key,label=label,note=note) for key,label,note in SECTIONS],line=dict(text=self.say_text[0],tone=self.say_text[1]),fill=self.fill,
+   section=self.section,sections=[dict(key=key,label=label,note=note) for key,label,note in SECTIONS],searchHits=self.search_hits,foundCard=self.found_card,foundTick=self.found_tick,line=dict(text=self.say_text[0],tone=self.say_text[1]),fill=self.fill,
    host=app.args.host,favourites=[item['name']+' · '+item['host'] for item in favourites],consoleName=match['name'] if match else '',
    found=list(self.discovered) or (['No console found'] if self.scan_status.startswith('No console') else ['Select a console']),foundLabel=self.found_label,scanning=self.scanning,scanStatus=self.scan_status,
    favouriteStatus=dict(text=self.favourite_status[0],tone=self.favourite_status[1]),reconnect=bool(app.args.auto_reconnect),manual=bool(app.args.connect_only),notices=bool(saved.get('ps5_notices',False)),
-   consolePad=self.console_pad,keyboardHelp=KEYBOARD_HELP,padStatus=self.pad_status(),**self.phone_view(),**self.aim_view(),**self.pad_profile_view(),**self.fan_view(),**self.away_view(),**self.discord_view(),**self.chat_settings(),**self.api_view(),**self.psn_settings(),
+   consolePad=self.console_pad,keyboardHelp=KEYBOARD_HELP,padStatus=self.pad_status(),**self.phone_view(),**self.aim_view(),**self.pad_profile_view(),**self.fan_view(),**self.away_view(),**self.setup_view(),**self.play_view(),**self.discord_view(),**self.chat_settings(),**self.api_view(),**self.psn_settings(),
    chatProblem=getattr(self,'chat_problem',''),
    recent=[self.payload_label(item) for item in self.recent_payloads()] or ['No payload sent yet'],payloadStatus=dict(text=self.payload_status[0],tone=self.payload_status[1]),**self.payloads_view(),
    profiles=[value['name'] for value in profiles.values()],profile=profiles[app.args.profile]['name'],cardSummary=graphics_card.summary(app.graphics()),
@@ -1135,7 +1181,7 @@ class Shell(QObject):
    services=list(live_broadcast.SERVICES.values()),service=live_broadcast.SERVICES[service],serviceKey=service,server=target.get('server',''),
    key=target.get('key',''),compressible=service in live_broadcast.COMPRESSIBLE,**self.live_view(saved,service),compress=bool(saved.get('live_compress',False)),compressNote=live_note,
    liveStatus=dict(text=live_status[0],tone=live_status[1]),liveActive=bool(app.broadcast.active),liveEnding=app.broadcast.state=='ending',
-   music=bool(self.sounds.music_on),cues=bool(self.sounds.effects_on),level=float(self.sounds.volume),gamingOnStart=bool(saved.get('gaming_mode',False)),animations=self.animations,qt=saved.get('ui','qt')=='qt',
+   music=bool(self.sounds.music_on),cues=bool(self.sounds.effects_on),level=float(self.sounds.volume),gamingOnStart=bool(saved.get('gaming_mode',False)),animations=self.animations,textSizes=list(TEXT_SIZES),textSize=self.text_size,accents=list(accents.ACCENTS),accent=self.accent,shades=list(accents.SHADES),shadeName=self.shade,contrast=self.contrast,qt=saved.get('ui','qt')=='qt',
    gamesViews=[name for _,name in library_view.VIEWS],gamesView=library_view.VIEW_NAMES[self.shelf_state.options.view],tileSizes=[name for _,name in library_view.SIZES],
    tileSize=library_view.SIZE_NAMES[self.shelf_state.options.size],tileNames=self.shelf_state.options.names,tileBadges=self.shelf_state.options.badges,
    update=dict(app.updates.status(),text=app.updates.text(),source=not getattr(sys,'frozen',False),check=perf_watch.line(checked),slower=checked['state']=='slower')))
@@ -1506,7 +1552,18 @@ class Shell(QObject):
     from scene import no_art
     backdrop.parent.mkdir(parents=True,exist_ok=True);no_art((1920,1080)).save(backdrop)
    except Exception:backdrop=None
-  self.put('look',dict(animations=self.animations,backdrop=file_url(backdrop) if backdrop else '',icons=(self.core.HERE/'assets').resolve().as_uri()+'/'))
+  self.put('look',dict(animations=self.animations,textScale=TEXT_SIZES[self.text_size],contrast=self.contrast,accent=list(accents.accent(self.accent)),shade=accents.shade(self.shade),backdrop=file_url(backdrop) if backdrop else '',icons=(self.core.HERE/'assets').resolve().as_uri()+'/'))
+ def settings_index(self):
+  """Search in Settings reads the page's own cards once."""
+  if self.search_cards is None:
+   try:self.search_cards=settings_search.index((QML/'SettingsPage.qml').read_text(encoding='utf8'),SECTIONS)
+   except OSError:self.search_cards=[]
+  return self.search_cards
+ def do_settings_search(self,text):self.search_hits=settings_search.search(self.settings_index(),str(text or ''));self.refresh_settings()
+ def do_search_open(self,value):
+  """A search result: its section, scrolled to its card, which glows for a moment."""
+  if not isinstance(value,dict) or value.get('section') not in dict((k,0) for k,_,_ in SECTIONS):return
+  self.section=value['section'];self.found_card=str(value.get('title',''));self.found_tick+=1;self.refresh_settings()
  def do_section(self,key):
   if key in dict((k,0) for k,_,_ in SECTIONS):self.section=key;self.refresh_settings()
  def save(self,typed=None,reach=False,profile=None):
@@ -1608,6 +1665,28 @@ class Shell(QObject):
   else:
    self.away_busy=True;app.end_away(lambda told,removed:self.away_results.put(('off',told,removed,'')))
   self.refresh_settings()
+ def do_setup_check(self,value):
+  """Check setup: the PS5's answer takes about a second, so it runs beside the window."""
+  if self.setup_busy:return
+  self.setup_busy=True;self.refresh_settings();app=self.app;host=(self.typed_host or app.args.host).strip()
+  card=app.graphics();payload=self.core.PAYLOAD_FILE.is_file();folder=app.capture_folder();output=app.output_name
+  def work():
+   try:items=setup_check.run(host,card,payload,folder,output)
+   except Exception as error:items=[setup_check.item(setup_check.FAIL,'The check did not finish',f'{type(error).__name__}: {str(error)[:160]}')]
+   self.setup_results.put((value=='first',items))
+  threading.Thread(target=work,name='PlayBridge setup check',daemon=True).start()
+ def finish_setup(self,first,items):
+  self.setup_busy=False;self.setup_items=items;self.setup_at=time.time()
+  if first:
+   self.core.save_config(setup_checked=True)
+   if any(entry['state'] in (setup_check.WARN,setup_check.FAIL) for entry in items):
+    self.say_line('Check setup: '+setup_check.headline(items)[:-1].lower()+' in Settings › Console.','plain')
+  self.refresh_settings()
+ def setup_view(self):
+  marks={setup_check.OK:'✓',setup_check.NOTE:'•',setup_check.WARN:'!',setup_check.FAIL:'✕'}
+  tones={setup_check.OK:'plain',setup_check.NOTE:'plain',setup_check.WARN:'news',setup_check.FAIL:'error'}
+  return dict(setupBusy=self.setup_busy,setupHeadline=setup_check.headline(self.setup_items)+(f' Checked at {time.strftime("%H:%M",time.localtime(self.setup_at))}.' if self.setup_at else ''),
+   setupItems=[dict(mark=marks[entry['state']],tone=tones[entry['state']],title=entry['title'],text=entry['text']) for entry in self.setup_items])
  def finish_away(self,kind,first,second,problem):
   self.away_busy=False;self.away_problem=problem
   if kind=='on' and first is not None and not problem:self.say_line('Away play is ready. Take this PC with you and connect as usual.','news')
@@ -1745,7 +1824,10 @@ class Shell(QObject):
   showing=self.pairing.showing(time.monotonic()) if self.phones.running else None;count=self.pairing.count();watching=self.phones.phones
   address=f'http://{phone_link.local_address(self.app.args.host)}:{self.phones.port}' if self.phones.running else ''
   state=self.app.phone_feed.error if self.phones.running and self.app.phone_feed.error else ('No phone is watching.' if not watching else f'{watching} phone'+('s' if watching>1 else '')+' watching'+(f', {self.app.phone_feed.mode}.' if self.app.phone_feed.mode else '.')) if self.phones.running else self.phones.error
+  scan=phone_link.scan_address(address,showing[0] if showing else '')
+  if scan and getattr(self,'phone_qr',('',''))[0]!=scan:self.phone_qr=(scan,qr_code.as_text(qr_code.encode(scan)))
   return dict(phoneOn=self.phones.running,phoneAddress=address,phoneCode=showing[0] if showing else '',phoneCodeLeft=showing[1] if showing else 0,
+   phoneQr=self.phone_qr[1] if scan else '',
    phonePaired=f'{count} phone'+('s' if count!=1 else '')+' paired.' if count else 'No phone paired yet.',phoneState=state,phonePlay=bool(self.console_pad),
    phoneWatching=watching if self.phones.running else 0)
  # The PS5's files.
@@ -2096,11 +2178,58 @@ class Shell(QObject):
  def do_library_volume_done(self,_):self.core.save_config(sound_level=self.sounds.volume)
  def do_gaming_on_start(self,on):self.core.save_config(gaming_mode=bool(on));self.refresh_settings()
  def do_animations(self,on):self.animations=bool(on);self.core.save_config(animations=self.animations);self.refresh_settings();self.refresh_look()
+ def do_text_size(self,name):
+  if name in TEXT_SIZES:self.text_size=name;self.core.save_config(text_size=name);self.refresh_settings();self.refresh_look()
+ def do_contrast(self,on):self.contrast=bool(on);self.core.save_config(contrast=self.contrast);self.refresh_settings();self.refresh_look()
+ def do_accent(self,name):
+  if name in accents.ACCENTS:self.accent=name;self.core.save_config(accent=name);self.refresh_settings();self.refresh_look()
+ def do_backdrop(self,name):
+  if name in accents.SHADES:self.shade=name;self.core.save_config(backdrop=name);self.refresh_settings();self.refresh_look()
  def do_qt(self,on):self.core.save_config(ui='qt' if on else 'tk');self.reopen_line()
  # Updates.
  def do_update_check(self,value):self.app.updates.check_now()
  def do_update_beta(self,on):
   channel='beta' if on else 'stable';self.app.updates.set_channel(channel);self.core.save_config(update_channel=channel);self.refresh_settings()
+ def offer_crash_report(self):
+  """Asked once after a session that did not close normally, when nothing else is on screen."""
+  if self.values['dialog'] or self.values['fullscreen'] or (self.values['page']=='live' and self.has_video):QTimer.singleShot(4000,self.offer_crash_report);return
+  left=self.app.previous_session or {};started=left.get('started')
+  when=time.strftime('%d %b at %H:%M',time.localtime(started)) if isinstance(started,(int,float)) else ''
+  self.ask_first('PlayBridge did not close normally',f'The last session{", started on "+when+"," if when else ""} ended without PlayBridge closing, as after a crash, '
+   'a power cut or Task Manager. A report helps fix it: it opens a new GitHub issue with this PC\'s details, nothing private, and nothing is sent until you submit it there.',
+   'Report a problem',lambda:self.do_bug_report(None),'Not now')
+ # Play time.
+ def play_view(self):
+  view=self.app.play_time.view();view['problem']=self.play_problem
+  return dict(play=view)
+ def play_answer(self,problem,done=''):
+  self.play_problem=problem
+  if done and not problem:self.say_line(done,'news')
+  else:self.refresh_settings()
+ def do_play_pin(self,pin):self.play_answer(self.app.play_time.set_pin(str(pin or '').strip()),'PIN saved. Choose the daily limit now; it locks again in five minutes.')
+ def do_play_unlock(self,pin):self.play_answer(self.app.play_time.unlock(str(pin or '').strip()),'Unlocked for five minutes.')
+ def do_play_lock(self,_):self.app.play_time.lock();self.play_answer('','Locked.')
+ def do_play_limit(self,name):self.play_answer(self.app.play_time.set_limit(str(name)),f'Daily limit: {name}.' if name!='Off' else 'No daily limit.')
+ def do_play_more(self,minutes):
+  minutes=int(minutes) if str(minutes).isdigit() else 0
+  if minutes:self.play_answer(self.app.play_time.add(minutes*60),f'{minutes} more minutes today.' if minutes<600 else 'No limit for the rest of today.')
+ def do_play_forget(self,_):self.play_answer(self.app.play_time.forget_pin(),'The PIN and the daily limit are off.')
+ def do_settings_backup(self,url):
+  path=QUrl(str(url)).toLocalFile() if str(url).startswith('file:') else str(url)
+  if not path:return
+  try:count=settings_backup.write(path,self.core.config(),app_version.VERSION)
+  except OSError as error:self.say_line(f'The backup was not saved: {error.strerror or error}.','error');return
+  self.say_line(f'{count} settings saved in {Path(path).name}. Sign-ins and keys stay on this PC.','news')
+ def do_settings_restore(self,url):
+  path=QUrl(str(url)).toLocalFile() if str(url).startswith('file:') else str(url)
+  if not path:return
+  try:incoming=settings_backup.read(path)
+  except (OSError,ValueError) as error:self.say_line(f'Nothing was restored: {getattr(error,"strerror",None) or error}.','error');return
+  def go():
+   self.core.save_config(**settings_backup.restore(self.core.config(),incoming))
+   self.say_line('Settings restored. Close and open PlayBridge again to use all of them.','news',keep=True)
+  self.ask_first('Restore these settings?',f'The {len(incoming)} settings in {Path(path).name} replace this PC\'s. Sign-ins, stream keys and keys stay as they are. '
+   'Some take effect the next time PlayBridge opens.','Restore',go)
  def do_bug_report(self,_):
   """Report a problem: the new-issue page opens in the browser with the details in it, and they go to the clipboard too."""
   lines=self.app.report_details('qt')
@@ -2110,6 +2239,15 @@ class Shell(QObject):
  def do_update_auto(self,on):self.app.updates.set_automatic(on);self.core.save_config(update_auto=bool(on));self.refresh_settings()
  def do_update_install(self,value):
   if self.app.updates.status()['installable']:self.app.restart_after_update=True;self.close()
+ def do_update_back(self,value):
+  """Go back to the version the last update replaced: asked first, as it closes PlayBridge."""
+  previous=self.app.updates.status().get('previous')
+  if not previous:return
+  def go():
+   # Off first, in the saved preferences the older version reads, or it would update itself again at once.
+   self.app.updates.set_automatic(False);self.core.save_config(update_auto=False);self.app.go_back_on_close=True;self.close()
+  self.ask_first(f'Go back to PlayBridge {previous}?',f'PlayBridge closes, puts {previous} back in place of {updater.VERSION} and opens it again. '
+   'Update automatically turns off, so it stays; turn it on again in Settings › Updates for the newest version.','Go back',go)
  def do_update_page(self,value):QDesktopServices.openUrl(QUrl(self.app.updates.page or f'https://github.com/{updater.REPOSITORY}/releases/latest'))
  def do_cue(self,name):self.sounds.play(str(name))
 

@@ -21,8 +21,14 @@ a=Analysis([str(root/'app/playbridge.py')],pathex=[str(root/'app')],binaries=bin
  hiddenimports=hidden+['playbridge_ui','console_control','game_mode','scene','sound_board','pad_input','gdi_presenter','d3d11_presenter','graphics_card','audio_output','keep_awake','screen_rate','network_link','mic_mix','settings_look','payload_sender','live_broadcast','console_captures','frame_pacing','smooth_motion','in_between','video_convert','hang_watch','updater','app_version','sounddevice','_sounddevice','_cffi_backend']
   +(['qt_shell','qt_models','PySide6.QtCore','PySide6.QtGui','PySide6.QtQml','PySide6.QtQuick'] if qt else []),
  excludes=(['PySide6'] if not qt else ['PySide6.QtWidgets','PySide6.QtWebEngineCore','PySide6.Qt3DCore'])+['PyQt5','PyQt6','matplotlib','pandas','scipy','IPython','pytest',
- # Windows has AES-GCM of its own (secure_link uses CNG), so the cryptography package, only a fallback elsewhere, stays out.
- 'cryptography'],noarchive=False)
+ # Windows has AES-GCM of its own (secure_link uses CNG), so the cryptography package, only a fallback elsewhere, stays out. NumPy's
+ # Fortran wrapper builder is a build tool, and it alone brought charset_normalizer in.
+ 'cryptography','numpy.f2py','charset_normalizer'],noarchive=False)
+# Every third-party package the EXE takes in must have its notice in third-party-licenses (tools/bundle_check.py).
+sys.path.insert(0,str(root/'tools'))
+from bundle_check import unlisted
+missing=unlisted(list(a.pure)+list(a.binaries)+list(a.datas),root/'third-party-licenses'/'components.json')
+if missing:raise SystemExit('These packages would go into the EXE without a notice in third-party-licenses/components.json: '+', '.join(missing))
 # The ssl module must load the OpenSSL that came with this Python. A shell with another OpenSSL of the same file name early on its
 # PATH (Git Bash puts MSYS2's there) would otherwise have that one bundled, and every HTTPS request, update checks included, would
 # fail in the EXE.
